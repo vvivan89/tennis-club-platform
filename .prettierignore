@@ -8,3 +8,5 @@ test-results
 package-lock.json
 supabase/consolidated_migrations.sql
 .eslintrc.json
+*.md
+.github/*

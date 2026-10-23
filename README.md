@@ -83,4 +83,3 @@ npm run build
 - The `club-documents` bucket is private. The current storage policy permits authenticated members to read objects in that bucket and only admins to upload/update/delete them.
 - The registration function validates membership, opening/closing times, and capacity atomically. It is not yet wired to a registration UI or payment checkout.
 - Payment state must only be updated by a trusted server-side payment webhook after verifying the provider's signature.
-
