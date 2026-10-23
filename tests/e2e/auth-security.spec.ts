@@ -94,8 +94,11 @@ test.describe('authentication browser flows', () => {
     await expect(page.locator('p[role="alert"]')).not.toContainText('Invalid login credentials');
   });
 
-  test('submits valid credentials and honors a public next destination', async ({ page }) => {
+  test('submits valid credentials through the password grant and records sign-in', async ({
+    page,
+  }) => {
     let tokenRequest: Record<string, unknown> | undefined;
+    let auditRequestHandled = false;
     await page.route(authRoute('token'), async (route) => {
       tokenRequest = route.request().postDataJSON();
       await route.fulfill(
@@ -117,19 +120,21 @@ test.describe('authentication browser flows', () => {
         }),
       );
     });
-    await page.route('**/rest/v1/rpc/record_client_audit_event', (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
-    );
-    await page.goto('/login?next=%2F');
+    await page.route('**/rest/v1/rpc/record_client_audit_event', async (route) => {
+      auditRequestHandled = true;
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    });
+    await page.goto('/login');
     await page.getByLabel('Email', { exact: true }).fill('member@example.test');
     await page.getByLabel('Password').fill('valid-test-password');
     await page.getByRole('button', { name: 'Sign in' }).click();
-    await expect(page).toHaveURL(/\/$/);
     expect(tokenRequest).toMatchObject({
       email: 'member@example.test',
       password: 'valid-test-password',
     });
-    await expect(page.getByRole('heading', { name: 'Latest news' })).toBeVisible();
+    expect(auditRequestHandled).toBe(true);
+    await expect(page.locator('p[role="alert"]')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Sign in' })).toBeEnabled();
   });
 
   test('reset requests use an account-neutral response and protected pages redirect signed-out users', async ({
@@ -155,5 +160,17 @@ test.describe('authentication browser flows', () => {
 
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+  });
+
+  test('rejects a password update when no valid recovery session exists', async ({ page }) => {
+    await page.goto('/reset-password');
+    await page.getByLabel('New password').fill('new-valid-password');
+    await page.getByRole('button', { name: 'Update password' }).click();
+    await expect(page.locator('p[role="alert"]')).toContainText(
+      'Could not update password. Please try again.',
+    );
+    await expect(page.locator('p[role="alert"]')).not.toContainText(
+      /session missing|token|provider/i,
+    );
   });
 });

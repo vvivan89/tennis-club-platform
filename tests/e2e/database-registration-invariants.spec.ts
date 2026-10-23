@@ -204,8 +204,8 @@ test('serializes concurrent registrations at capacity and promotes waitlist on w
     expect(await readAudit('event.registration.withdrawn')).toHaveLength(2);
   } finally {
     if (eventId) {
-      await admin.from('audit_logs').delete().eq('event_id', eventId);
       await admin.from('events').delete().eq('id', eventId);
+      await admin.from('audit_logs').delete().eq('event_id', eventId);
     }
     for (const userId of createdUserIds) await admin.auth.admin.deleteUser(userId);
   }
