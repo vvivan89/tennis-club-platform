@@ -8,6 +8,8 @@ const json = (body: unknown, status = 200) => ({
 });
 
 test.describe('authentication browser flows', () => {
+  test.describe.configure({ mode: 'serial' });
+
   test('validates required signup fields and submits a pending account with supported ratings', async ({
     page,
   }) => {
@@ -120,14 +122,18 @@ test.describe('authentication browser flows', () => {
         }),
       );
     });
-    await page.route('**/rest/v1/rpc/record_client_audit_event', async (route) => {
+    await page.route('**/rest/v1/rpc/record_client_audit_event**', async (route) => {
       auditRequestHandled = true;
       await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
     });
     await page.goto('/login');
     await page.getByLabel('Email', { exact: true }).fill('member@example.test');
     await page.getByLabel('Password').fill('valid-test-password');
+    const auditResponse = page.waitForResponse((response) =>
+      new URL(response.url()).pathname.endsWith('/rest/v1/rpc/record_client_audit_event'),
+    );
     await page.getByRole('button', { name: 'Sign in' }).click();
+    await auditResponse;
     expect(tokenRequest).toMatchObject({
       email: 'member@example.test',
       password: 'valid-test-password',
