@@ -1,0 +1,191 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500;1,600&display=swap');
+@import './theme.css';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'DM Sans', sans-serif;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: 'Playfair Display', Georgia, serif;
+  }
+  a {
+    @apply outline-offset-4;
+  }
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+}
+
+@layer components {
+  .page-container {
+    @apply mx-auto w-full max-w-7xl px-5 sm:px-8 lg:px-12;
+  }
+  .eyebrow {
+    @apply mb-3 text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground;
+  }
+  .section-title {
+    @apply text-3xl font-medium tracking-tight sm:text-4xl;
+  }
+  .brand-mark {
+    @apply grid h-10 w-10 place-items-center rounded-full bg-primary font-serif text-xl text-primary-foreground;
+  }
+  .court-art {
+    background: var(--brand-court);
+  }
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+@keyframes tennis-flight {
+  0% {
+    transform: translate(0, 0) rotate(0deg) scale(1, 1);
+  }
+  14% {
+    transform: translate(8px, -17px) rotate(75deg) scale(1.02, 0.98);
+  }
+  28% {
+    transform: translate(18px, -23px) rotate(150deg) scale(1, 1);
+  }
+  43% {
+    transform: translate(30px, -9px) rotate(230deg) scale(0.96, 1.04);
+  }
+  50% {
+    transform: translate(34px, 0) rotate(270deg) scale(1.12, 0.84);
+  }
+  64% {
+    transform: translate(43px, -15px) rotate(340deg) scale(1, 1);
+  }
+  78% {
+    transform: translate(52px, -19px) rotate(420deg) scale(1.02, 0.98);
+  }
+  91% {
+    transform: translate(60px, -5px) rotate(500deg) scale(0.96, 1.04);
+  }
+  100% {
+    transform: translate(64px, 0) rotate(560deg) scale(1, 1);
+  }
+}
+.tennis-loader {
+  display: flex;
+  min-width: 190px;
+  flex-direction: column;
+  align-items: center;
+  gap: 13px;
+  color: hsl(var(--muted-foreground));
+  font-size: 13px;
+}
+.tennis-loader-track {
+  position: relative;
+  display: block;
+  width: 76px;
+  height: 36px;
+  border-bottom: 2px solid hsl(var(--border));
+}
+.tennis-loader-track::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -2px;
+  height: 1px;
+  background: repeating-linear-gradient(90deg, hsl(var(--border)) 0 5px, transparent 5px 9px);
+  opacity: 0.6;
+}
+.tennis-loader-ball {
+  position: absolute;
+  left: 0;
+  top: 14px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 25%, #f4ff9b 0, #c7e83d 42%, #9ab51d 100%);
+  box-shadow:
+    inset -2px -2px 0 rgb(0 0 0 / 15%),
+    0 3px 5px rgb(0 0 0 / 18%);
+  animation: tennis-flight 1.15s cubic-bezier(0.35, 0.02, 0.6, 1) infinite alternate;
+}
+.tennis-loader-ball::before,
+.tennis-loader-ball::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 4px;
+  width: 6px;
+  height: 12px;
+  border: 1.5px solid rgb(255 255 255 / 95%);
+  border-top-color: transparent;
+  border-bottom-color: transparent;
+  border-radius: 50%;
+}
+.tennis-loader-ball::after {
+  transform: rotate(90deg);
+}
+.tennis-loader-dots {
+  display: inline-block;
+  overflow: hidden;
+  width: 0;
+  vertical-align: bottom;
+  animation: tennis-dots 1.1s steps(4, end) infinite;
+}
+@keyframes tennis-dots {
+  to {
+    width: 1.2em;
+  }
+}
+.tennis-loader-compact {
+  min-width: 0;
+  flex-direction: row;
+  gap: 8px;
+}
+.tennis-loader-compact .tennis-loader-track {
+  width: 48px;
+  height: 24px;
+}
+.tennis-loader-compact .tennis-loader-ball {
+  top: 5px;
+  width: 14px;
+  height: 14px;
+  animation-name: tennis-flight-compact;
+}
+@keyframes tennis-flight-compact {
+  0% {
+    transform: translate(0, 0) rotate(0deg) scale(1);
+  }
+  25% {
+    transform: translate(10px, -7px) rotate(110deg) scale(1.02);
+  }
+  50% {
+    transform: translate(21px, 0) rotate(220deg) scale(0.9, 1.08);
+  }
+  75% {
+    transform: translate(31px, -6px) rotate(330deg) scale(1.02);
+  }
+  100% {
+    transform: translate(34px, 0) rotate(440deg) scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tennis-loader-ball,
+  .tennis-loader-dots {
+    animation: none;
+  }
+}
+details[open] .details-chevron {
+  transform: rotate(90deg);
+}

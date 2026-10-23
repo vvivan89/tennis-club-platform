@@ -1,0 +1,60 @@
+/*
+ * Port Coquitlam Tennis Club (PCTC) theme tokens.
+ * Edit these hexadecimal values to change colors throughout the application.
+ */
+:root {
+  --background: #f9f9f5;
+  --foreground: #192924;
+  --card: #ffffff;
+  --card-foreground: #192924;
+  --popover: #ffffff;
+  --popover-foreground: #192924;
+  --primary: #224e39;
+  --primary-foreground: #fcfcf8;
+  --secondary: #e9f0e0;
+  --secondary-foreground: #223f33;
+  --muted: #edf0eb;
+  --muted-foreground: #63746b;
+  --accent: #d2eb94;
+  --accent-foreground: #1a2e27;
+  --destructive: #dc2828;
+  --destructive-foreground: #fafafa;
+  --border: #dae0d7;
+  --input: #cfd7cb;
+  --ring: #327153;
+  --radius: 0.65rem;
+
+  /* Additional brand tokens for custom areas of the site. */
+  --brand-forest: #224e39;
+  --brand-court: #477657;
+  --brand-lime: #d2eb94;
+  --brand-cream: #f9f9f5;
+  --brand-sand: #e8daca;
+}
+
+.dark {
+  --background: #121c19;
+  --foreground: #f7f7f3;
+  --card: #182521;
+  --card-foreground: #f7f7f3;
+  --popover: #182521;
+  --popover-foreground: #f7f7f3;
+  --primary: #bdd879;
+  --primary-foreground: #162721;
+  --secondary: #2a3c35;
+  --secondary-foreground: #f3f3ed;
+  --muted: #27352f;
+  --muted-foreground: #a5b6ac;
+  --accent: #305040;
+  --accent-foreground: #f7f7f3;
+  --destructive: #962c2c;
+  --destructive-foreground: #fafafa;
+  --border: #384741;
+  --input: #384741;
+  --ring: #bdd879;
+  --brand-forest: #bdd879;
+  --brand-court: #6ea685;
+  --brand-lime: #bdd879;
+  --brand-cream: #121c19;
+  --brand-sand: #564839;
+}

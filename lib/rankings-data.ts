@@ -1,0 +1,214 @@
+import { createClient } from '@supabase/supabase-js';
+import type { RankingPlayer, SeasonSettings } from '@/lib/player-rankings';
+
+type ProfileRow = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  tennis_skill_level: string | null;
+  gender: 'male' | 'female' | null;
+  application_status: string;
+  role: string | null;
+};
+type ScoreRow = {
+  id: string;
+  event_id: string;
+  played_at: string | null;
+  player_one_registration_id: string;
+  player_two_registration_id: string;
+  player_three_registration_id: string | null;
+  player_four_registration_id: string | null;
+  player_one_score: number;
+  player_two_score: number;
+};
+type RegistrationRow = { id: string; user_id: string; event_id: string };
+type EventRow = { id: string; title: string; starts_at: string; ends_at: string | null };
+type MembershipRow = { id: string; user_id: string; status: string; payment_status: string | null };
+type PaymentRow = { membership_id: string | null; user_id: string | null; status: string };
+type FamilyRow = { id: string; paid_at: string | null };
+type FamilyMemberRow = { user_id: string; family_id: string; status: string };
+export type PlayerGame = {
+  id: string;
+  eventId: string;
+  eventTitle: string;
+  playedAt: string;
+  playerIds: string[];
+  sideOneIds: string[];
+  sideTwoIds: string[];
+  scoreOne: number;
+  scoreTwo: number;
+};
+export type RankingsData = {
+  players: RankingPlayer[];
+  eligibleUserIds: Set<string>;
+  games: PlayerGame[];
+  profileById: Map<string, string>;
+  events: EventRow[];
+  settings: SeasonSettings;
+};
+
+export async function getRankingsData(): Promise<RankingsData> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error('Server-side Supabase configuration is missing.');
+  const admin = createClient(url, key, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const [
+    { data: profiles },
+    { data: memberships },
+    { data: payments },
+    { data: families },
+    { data: familyMembers },
+    { data: settingsRow },
+    { data: scores },
+    { data: events },
+  ] = await Promise.all([
+    admin
+      .from('profiles')
+      .select('id,full_name,email,tennis_skill_level,gender,application_status,role')
+      .eq('application_status', 'approved'),
+    admin.from('memberships').select('id,user_id,status,payment_status'),
+    admin
+      .from('payments')
+      .select('membership_id,user_id,status')
+      .in('status', ['paid', 'recorded_manually']),
+    admin.from('membership_families').select('id,paid_at'),
+    admin
+      .from('membership_family_members')
+      .select('user_id,family_id,status')
+      .in('status', ['confirmed', 'removed_next_season']),
+    admin
+      .from('membership_plan_settings')
+      .select('season_start_month,season_start_day,season_end_month,season_end_day')
+      .eq('id', 1)
+      .maybeSingle(),
+    admin
+      .from('event_scores')
+      .select(
+        'id,event_id,played_at,player_one_registration_id,player_two_registration_id,player_three_registration_id,player_four_registration_id,player_one_score,player_two_score',
+      )
+      .order('played_at', { ascending: false }),
+    admin.from('events').select('id,title,starts_at,ends_at'),
+  ]);
+  const approved = (profiles ?? []) as ProfileRow[];
+  const membershipRows = (memberships ?? []) as MembershipRow[];
+  const paymentRows = (payments ?? []) as PaymentRow[];
+  const familyRows = (families ?? []) as FamilyRow[];
+  const familyMemberRows = (familyMembers ?? []) as FamilyMemberRow[];
+  const paidMembershipIds = new Set(paymentRows.map((x) => x.membership_id).filter(Boolean));
+  const paidUserIds = new Set<string>();
+  for (const m of membershipRows) {
+    if (
+      ['active', 'expired'].includes(m.status) &&
+      (m.payment_status === 'paid' || paidMembershipIds.has(m.id))
+    )
+      paidUserIds.add(m.user_id);
+  }
+  const paidFamilyIds = new Set(familyRows.filter((f) => Boolean(f.paid_at)).map((f) => f.id));
+  for (const fm of familyMemberRows) {
+    if (paidFamilyIds.has(fm.family_id)) paidUserIds.add(fm.user_id);
+  }
+  const scoreRows = (scores ?? []) as ScoreRow[];
+  const registrationIds = [
+    ...new Set(
+      scoreRows.flatMap(
+        (s) =>
+          [
+            s.player_one_registration_id,
+            s.player_two_registration_id,
+            s.player_three_registration_id,
+            s.player_four_registration_id,
+          ].filter(Boolean) as string[],
+      ),
+    ),
+  ];
+  const { data: registrations } = registrationIds.length
+    ? await admin.from('registrations').select('id,user_id,event_id').in('id', registrationIds)
+    : { data: [] as RegistrationRow[] };
+  const regById = new Map(((registrations ?? []) as RegistrationRow[]).map((r) => [r.id, r]));
+  const eventById = new Map(((events ?? []) as EventRow[]).map((e) => [e.id, e]));
+  const games: PlayerGame[] = scoreRows.flatMap((s) => {
+    const ev = eventById.get(s.event_id);
+    const playedAt = s.played_at || ev?.starts_at;
+    if (!playedAt || new Date(playedAt).getTime() > Date.now()) return [];
+    const doubles = Boolean(s.player_three_registration_id);
+    const sideOneReg = doubles
+      ? [s.player_one_registration_id, s.player_two_registration_id]
+      : [s.player_one_registration_id];
+    const sideTwoReg = doubles
+      ? [s.player_three_registration_id, s.player_four_registration_id]
+      : [s.player_two_registration_id];
+    const sideOneIds = sideOneReg
+      .filter((id): id is string => typeof id === 'string')
+      .map((id) => regById.get(id)?.user_id)
+      .filter((id): id is string => typeof id === 'string');
+    const sideTwoIds = sideTwoReg
+      .filter((id): id is string => typeof id === 'string')
+      .map((id) => regById.get(id)?.user_id)
+      .filter((id): id is string => typeof id === 'string');
+    if (!sideOneIds.length || !sideTwoIds.length) return [];
+    return [
+      {
+        id: s.id,
+        eventId: s.event_id,
+        eventTitle: ev?.title || 'Game',
+        playedAt,
+        playerIds: [...sideOneIds, ...sideTwoIds],
+        sideOneIds,
+        sideTwoIds,
+        scoreOne: Number(s.player_one_score) || 0,
+        scoreTwo: Number(s.player_two_score) || 0,
+      },
+    ];
+  });
+  const players: RankingPlayer[] = approved.map((p) => {
+    let gamesWon = 0,
+      gamesLost = 0,
+      setsWon = 0,
+      setsLost = 0,
+      gamesPlayed = 0;
+    for (const game of games) {
+      if (!game.playerIds.includes(p.id)) continue;
+      const onOne = game.sideOneIds.includes(p.id);
+      const won = onOne ? game.scoreOne : game.scoreTwo;
+      const lost = onOne ? game.scoreTwo : game.scoreOne;
+      gamesWon += won;
+      gamesLost += lost;
+      gamesPlayed++;
+      if (won > lost) setsWon++;
+      else if (won < lost) setsLost++;
+    }
+    const totalGames = gamesWon + gamesLost,
+      totalSets = setsWon + setsLost;
+    return {
+      id: p.id,
+      name: p.full_name?.trim() || p.email || 'Player',
+      gender: p.gender ?? null,
+      skillRating: p.tennis_skill_level ? Number(p.tennis_skill_level) : null,
+      gamesWon,
+      gamesLost,
+      setsWon,
+      setsLost,
+      gamesPercentage: totalGames ? (gamesWon / totalGames) * 100 : 0,
+      setsPercentage: totalSets ? (setsWon / totalSets) * 100 : 0,
+      gamesPlayed,
+    };
+  });
+  const profileById = new Map(
+    approved.map((p) => [p.id, p.full_name?.trim() || p.email || 'Player']),
+  );
+  return {
+    players,
+    eligibleUserIds: paidUserIds,
+    games,
+    profileById,
+    events: (events ?? []) as EventRow[],
+    settings: (settingsRow ?? {
+      season_start_month: 4,
+      season_start_day: 1,
+      season_end_month: 9,
+      season_end_day: 30,
+    }) as SeasonSettings,
+  };
+}

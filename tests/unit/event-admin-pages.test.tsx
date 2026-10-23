@@ -1,0 +1,119 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import React, { isValidElement, type ReactNode } from 'react';
+
+const mocks = vi.hoisted(() => ({
+  user: null as null | { id: string },
+  responses: {} as Record<string, unknown[]>,
+  redirect: vi.fn((destination: string) => {
+    throw new Error(`redirect:${destination}`);
+  }),
+  notFound: vi.fn(() => {
+    throw new Error('not-found');
+  }),
+}));
+vi.mock('next/navigation', () => ({ redirect: mocks.redirect, notFound: mocks.notFound }));
+vi.mock('@/lib/supabase-server', () => ({
+  createSupabaseServerClient: async () => ({
+    auth: { getUser: async () => ({ data: { user: mocks.user } }) },
+    from: (table: string) => {
+      const query = {
+        select: () => query,
+        eq: () => query,
+        in: () => query,
+        order: () => query,
+        maybeSingle: async () => ({
+          data: mocks.responses[`${table}.maybeSingle`]?.shift() ?? null,
+          error: null,
+        }),
+        then: (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) =>
+          Promise.resolve({
+            data: mocks.responses[`${table}.then`]?.shift() ?? [],
+            error: null,
+          }).then(resolve, reject),
+      };
+      return query;
+    },
+  }),
+}));
+vi.mock('@/components/admin-nav', () => ({ AdminNav: () => null }));
+vi.mock('@/components/site-footer', () => ({ SiteFooter: () => null }));
+vi.mock('@/components/event-management-form', () => ({
+  EventManagementForm: 'event-management-form',
+}));
+vi.mock('@/components/event-edit-management', () => ({
+  EventEditManagement: 'event-edit-management',
+}));
+
+import CreateEventPage from '@/app/admin/events/create/page';
+import EditEventPage from '@/app/admin/events/[slug]/edit/page';
+
+const club = { club_name: 'Club', short_name: 'C', social_links: [] };
+const event = {
+  id: 'event-1',
+  slug: 'spring-open',
+  title: 'Spring Open',
+  starts_at: '2027-06-01T12:00:00Z',
+  created_by: 'creator-1',
+  organizer_id: 'organizer-1',
+};
+function find(node: ReactNode, type: string): React.ReactElement<Record<string, unknown>> | null {
+  if (Array.isArray(node))
+    for (const child of node) {
+      const result = find(child, type);
+      if (result) return result;
+    }
+  if (!isValidElement(node)) return null;
+  if (node.type === type) return node as React.ReactElement<Record<string, unknown>>;
+  return find(node.props.children, type);
+}
+beforeEach(() => {
+  mocks.user = { id: 'admin-1' };
+  mocks.responses = {};
+  mocks.redirect.mockClear();
+  mocks.notFound.mockClear();
+});
+
+describe('admin event pages', () => {
+  it('requires sign-in and event-management role for create', async () => {
+    mocks.user = null;
+    await expect(CreateEventPage()).rejects.toThrow('redirect:/login?next=/admin/events/create');
+    mocks.user = { id: 'member-1' };
+    mocks.responses['profiles.maybeSingle'] = [{ role: 'member' }];
+    await expect(CreateEventPage()).rejects.toThrow('redirect:/member/dashboard');
+  });
+
+  it('passes current admin and organizer choices to the create form', async () => {
+    mocks.responses['profiles.maybeSingle'] = [
+      { role: 'admin', full_name: 'Alex', email: 'alex@example.com' },
+      club,
+    ];
+    mocks.responses['profiles.then'] = [
+      [
+        { id: 'admin-1', full_name: 'Alex', email: 'alex@example.com', role: 'admin' },
+        { id: 'organizer-1', full_name: 'Jordan', email: 'jordan@example.com', role: 'organizer' },
+      ],
+    ];
+    const page = await CreateEventPage();
+    const form = find(page, 'event-management-form');
+    expect(form?.props.currentUserId).toBe('admin-1');
+    expect(form?.props.showOrganizerField).toBe(true);
+    expect(form?.props.organizerOptions).toHaveLength(2);
+  });
+
+  it('restricts organizer edits to their assigned event and retains creator fallback', async () => {
+    mocks.user = { id: 'other-organizer' };
+    mocks.responses['profiles.maybeSingle'] = [{ role: 'organizer' }];
+    mocks.responses['events.maybeSingle'] = [event];
+    mocks.responses['club_settings.maybeSingle'] = [club];
+    await expect(EditEventPage({ params: { slug: 'spring-open' } })).rejects.toThrow(
+      'redirect:/admin/events',
+    );
+
+    mocks.user = { id: 'creator-1' };
+    mocks.responses['profiles.maybeSingle'] = [{ role: 'organizer' }];
+    mocks.responses['events.maybeSingle'] = [{ ...event, organizer_id: null }];
+    mocks.responses['club_settings.maybeSingle'] = [club];
+    const page = await EditEventPage({ params: { slug: 'spring-open' } });
+    expect(find(page, 'event-management-form')?.props.showOrganizerField).toBe(false);
+  });
+});

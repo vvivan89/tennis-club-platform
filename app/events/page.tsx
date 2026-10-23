@@ -1,0 +1,85 @@
+import Link from 'next/link';
+import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { SiteHeader } from '@/components/site-header';
+import { SiteFooter } from '@/components/site-footer';
+import { Button } from '@/components/ui/button';
+import { EventsBrowser } from '@/components/events-browser';
+export default async function EventsPage() {
+  const db = await createSupabaseServerClient();
+  const [
+    { data: club },
+    { data: events, error },
+    { data: counts },
+    {
+      data: { user },
+    },
+  ] = await Promise.all([
+    db
+      .from('club_settings')
+      .select('club_name,short_name,social_links,location_query')
+      .eq('id', 1)
+      .maybeSingle(),
+    db
+      .from('events')
+      .select(
+        'id,slug,title,description,starts_at,ends_at,registration_opens_at,registration_closes_at,capacity,price_cents,members_only,status,event_type,location',
+      )
+      .in('status', ['published', 'cancelled'])
+      .order('starts_at'),
+    db.from('event_public_counts').select('event_id,confirmed_count'),
+    db.auth.getUser(),
+  ]);
+  const now = Date.now();
+  const upcoming = (events ?? []).filter(
+    (e) => new Date(e.ends_at || e.starts_at).getTime() >= now,
+  );
+  const past = (events ?? []).filter((e) => new Date(e.ends_at || e.starts_at).getTime() < now);
+  let manager = false;
+  if (user) {
+    const { data: profile } = await db
+      .from('profiles')
+      .select('role,application_status')
+      .eq('id', user.id)
+      .maybeSingle();
+    manager =
+      profile?.application_status === 'approved' &&
+      ['admin', 'organizer'].includes(profile.role ?? '');
+  }
+  const clubName = club?.club_name || 'Port Coquitlam Tennis Club';
+  const shortName = club?.short_name || 'PCTC';
+  const socials = Array.isArray(club?.social_links) ? (club.social_links as { url: string }[]) : [];
+  return (
+    <main className="flex min-h-screen flex-col bg-background text-foreground">
+      <SiteHeader clubName={clubName} shortName={shortName} active="events" />
+      <div className="page-container flex-1 py-12 sm:py-16">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="eyebrow">On and off the court</p>
+            <h1 className="section-title">Club events</h1>
+            <p className="mt-4 max-w-2xl text-sm leading-7 text-muted-foreground">
+              Browse social sessions, events, and tournaments hosted by {clubName}.
+            </p>
+          </div>
+          {manager && (
+            <Button asChild>
+              <Link href="/admin/events/create">Create event</Link>
+            </Button>
+          )}
+        </div>
+        {error ? (
+          <p role="alert" className="mt-8 text-sm text-destructive">
+            Events could not be loaded. Please try again later.
+          </p>
+        ) : (
+          <EventsBrowser
+            events={upcoming}
+            pastEvents={past}
+            counts={counts ?? []}
+            defaultLocation={club?.location_query || 'Port Coquitlam, British Columbia'}
+          />
+        )}
+      </div>
+      <SiteFooter clubName={clubName} shortName={shortName} socialLinks={socials} />
+    </main>
+  );
+}

@@ -1,0 +1,10 @@
+node_modules
+.next
+out
+coverage
+playwright-report
+test-results
+*.tsbuildinfo
+package-lock.json
+supabase/consolidated_migrations.sql
+.eslintrc.json

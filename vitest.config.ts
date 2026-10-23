@@ -1,0 +1,24 @@
+import { defineConfig } from 'vitest/config';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = path.dirname(fileURLToPath(import.meta.url));
+
+export default defineConfig({
+  esbuild: { jsx: 'automatic' },
+  resolve: {
+    alias: { '@': root },
+  },
+  test: {
+    include: ['tests/unit/**/*.test.ts', 'tests/unit/**/*.test.tsx'],
+    environment: 'jsdom',
+    setupFiles: ['./tests/setup.ts'],
+    coverage: {
+      provider: 'v8',
+      all: true,
+      include: ['app/**/*.{ts,tsx}', 'components/**/*.{ts,tsx}', 'lib/**/*.{ts,tsx}'],
+      exclude: ['**/*.d.ts'],
+      reporter: ['text', 'html'],
+    },
+  },
+});
