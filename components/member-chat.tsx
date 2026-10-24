@@ -21,6 +21,8 @@ import {
 } from '@/lib/member-chat';
 import { ImagePlus, Loader2, MessageCircle, MoreVertical, Send, Smile } from 'lucide-react';
 
+type MemberNameRow = { id: string; full_name: string | null };
+
 type ChatMessage = {
   id: string;
   user_id: string;
@@ -157,12 +159,14 @@ export function MemberChat({ userId }: { userId: string }) {
     let active = true;
     void supabase.rpc('get_member_chat_member_names').then(({ data }) => {
       if (active) {
-        const members = (data ?? []).map((item) => ({
+        const members = ((data ?? []) as MemberNameRow[]).map((item: MemberNameRow) => ({
           id: item.id,
           full_name: item.full_name || 'Member',
         }));
         setMemberNames(members);
-        setMentionCandidates(members.filter((item) => item.id !== userId));
+        setMentionCandidates(
+          members.filter((item: { id: string; full_name: string }) => item.id !== userId),
+        );
       }
     });
     const channel = supabase

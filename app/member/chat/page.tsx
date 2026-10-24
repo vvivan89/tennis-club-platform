@@ -17,10 +17,17 @@ export default async function MemberChatPage() {
     .eq('id', user.id)
     .maybeSingle();
   if (profile?.application_status !== 'approved') redirect('/member/dashboard');
+  const { data: club } = await supabase
+    .from('club_settings')
+    .select('club_name,short_name')
+    .eq('id', 1)
+    .maybeSingle();
+  const clubName = club?.club_name || 'Port Coquitlam Tennis Club';
+  const shortName = club?.short_name || 'PCTC';
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
       <div className="shrink-0">
-        <SiteHeader />
+        <SiteHeader clubName={clubName} shortName={shortName} />
       </div>
       <div className="shrink-0">
         <MemberNav />
