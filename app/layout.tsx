@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './styles.css';
 import { SiteHeaderStateProvider } from '@/components/site-header-state';
+import { MemberChatNotifications } from '@/components/member-chat-notifications';
 
 export const metadata: Metadata = {
   title: 'Port Coquitlam Tennis Club (PCTC)',
@@ -11,7 +12,10 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en-CA">
       <body>
-        <SiteHeaderStateProvider>{children}</SiteHeaderStateProvider>
+        <SiteHeaderStateProvider>
+          {children}
+          <MemberChatNotifications />
+        </SiteHeaderStateProvider>
       </body>
     </html>
   );

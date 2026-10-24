@@ -136,7 +136,11 @@ describe('Member profile page', () => {
     );
 
     fireEvent.click(screen.getByLabelText('New event announcements'));
-    fireEvent.submit(forms[1]);
+    const emailPreferencesForm = screen
+      .getByRole('button', { name: 'Save email preferences' })
+      .closest('form');
+    expect(emailPreferencesForm).not.toBeNull();
+    fireEvent.submit(emailPreferencesForm!);
     await waitFor(() =>
       expect(mocks.updates.some((item) => item.values.email_new_events === false)).toBe(true),
     );

@@ -34,6 +34,10 @@ export default function ProfilePage() {
   const [avatarUrl, setAvatarUrl] = useState('');
   const [gender, setGender] = useState('');
   const [playingHand, setPlayingHand] = useState('');
+  const [chatNotificationPreference, setChatNotificationPreference] = useState<
+    'all' | 'mentions' | 'none'
+  >('all');
+  const [chatPreferencesBusy, setChatPreferencesBusy] = useState(false);
   const [emailPreferences, setEmailPreferences] = useState({
     registration: true,
     waitlist: true,
@@ -82,7 +86,7 @@ export default function ProfilePage() {
       const { data, error: queryError } = await supabase
         .from('profiles')
         .select(
-          'full_name,phone,date_of_birth,show_birthday_emoji,tennis_skill_level,avatar_url,application_status,gender,playing_hand,email_registration_updates,email_waitlist_updates,email_event_cancellations,email_registration_reminders,email_new_events,email_newsletter',
+          'full_name,phone,date_of_birth,show_birthday_emoji,tennis_skill_level,avatar_url,application_status,gender,playing_hand,email_registration_updates,email_waitlist_updates,email_event_cancellations,email_registration_reminders,email_new_events,email_newsletter,chat_notification_preference',
         )
         .eq('id', user.id)
         .maybeSingle();
@@ -104,6 +108,7 @@ export default function ProfilePage() {
         setAvatarUrl(data.avatar_url ?? '');
         setGender(data.gender ?? '');
         setPlayingHand(data.playing_hand ?? '');
+        setChatNotificationPreference(data.chat_notification_preference ?? 'all');
         setEmailPreferences({
           registration: data.email_registration_updates ?? true,
           waitlist: data.email_waitlist_updates ?? true,
@@ -196,6 +201,39 @@ export default function ProfilePage() {
       setError('Could not save email preferences. Please try again.');
     } finally {
       setPreferencesBusy(false);
+    }
+  }
+
+  async function saveChatNotificationPreference(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setChatPreferencesBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      const supabase = createSupabaseBrowserClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) throw new Error('Please sign in again.');
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({
+          chat_notification_preference: chatNotificationPreference,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', user.id);
+      if (updateError) throw updateError;
+      window.dispatchEvent(
+        new CustomEvent('pctc-chat-notification-preference-updated', {
+          detail: { preference: chatNotificationPreference },
+        }),
+      );
+      setMessage('Chat notification preferences saved.');
+    } catch (e) {
+      console.error('[Member profile] Chat notification preference update failed', e);
+      setError('Could not save chat notification preferences. Please try again.');
+    } finally {
+      setChatPreferencesBusy(false);
     }
   }
 
@@ -437,56 +475,96 @@ export default function ProfilePage() {
                   </form>
                 </CardContent>
               </Card>
-              <Card>
-                <CardHeader>
-                  <CardTitle>Email preferences</CardTitle>
-                  <CardDescription>
-                    Choose which routine club emails you want to receive. Important administrative
-                    announcements may still be sent.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <form onSubmit={saveEmailPreferences} className="space-y-5">
-                    <div className="space-y-4">
+              <div className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Email preferences</CardTitle>
+                    <CardDescription>
+                      Choose which routine club emails you want to receive. Important administrative
+                      announcements may still be sent.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <form onSubmit={saveEmailPreferences} className="space-y-5">
+                      <div className="space-y-4">
+                        {(
+                          [
+                            {
+                              key: 'registration',
+                              label: 'Registration and withdrawal confirmations',
+                            },
+                            { key: 'waitlist', label: 'Waitlist promotion confirmations' },
+                            { key: 'cancellations', label: 'Event cancellation notifications' },
+                            { key: 'reminders', label: 'Reminders when registration opens' },
+                            { key: 'newEvents', label: 'New event announcements' },
+                            { key: 'newsletter', label: 'Newsletter and club news' },
+                          ] as const
+                        ).map((item) => (
+                          <label key={item.key} className="flex items-start gap-3 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={emailPreferences[item.key]}
+                              onChange={(e) =>
+                                setEmailPreferences((old) => ({
+                                  ...old,
+                                  [item.key]: e.target.checked,
+                                }))
+                              }
+                              className="mt-0.5 h-4 w-4"
+                            />
+                            <span>{item.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <Button type="submit" disabled={preferencesBusy}>
+                        {preferencesBusy ? (
+                          <TennisLoader compact label="Saving" />
+                        ) : (
+                          'Save email preferences'
+                        )}
+                      </Button>
+                    </form>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Chat notifications</CardTitle>
+                    <CardDescription>
+                      Choose which new chat messages trigger an on-screen notification while you use
+                      the website.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <form onSubmit={saveChatNotificationPreference} className="space-y-4">
                       {(
                         [
-                          {
-                            key: 'registration',
-                            label: 'Registration and withdrawal confirmations',
-                          },
-                          { key: 'waitlist', label: 'Waitlist promotion confirmations' },
-                          { key: 'cancellations', label: 'Event cancellation notifications' },
-                          { key: 'reminders', label: 'Reminders when registration opens' },
-                          { key: 'newEvents', label: 'New event announcements' },
-                          { key: 'newsletter', label: 'Newsletter and club news' },
+                          { value: 'all', label: 'Show all' },
+                          { value: 'mentions', label: 'Show only when someone mentions you' },
+                          { value: 'none', label: "Don't show" },
                         ] as const
-                      ).map((item) => (
-                        <label key={item.key} className="flex items-start gap-3 text-sm">
+                      ).map((option) => (
+                        <label key={option.value} className="flex items-center gap-3 text-sm">
                           <input
-                            type="checkbox"
-                            checked={emailPreferences[item.key]}
-                            onChange={(e) =>
-                              setEmailPreferences((old) => ({
-                                ...old,
-                                [item.key]: e.target.checked,
-                              }))
-                            }
-                            className="mt-0.5 h-4 w-4"
+                            type="radio"
+                            name="chatNotificationPreference"
+                            value={option.value}
+                            checked={chatNotificationPreference === option.value}
+                            onChange={() => setChatNotificationPreference(option.value)}
                           />
-                          <span>{item.label}</span>
+                          <span>{option.label}</span>
                         </label>
                       ))}
-                    </div>
-                    <Button type="submit" disabled={preferencesBusy}>
-                      {preferencesBusy ? (
-                        <TennisLoader compact label="Saving" />
-                      ) : (
-                        'Save email preferences'
-                      )}
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
+                      <Button type="submit" disabled={chatPreferencesBusy}>
+                        {chatPreferencesBusy ? (
+                          <TennisLoader compact label="Saving" />
+                        ) : (
+                          'Save chat preferences'
+                        )}
+                      </Button>
+                    </form>
+                  </CardContent>
+                </Card>
+              </div>
             </div>
           )}
         </div>
