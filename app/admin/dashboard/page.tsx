@@ -44,7 +44,8 @@ export default async function AdminPage() {
       .order('created_at', { ascending: false }),
     supabase
       .from('payments')
-      .select('membership_id,status,paid_at,created_at')
+      .select('business_record_id,status,succeeded_at,created_at')
+      .eq('purpose', 'membership')
       .order('created_at', { ascending: false }),
     supabase
       .from('events')
@@ -60,11 +61,14 @@ export default async function AdminPage() {
   ]);
   const paymentByMembership = new Map<string, boolean>();
   for (const payment of payments ?? []) {
-    if (!payment.membership_id) continue;
-    const wasPaid = payment.status === 'paid' || payment.status === 'recorded_manually';
+    if (!payment.business_record_id) continue;
+    const wasPaid =
+      payment.status === 'succeeded' ||
+      payment.status === 'partially_refunded' ||
+      payment.status === 'refunded';
     paymentByMembership.set(
-      payment.membership_id,
-      (paymentByMembership.get(payment.membership_id) ?? false) || wasPaid,
+      payment.business_record_id,
+      (paymentByMembership.get(payment.business_record_id) ?? false) || wasPaid,
     );
   }
   const latestMembershipByUser = new Map<string, NonNullable<typeof memberships>[number]>();

@@ -3,12 +3,20 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
-import { LayoutDashboard, BarChart3, UsersRound, UserRound, MessageCircle } from 'lucide-react';
+import {
+  LayoutDashboard,
+  BarChart3,
+  UsersRound,
+  UserRound,
+  MessageCircle,
+  CreditCard,
+} from 'lucide-react';
 const links = [
   { href: '/member/dashboard', label: 'Dashboard', Icon: LayoutDashboard },
   { href: '/member/profile', label: 'Profile', Icon: UserRound },
   { href: '/member/results', label: 'Results', Icon: BarChart3 },
   { href: '/member/membership', label: 'Membership', Icon: UsersRound },
+  { href: '/member/payments', label: 'Payments', Icon: CreditCard },
   { href: '/member/chat', label: 'Chat', Icon: MessageCircle },
 ];
 export function MemberNav() {

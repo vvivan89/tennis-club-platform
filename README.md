@@ -83,3 +83,7 @@ npm run build
 - The `club-documents` bucket is private. The current storage policy permits authenticated members to read objects in that bucket and only admins to upload/update/delete them.
 - The registration function validates membership, opening/closing times, and capacity atomically. It is not yet wired to a registration UI or payment checkout.
 - Payment state must only be updated by a trusted server-side payment webhook after verifying the provider's signature.
+
+## Stripe payments (test mode)
+
+Copy `.env.example` to `.env.local` and configure `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY`. Configure the Stripe webhook to target `/api/webhooks/stripe` with payment-intent processing/succeeded/failed/canceled, `charge.refunded`, and `checkout.session.expired` events. Apply unapplied migrations in numeric order, including `0041_payment_fulfillment.sql`; do not run the consolidated SQL bundle against an existing database. See `docs/payments-foundation.md` for checkout and verification details. Start with Stripe test mode and test cards only.

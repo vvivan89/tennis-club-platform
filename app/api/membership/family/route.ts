@@ -25,6 +25,8 @@ type FamilyEntry = {
     status: string;
     joined_at: string | null;
     created_at: string;
+    waiver_version?: string | null;
+    waiver_accepted_at?: string | null;
   };
   family: FamilyRecord;
   members: {
@@ -33,6 +35,8 @@ type FamilyEntry = {
     status: string;
     invited_by: string | null;
     joined_at: string | null;
+    waiver_version?: string | null;
+    waiver_accepted_at?: string | null;
     profiles: {
       id: string;
       full_name: string | null;
@@ -48,13 +52,14 @@ type FamilyAgeMember = {
 };
 type PaymentRecord = {
   id: string;
-  membership_id: string;
-  amount_cents: number;
+  purpose: string;
+  business_record_id: string | null;
+  amount_minor: number;
+  currency: string;
   status: string;
-  provider: string | null;
-  paid_at: string | null;
   created_at: string;
-  notes: string | null;
+  succeeded_at: string | null;
+  refunded_amount_minor: number;
 };
 const esc = (s: string) =>
   s.replace(
@@ -91,7 +96,9 @@ export async function GET() {
     /* A missing profile should not render a dead-end error block. */ const { data: rows } =
       await db
         .from('membership_family_members')
-        .select('id,family_id,user_id,invited_by,status,joined_at,created_at')
+        .select(
+          'id,family_id,user_id,invited_by,status,joined_at,created_at,waiver_version,waiver_accepted_at',
+        )
         .or(`user_id.eq.${user.id},invited_by.eq.${user.id}`)
         .order('created_at', { ascending: false });
     const families: FamilyEntry[] = [];
@@ -102,14 +109,16 @@ export async function GET() {
           .select('id,season_year,paid_at,paid_by,payment_id')
           .in('id', familyIds)
       : { data: [] as FamilyRecord[] };
-    const familyById = new Map((familyRecords ?? []).map((f) => [f.id, f]));
+    const familyById = new Map<string, FamilyRecord>(
+      (familyRecords ?? []).map((f) => [f.id, f] as [string, FamilyRecord]),
+    );
     for (const row of rows ?? []) {
       const f = familyById.get(row.family_id);
       if (!f) continue;
       const { data: members } = await db
         .from('membership_family_members')
         .select(
-          'id,user_id,status,invited_by,joined_at,profiles:profiles!membership_family_members_user_id_fkey(id,full_name,email,date_of_birth)',
+          'id,user_id,status,invited_by,joined_at,waiver_version,waiver_accepted_at,profiles:profiles!membership_family_members_user_id_fkey(id,full_name,email,date_of_birth)',
         )
         .eq('family_id', row.family_id)
         .order('created_at', { ascending: true });
@@ -163,19 +172,32 @@ export async function GET() {
         }))
       : [];
     const membershipIds = (memberships ?? []).map((m) => m.id);
-    const { data: payments } = membershipIds.length
-      ? await db
-          .from('payments')
-          .select('id,membership_id,amount_cents,status,provider,paid_at,created_at,notes')
-          .in('membership_id', membershipIds)
-          .order('created_at', { ascending: false })
-      : { data: [] as PaymentRecord[] };
+    const [{ data: payments, error: paymentsError }, { data: currentWaiver }] = await Promise.all([
+      membershipIds.length
+        ? db
+            .from('payments')
+            .select(
+              'id,purpose,business_record_id,amount_minor,currency,status,created_at,succeeded_at,refunded_amount_minor',
+            )
+            .eq('purpose', 'membership')
+            .in('business_record_id', membershipIds.map(String))
+            .order('created_at', { ascending: false })
+        : Promise.resolve({ data: [] as PaymentRecord[], error: null }),
+      db
+        .from('legal_document_versions')
+        .select('version,title,body_html')
+        .eq('document_type', 'membership_waiver')
+        .eq('is_current', true)
+        .maybeSingle(),
+    ]);
+    if (paymentsError) throw new Error(`Could not load payment history: ${paymentsError.message}`);
     return NextResponse.json({
       families,
       people: people ?? [],
       settings: settings ?? null,
       memberships: memberships ?? [],
       payments: payments ?? [],
+      currentWaiver: currentWaiver ?? null,
     });
   } catch (e) {
     return NextResponse.json(
@@ -340,6 +362,30 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true });
     }
     if (action === 'confirm') {
+      if (b.waiverAccepted !== true)
+        return NextResponse.json(
+          { error: 'Accept the current membership waiver before joining a family membership.' },
+          { status: 400 },
+        );
+      const { data: currentWaiver } = await db
+        .from('legal_document_versions')
+        .select('version')
+        .eq('document_type', 'membership_waiver')
+        .eq('is_current', true)
+        .maybeSingle();
+      if (!currentWaiver)
+        return NextResponse.json(
+          { error: 'The current membership waiver is unavailable.' },
+          { status: 503 },
+        );
+      if (b.waiverVersion !== undefined && b.waiverVersion !== currentWaiver.version)
+        return NextResponse.json(
+          {
+            error:
+              'The membership waiver changed. Refresh the page and review the current version.',
+          },
+          { status: 409 },
+        );
       const id = String(b.invitationId || '');
       const { data: inv } = await db
         .from('membership_family_members')
@@ -394,15 +440,69 @@ export async function POST(req: Request) {
         );
       const { error } = await db
         .from('membership_family_members')
-        .update({ status: 'confirmed', joined_at: new Date().toISOString() })
+        .update({
+          status: 'confirmed',
+          joined_at: new Date().toISOString(),
+          waiver_version: String(currentWaiver.version),
+          waiver_accepted_at: new Date().toISOString(),
+        })
         .eq('id', id);
       if (error) throw error;
       return NextResponse.json({ success: true });
     }
+    if (action === 'accept_waiver') {
+      if (b.waiverAccepted !== true)
+        return NextResponse.json(
+          { error: 'Confirm that you accept the current membership waiver.' },
+          { status: 400 },
+        );
+      const { data: currentWaiver } = await db
+        .from('legal_document_versions')
+        .select('version')
+        .eq('document_type', 'membership_waiver')
+        .eq('is_current', true)
+        .maybeSingle();
+      if (!currentWaiver)
+        return NextResponse.json(
+          { error: 'The current membership waiver is unavailable.' },
+          { status: 503 },
+        );
+      if (b.waiverVersion !== undefined && b.waiverVersion !== currentWaiver.version)
+        return NextResponse.json(
+          {
+            error:
+              'The membership waiver changed. Refresh the page and review the current version.',
+          },
+          { status: 409 },
+        );
+      const familyId = String(b.familyId || '');
+      if (!familyId) return NextResponse.json({ error: 'Family ID is required.' }, { status: 400 });
+      const { data: ownFamilyMember, error: ownFamilyMemberError } = await db
+        .from('membership_family_members')
+        .update({
+          waiver_version: String(currentWaiver.version),
+          waiver_accepted_at: new Date().toISOString(),
+        })
+        .eq('family_id', familyId)
+        .eq('user_id', user.id)
+        .eq('status', 'confirmed')
+        .select('id')
+        .maybeSingle();
+      if (ownFamilyMemberError) throw ownFamilyMemberError;
+      if (!ownFamilyMember)
+        return NextResponse.json(
+          { error: 'No active family membership was found.' },
+          { status: 404 },
+        );
+      return NextResponse.json({ success: true });
+    }
     if (action === 'remove') {
+      const familyId = String(b.familyId || '');
+      if (!familyId) return NextResponse.json({ error: 'Family ID is required.' }, { status: 400 });
       const { data: membership } = await db
         .from('membership_family_members')
         .select('id,family_id,membership_families(paid_at,season_year)')
+        .eq('family_id', familyId)
         .eq('user_id', user.id)
         .eq('status', 'confirmed')
         .maybeSingle();

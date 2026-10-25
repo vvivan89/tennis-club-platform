@@ -338,6 +338,11 @@ describe('server-rendered data pages', () => {
   });
 
   it('uses legacy family membership and payment fallbacks for dashboard billing details', async () => {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), 4, 15);
+    const end = new Date(now.getFullYear(), 9, 1);
+    const seasonYear =
+      now < start ? now.getFullYear() : now > end ? now.getFullYear() + 1 : now.getFullYear();
     mocks.singles.profiles = {
       full_name: 'Alex Admin',
       role: 'admin',
@@ -345,9 +350,12 @@ describe('server-rendered data pages', () => {
       show_birthday_emoji: false,
     };
     mocks.singles.memberships = {
+      id: 'membership-1',
       membership_type: 'family_plus',
       payment_status: 'paid',
       created_at: '2026-01-01T00:00:00Z',
+      starts_on: `${seasonYear}-05-15`,
+      ends_on: `${seasonYear}-10-01`,
     };
     mocks.singles.membership_plan_settings = {
       single_price_cents: 12000,
@@ -357,7 +365,11 @@ describe('server-rendered data pages', () => {
       season_end_month: 10,
       season_end_day: 1,
     };
-    mocks.singles.payments = { paid_at: null, created_at: '2026-04-20T00:00:00Z' };
+    mocks.singles.payments = {
+      business_record_id: 'membership-1',
+      paid_at: null,
+      created_at: '2026-04-20T00:00:00Z',
+    };
 
     const { container } = render(await MemberDashboardPage());
     expect(screen.getByText('Admin')).toBeInTheDocument();

@@ -3487,3 +3487,888 @@ REVOKE ALL ON FUNCTION public.get_member_chat_member_avatars(uuid[]) FROM PUBLIC
 GRANT EXECUTE ON FUNCTION public.get_member_chat_member_avatars(uuid[]) TO authenticated;
 -- Chat remains excluded from audit logging.
 -- END MIGRATION: 0038_chat_member_avatars.sql
+-- BEGIN MIGRATION: 0039_payments_foundation.sql
+-- Payments Foundation. This migration upgrades the legacy PCTC payments table in place
+-- and is safe to rerun after a partial/manual application.
+
+-- PostgREST upserts use this named unique key. PostgreSQL permits multiple NULLs
+-- in a non-partial unique index, so legacy audit rows remain valid.
+DROP INDEX IF EXISTS public.audit_logs_idempotency_key_idx;
+CREATE UNIQUE INDEX audit_logs_idempotency_key_idx ON public.audit_logs (idempotency_key);
+
+-- Create the target shape when payments does not yet exist. On existing installations
+-- this is a no-op; the ALTER/normalization steps below upgrade the legacy table.
+CREATE TABLE IF NOT EXISTS public.payments (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+  purpose text,
+  business_record_id text,
+  amount_minor bigint,
+  currency text NOT NULL DEFAULT 'cad',
+  status text NOT NULL DEFAULT 'pending',
+  idempotency_key text,
+  stripe_customer_id text,
+  stripe_checkout_session_id text,
+  stripe_payment_intent_id text,
+  last_stripe_event_id text,
+  failure_code text,
+  failure_message text,
+  refunded_amount_minor bigint NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  succeeded_at timestamptz,
+  failed_at timestamptz,
+  canceled_at timestamptz
+);
+
+-- Add missing target columns to the pre-existing legacy payments table.
+ALTER TABLE public.payments
+  ADD COLUMN IF NOT EXISTS purpose text,
+  ADD COLUMN IF NOT EXISTS business_record_id text,
+  ADD COLUMN IF NOT EXISTS amount_minor bigint,
+  ADD COLUMN IF NOT EXISTS idempotency_key text,
+  ADD COLUMN IF NOT EXISTS stripe_customer_id text,
+  ADD COLUMN IF NOT EXISTS stripe_checkout_session_id text,
+  ADD COLUMN IF NOT EXISTS stripe_payment_intent_id text,
+  ADD COLUMN IF NOT EXISTS last_stripe_event_id text,
+  ADD COLUMN IF NOT EXISTS failure_code text,
+  ADD COLUMN IF NOT EXISTS failure_message text,
+  ADD COLUMN IF NOT EXISTS refunded_amount_minor bigint NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS succeeded_at timestamptz,
+  ADD COLUMN IF NOT EXISTS failed_at timestamptz,
+  ADD COLUMN IF NOT EXISTS canceled_at timestamptz,
+  ADD COLUMN IF NOT EXISTS legacy_status text;
+
+-- Remove legacy checks/triggers before translating old statuses and currencies.
+DROP TRIGGER IF EXISTS guard_payment_status_transition ON public.payments;
+ALTER TABLE public.payments
+  DROP CONSTRAINT IF EXISTS payments_status_check,
+  DROP CONSTRAINT IF EXISTS payments_currency_check,
+  DROP CONSTRAINT IF EXISTS payments_amount_minor_check,
+  DROP CONSTRAINT IF EXISTS payments_purpose_check,
+  DROP CONSTRAINT IF EXISTS payments_amount_check,
+  DROP CONSTRAINT IF EXISTS payments_idempotency_key_check,
+  DROP CONSTRAINT IF EXISTS payments_refunded_amount_check,
+  DROP CONSTRAINT IF EXISTS payments_refund_status_check,
+  DROP CONSTRAINT IF EXISTS payments_fully_refunded_check;
+
+-- Preserve legacy values and map old records to the new lifecycle/model.
+UPDATE public.payments
+SET legacy_status = COALESCE(legacy_status, status);
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM public.payments
+    WHERE amount_minor IS NULL AND amount_cents IS NULL
+  ) THEN
+    RAISE EXCEPTION 'Payments migration cannot infer amount_minor for an existing row';
+  END IF;
+END;
+$$;
+
+-- JSON row access keeps this upgrade compatible with both the legacy schema
+-- (membership_id/registration_id/amount_cents/paid_at) and an already-upgraded
+-- table where those legacy columns are no longer present.
+UPDATE public.payments AS p
+SET
+  purpose = COALESCE(
+    p.purpose,
+    CASE
+      WHEN to_jsonb(p)->>'membership_id' IS NOT NULL THEN 'membership'
+      WHEN to_jsonb(p)->>'registration_id' IS NOT NULL THEN 'event_registration'
+      ELSE 'other'
+    END
+  ),
+  business_record_id = COALESCE(
+    p.business_record_id,
+    to_jsonb(p)->>'membership_id',
+    to_jsonb(p)->>'registration_id'
+  ),
+  amount_minor = COALESCE(p.amount_minor, (to_jsonb(p)->>'amount_cents')::bigint),
+  currency = lower(p.currency),
+  idempotency_key = COALESCE(p.idempotency_key, 'legacy:' || p.id::text),
+  succeeded_at = CASE
+    WHEN p.status IN ('paid', 'recorded_manually') THEN
+      COALESCE(p.succeeded_at, (to_jsonb(p)->>'paid_at')::timestamptz)
+    ELSE p.succeeded_at
+  END,
+  status = CASE p.status
+    WHEN 'paid' THEN 'succeeded'
+    WHEN 'recorded_manually' THEN 'succeeded'
+    WHEN 'refunded' THEN 'refunded'
+    ELSE p.status
+  END;
+
+-- Legacy rows marked refunded predate the refund ledger; the old status implies
+-- a full refund, so normalize the aggregate amount accordingly.
+UPDATE public.payments
+SET refunded_amount_minor = amount_minor
+WHERE status = 'refunded'
+  AND refunded_amount_minor = 0
+  AND legacy_status = 'refunded';
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM public.payments
+    WHERE purpose NOT IN ('membership', 'event_registration', 'other')
+       OR amount_minor IS NULL OR amount_minor <= 0
+       OR currency !~ '^[a-z]{3}$'
+       OR idempotency_key IS NULL
+       OR length(idempotency_key) NOT BETWEEN 1 AND 200
+       OR status NOT IN ('pending', 'processing', 'succeeded', 'failed', 'canceled', 'partially_refunded', 'refunded')
+       OR refunded_amount_minor < 0 OR refunded_amount_minor > amount_minor
+       OR (status IN ('partially_refunded', 'refunded') AND refunded_amount_minor = 0)
+       OR (status = 'refunded' AND refunded_amount_minor <> amount_minor)
+  ) THEN
+    RAISE EXCEPTION 'Payments migration found a row that does not satisfy the Stripe payment model';
+  END IF;
+END;
+$$;
+
+ALTER TABLE public.payments
+  ALTER COLUMN purpose SET NOT NULL,
+  ALTER COLUMN amount_minor SET NOT NULL,
+  ALTER COLUMN idempotency_key SET NOT NULL;
+
+ALTER TABLE public.payments
+  ADD CONSTRAINT payments_purpose_check
+    CHECK (purpose IN ('membership', 'event_registration', 'other')),
+  ADD CONSTRAINT payments_amount_minor_check CHECK (amount_minor > 0),
+  ADD CONSTRAINT payments_currency_check CHECK (currency ~ '^[a-z]{3}$'),
+  ADD CONSTRAINT payments_status_check CHECK (status IN (
+    'pending', 'processing', 'succeeded', 'failed', 'canceled', 'partially_refunded', 'refunded'
+  )),
+  ADD CONSTRAINT payments_idempotency_key_check
+    CHECK (length(idempotency_key) BETWEEN 1 AND 200),
+  ADD CONSTRAINT payments_refunded_amount_check
+    CHECK (refunded_amount_minor >= 0 AND refunded_amount_minor <= amount_minor),
+  ADD CONSTRAINT payments_refund_status_check
+    CHECK (status NOT IN ('partially_refunded', 'refunded') OR refunded_amount_minor > 0),
+  ADD CONSTRAINT payments_fully_refunded_check
+    CHECK (status <> 'refunded' OR refunded_amount_minor = amount_minor);
+
+CREATE UNIQUE INDEX IF NOT EXISTS payments_idempotency_key_uidx ON public.payments(idempotency_key);
+CREATE UNIQUE INDEX IF NOT EXISTS payments_stripe_checkout_session_uidx
+  ON public.payments(stripe_checkout_session_id) WHERE stripe_checkout_session_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS payments_stripe_payment_intent_uidx
+  ON public.payments(stripe_payment_intent_id) WHERE stripe_payment_intent_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS payments_user_created_idx ON public.payments(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS payments_status_created_idx ON public.payments(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS payments_business_record_idx ON public.payments(purpose, business_record_id);
+
+ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users read own payments" ON public.payments;
+CREATE POLICY "Users read own payments" ON public.payments
+  FOR SELECT TO authenticated USING (user_id = (SELECT auth.uid()));
+REVOKE ALL ON public.payments FROM anon, authenticated;
+GRANT SELECT ON public.payments TO authenticated;
+GRANT ALL ON public.payments TO service_role;
+
+CREATE TABLE IF NOT EXISTS public.payment_refunds (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  payment_id uuid NOT NULL REFERENCES public.payments(id) ON DELETE RESTRICT,
+  stripe_refund_id text NOT NULL UNIQUE,
+  amount_minor bigint NOT NULL CHECK (amount_minor > 0),
+  currency text NOT NULL CHECK (currency ~ '^[a-z]{3}$'),
+  status text NOT NULL CHECK (status IN ('pending', 'requires_action', 'succeeded', 'failed', 'canceled', 'unknown')),
+  reason text,
+  last_stripe_event_id text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS payment_refunds_payment_idx ON public.payment_refunds(payment_id, created_at);
+ALTER TABLE public.payment_refunds ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users read own payment refunds" ON public.payment_refunds;
+CREATE POLICY "Users read own payment refunds" ON public.payment_refunds
+  FOR SELECT TO authenticated USING (
+    EXISTS (SELECT 1 FROM public.payments p WHERE p.id = payment_id AND p.user_id = (SELECT auth.uid()))
+  );
+REVOKE ALL ON public.payment_refunds FROM anon, authenticated;
+GRANT SELECT ON public.payment_refunds TO authenticated;
+GRANT ALL ON public.payment_refunds TO service_role;
+
+CREATE TABLE IF NOT EXISTS public.stripe_webhook_events (
+  stripe_event_id text PRIMARY KEY,
+  event_type text NOT NULL,
+  livemode boolean NOT NULL,
+  processing_status text NOT NULL DEFAULT 'processing' CHECK (processing_status IN ('processing', 'processed', 'failed')),
+  attempts integer NOT NULL DEFAULT 1 CHECK (attempts > 0),
+  received_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  processed_at timestamptz,
+  last_error text
+);
+CREATE INDEX IF NOT EXISTS stripe_webhook_events_status_idx ON public.stripe_webhook_events(processing_status, updated_at);
+ALTER TABLE public.stripe_webhook_events ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.stripe_webhook_events FROM PUBLIC, anon, authenticated;
+GRANT ALL ON public.stripe_webhook_events TO service_role;
+
+-- Atomic event claim: processed events cannot be claimed again. Failed events can
+-- be retried; stale in-flight claims can be reclaimed after five minutes.
+CREATE OR REPLACE FUNCTION public.claim_stripe_webhook_event(
+  p_event_id text, p_event_type text, p_livemode boolean
+) RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE v_claimed text;
+BEGIN
+  INSERT INTO public.stripe_webhook_events(stripe_event_id, event_type, livemode, processing_status, attempts)
+  VALUES (p_event_id, p_event_type, p_livemode, 'processing', 1)
+  ON CONFLICT (stripe_event_id) DO UPDATE SET
+    processing_status = 'processing',
+    attempts = public.stripe_webhook_events.attempts + 1,
+    updated_at = now(),
+    last_error = NULL
+  WHERE public.stripe_webhook_events.processing_status = 'failed'
+     OR (public.stripe_webhook_events.processing_status = 'processing'
+         AND public.stripe_webhook_events.updated_at < now() - interval '5 minutes')
+  RETURNING stripe_event_id INTO v_claimed;
+  RETURN v_claimed IS NOT NULL;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.claim_stripe_webhook_event(text, text, boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.claim_stripe_webhook_event(text, text, boolean) TO service_role;
+
+-- Enforce payment lifecycle transitions after legacy statuses have been normalized.
+CREATE OR REPLACE FUNCTION public.guard_payment_status_transition() RETURNS trigger
+LANGUAGE plpgsql SET search_path = '' AS $$
+BEGIN
+  IF NEW.status = OLD.status THEN RETURN NEW; END IF;
+  IF NOT (
+    (OLD.status = 'pending' AND NEW.status IN ('processing','succeeded','failed','canceled')) OR
+    (OLD.status = 'processing' AND NEW.status IN ('succeeded','failed','canceled')) OR
+    (OLD.status = 'failed' AND NEW.status IN ('pending','processing','succeeded','canceled')) OR
+    (OLD.status = 'succeeded' AND NEW.status IN ('partially_refunded','refunded')) OR
+    (OLD.status = 'partially_refunded' AND NEW.status = 'refunded')
+  ) THEN
+    RAISE EXCEPTION 'Invalid payment status transition: % -> %', OLD.status, NEW.status
+      USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS guard_payment_status_transition ON public.payments;
+CREATE TRIGGER guard_payment_status_transition BEFORE UPDATE OF status ON public.payments
+FOR EACH ROW EXECUTE FUNCTION public.guard_payment_status_transition();
+
+-- Refund records must use the payment's currency.
+CREATE OR REPLACE FUNCTION public.guard_payment_refund_currency() RETURNS trigger
+LANGUAGE plpgsql SET search_path = '' AS $$
+DECLARE v_currency text;
+BEGIN
+  SELECT currency INTO v_currency FROM public.payments WHERE id = NEW.payment_id;
+  IF v_currency IS NULL OR NEW.currency <> v_currency THEN
+    RAISE EXCEPTION 'Refund currency must match its payment' USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS guard_payment_refund_currency ON public.payment_refunds;
+CREATE TRIGGER guard_payment_refund_currency BEFORE INSERT OR UPDATE ON public.payment_refunds
+FOR EACH ROW EXECUTE FUNCTION public.guard_payment_refund_currency();
+-- END MIGRATION: 0039_payments_foundation.sql
+
+-- BEGIN MIGRATION: 0040_membership_payment_schema_compat.sql
+-- Reconcile membership eligibility helpers with the Stripe payments schema.
+-- The payments foundation stores the related business row in business_record_id
+-- and uses 'succeeded' instead of the legacy 'paid'/'recorded_manually' statuses.
+-- Keep memberships.payment_status and family-plan coverage as valid fallbacks.
+
+CREATE OR REPLACE FUNCTION public.is_paid_member()
+RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.memberships m
+    WHERE m.user_id = (SELECT auth.uid())
+      AND m.status = 'active'
+      AND (
+        m.payment_status = 'paid'
+        OR EXISTS (
+          SELECT 1
+          FROM public.payments p
+          WHERE p.purpose = 'membership'
+            AND p.business_record_id = m.id::text
+            AND p.status = 'succeeded'
+        )
+      )
+      AND (m.starts_on IS NULL OR m.starts_on <= current_date)
+      AND (m.ends_on IS NULL OR m.ends_on >= current_date)
+  );
+$$;
+-- Preserve the original public execute grant: public_club_contacts also calls this
+-- boolean helper for anonymous visitors, for whom auth.uid() is NULL.
+GRANT EXECUTE ON FUNCTION public.is_paid_member() TO PUBLIC;
+
+CREATE OR REPLACE FUNCTION public.has_ever_paid_membership(v_user uuid DEFAULT auth.uid())
+RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.profiles pr
+    JOIN public.memberships m ON m.user_id = pr.id
+    WHERE pr.id = v_user
+      AND pr.application_status = 'approved'
+      AND (
+        m.payment_status = 'paid'
+        OR EXISTS (
+          SELECT 1
+          FROM public.payments p
+          WHERE p.purpose = 'membership'
+            AND p.business_record_id = m.id::text
+            AND p.status = 'succeeded'
+        )
+      )
+  );
+$$;
+REVOKE ALL ON FUNCTION public.has_ever_paid_membership(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.has_ever_paid_membership(uuid) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.has_active_paid_membership(v_user uuid DEFAULT auth.uid())
+RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+  SELECT
+    EXISTS (
+      SELECT 1
+      FROM public.memberships m
+      WHERE m.user_id = v_user
+        AND m.status = 'active'
+        AND (m.ends_on IS NULL OR m.ends_on >= current_date)
+        AND (
+          m.payment_status = 'paid'
+          OR EXISTS (
+            SELECT 1
+            FROM public.payments p
+            WHERE p.purpose = 'membership'
+              AND p.business_record_id = m.id::text
+              AND p.status = 'succeeded'
+          )
+        )
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM public.membership_family_members fm
+      JOIN public.membership_families f ON f.id = fm.family_id
+      WHERE fm.user_id = v_user
+        AND fm.status IN ('confirmed', 'removed_next_season')
+        AND (f.paid_at IS NOT NULL OR f.payment_id IS NOT NULL)
+    );
+$$;
+REVOKE ALL ON FUNCTION public.has_active_paid_membership(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.has_active_paid_membership(uuid) TO authenticated;
+-- END MIGRATION: 0040_membership_payment_schema_compat.sql
+
+-- BEGIN MIGRATION: 0041_payment_fulfillment.sql
+-- Record waiver acceptance for each person covered by a family membership.
+ALTER TABLE public.membership_family_members
+  ADD COLUMN IF NOT EXISTS waiver_version text,
+  ADD COLUMN IF NOT EXISTS waiver_accepted_at timestamptz;
+
+-- Fulfill paid business records only after the Stripe webhook has marked the
+-- internal payment succeeded. This is idempotent and callable only by service_role.
+CREATE OR REPLACE FUNCTION public.fulfill_successful_payment(p_payment_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_payment public.payments%rowtype;
+  v_membership_id uuid;
+  v_registration_id uuid;
+  v_family_id uuid;
+  v_updated integer;
+BEGIN
+  SELECT * INTO v_payment
+  FROM public.payments
+  WHERE id = p_payment_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Payment record not found';
+  END IF;
+  IF v_payment.status <> 'succeeded' THEN
+    RAISE EXCEPTION 'Only succeeded payments can be fulfilled';
+  END IF;
+
+  IF v_payment.purpose = 'membership' THEN
+    IF v_payment.business_record_id LIKE 'family:%' THEN
+      IF substring(v_payment.business_record_id FROM 8) !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+        RAISE EXCEPTION 'Invalid family reference on payment';
+      END IF;
+      v_family_id := substring(v_payment.business_record_id FROM 8)::uuid;
+      UPDATE public.membership_families
+      SET paid_at = COALESCE(paid_at, now()),
+          paid_by = COALESCE(paid_by, v_payment.user_id),
+          payment_id = COALESCE(payment_id, v_payment.id)
+      WHERE id = v_family_id;
+      GET DIAGNOSTICS v_updated = ROW_COUNT;
+      IF v_updated = 1 THEN RETURN; END IF;
+    ELSIF v_payment.business_record_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+      v_membership_id := v_payment.business_record_id::uuid;
+      UPDATE public.memberships
+      SET status = 'active', payment_status = 'paid', updated_at = now()
+      WHERE id = v_membership_id AND user_id = v_payment.user_id;
+      GET DIAGNOSTICS v_updated = ROW_COUNT;
+      IF v_updated = 1 THEN RETURN; END IF;
+    END IF;
+    RAISE EXCEPTION 'Membership or family record was not found for payment';
+  ELSIF v_payment.purpose = 'event_registration' THEN
+    IF v_payment.business_record_id !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+      RAISE EXCEPTION 'Invalid registration reference on payment';
+    END IF;
+    v_registration_id := v_payment.business_record_id::uuid;
+    UPDATE public.registrations r
+    SET payment_status = 'paid',
+        payment_provider = 'stripe',
+        provider_reference = COALESCE(v_payment.stripe_payment_intent_id, v_payment.stripe_checkout_session_id),
+        updated_at = now()
+    FROM public.events e
+    WHERE r.id = v_registration_id
+      AND r.event_id = e.id
+      AND r.user_id = v_payment.user_id
+      AND r.status = 'confirmed'
+      AND r.amount_cents = v_payment.amount_minor
+      AND e.price_cents = v_payment.amount_minor
+      AND r.payment_status IN ('pending', 'failed', 'paid');
+    GET DIAGNOSTICS v_updated = ROW_COUNT;
+    IF v_updated = 1 THEN RETURN; END IF;
+    IF EXISTS (SELECT 1 FROM public.registrations WHERE id = v_registration_id AND user_id = v_payment.user_id AND payment_status = 'paid') THEN RETURN; END IF;
+    RAISE EXCEPTION 'Confirmed registration does not match the successful payment';
+  ELSE
+    RAISE EXCEPTION 'Unsupported payment purpose for fulfillment';
+  END IF;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.fulfill_successful_payment(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fulfill_successful_payment(uuid) TO service_role;
+
+-- Prevent concurrent checkout attempts from creating multiple active charges for
+-- the same membership/family or event registration. Failed/canceled attempts may retry.
+CREATE UNIQUE INDEX IF NOT EXISTS payments_one_active_business_payment_uidx
+  ON public.payments(purpose, business_record_id)
+  WHERE business_record_id IS NOT NULL
+    AND status IN ('pending', 'processing', 'succeeded', 'partially_refunded', 'refunded');
+
+-- Safe no-argument wrapper for a view that is also readable by anon. It only
+-- evaluates the caller's own membership and does not expose arbitrary user IDs.
+CREATE OR REPLACE FUNCTION public.current_user_has_active_paid_membership()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT public.has_active_paid_membership((SELECT auth.uid()));
+$$;
+REVOKE ALL ON FUNCTION public.current_user_has_active_paid_membership() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.current_user_has_active_paid_membership() TO anon, authenticated;
+
+-- Rebuild views and policies that were originally written against the legacy payment foreign key. These use the canonical eligibility helper.
+CREATE OR REPLACE VIEW public.event_roster AS
+SELECT r.id AS registration_id, r.event_id, r.user_id, r.status, r.queue_position,
+       r.created_at AS registered_at, p.full_name, p.avatar_url, p.tennis_skill_level
+FROM public.registrations r
+JOIN public.profiles p ON p.id = r.user_id
+JOIN public.events e ON e.id = r.event_id
+WHERE (e.status = 'published' OR public.is_event_manager())
+  AND r.status IN ('confirmed', 'waitlisted')
+  AND (
+    public.is_event_manager()
+    OR (
+      (SELECT auth.uid()) IS NOT NULL
+      AND EXISTS (SELECT 1 FROM public.profiles me WHERE me.id = (SELECT auth.uid()) AND me.application_status = 'approved')
+      AND EXISTS (SELECT 1 FROM public.registrations own WHERE own.event_id = e.id AND own.user_id = (SELECT auth.uid()) AND own.status IN ('confirmed', 'waitlisted'))
+      AND public.current_user_has_active_paid_membership()
+    )
+  );
+GRANT SELECT ON public.event_roster TO anon, authenticated;
+
+CREATE OR REPLACE VIEW public.event_scoreboard AS
+SELECT s.id, s.event_id, s.player_one_registration_id, s.player_two_registration_id,
+       s.player_one_score, s.player_two_score, s.played_at,
+       p1.full_name AS player_one_name, p2.full_name AS player_two_name,
+       s.player_three_registration_id, s.player_four_registration_id,
+       p3.full_name AS player_three_name, p4.full_name AS player_four_name, s.entered_by
+FROM public.event_scores s
+JOIN public.registrations r1 ON r1.id = s.player_one_registration_id
+JOIN public.profiles p1 ON p1.id = r1.user_id
+JOIN public.registrations r2 ON r2.id = s.player_two_registration_id
+JOIN public.profiles p2 ON p2.id = r2.user_id
+LEFT JOIN public.registrations r3 ON r3.id = s.player_three_registration_id
+LEFT JOIN public.profiles p3 ON p3.id = r3.user_id
+LEFT JOIN public.registrations r4 ON r4.id = s.player_four_registration_id
+LEFT JOIN public.profiles p4 ON p4.id = r4.user_id
+JOIN public.events e ON e.id = s.event_id
+WHERE e.event_type <> 'tournament'
+  AND (e.status = 'published' OR public.is_event_manager())
+  AND (
+    public.is_event_manager()
+    OR (
+      (SELECT auth.uid()) IS NOT NULL
+      AND EXISTS (SELECT 1 FROM public.profiles me WHERE me.id = (SELECT auth.uid()) AND me.application_status = 'approved')
+      AND EXISTS (SELECT 1 FROM public.registrations own WHERE own.event_id = e.id AND own.user_id = (SELECT auth.uid()) AND own.status IN ('confirmed', 'waitlisted'))
+      AND public.current_user_has_active_paid_membership()
+    )
+  );
+GRANT SELECT ON public.event_scoreboard TO authenticated;
+REVOKE SELECT ON public.event_scoreboard FROM anon;
+
+DROP POLICY IF EXISTS "Event participants read court assignments" ON public.event_court_assignments;
+CREATE POLICY "Event participants read court assignments" ON public.event_court_assignments
+FOR SELECT TO authenticated USING (
+  public.is_event_manager()
+  OR (
+    EXISTS (SELECT 1 FROM public.registrations own WHERE own.event_id = event_court_assignments.event_id AND own.user_id = (SELECT auth.uid()) AND own.status IN ('confirmed', 'waitlisted'))
+    AND public.current_user_has_active_paid_membership()
+  )
+);
+
+DROP POLICY IF EXISTS "Published event scores readable" ON public.event_scores;
+CREATE POLICY "Published event scores readable" ON public.event_scores
+FOR SELECT TO authenticated USING (
+  public.is_event_manager()
+  OR (
+    EXISTS (SELECT 1 FROM public.registrations own WHERE own.event_id = event_scores.event_id AND own.user_id = (SELECT auth.uid()) AND own.status IN ('confirmed', 'waitlisted'))
+    AND public.current_user_has_active_paid_membership()
+  )
+);
+
+CREATE OR REPLACE FUNCTION public.replace_event_participant(p_event_id uuid, p_old_user_id uuid, p_new_user_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  old_reg uuid;
+  v_event public.events%rowtype;
+  v_new_profile public.profiles%rowtype;
+BEGIN
+  IF NOT public.is_event_manager() THEN RAISE EXCEPTION 'Only event managers can replace participants.'; END IF;
+  IF p_old_user_id IS NULL OR p_new_user_id IS NULL OR p_old_user_id = p_new_user_id THEN RAISE EXCEPTION 'Choose two different members.'; END IF;
+  SELECT * INTO v_event FROM public.events WHERE id = p_event_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Event not found.'; END IF;
+  SELECT id INTO old_reg FROM public.registrations
+    WHERE event_id = p_event_id AND user_id = p_old_user_id AND status IN ('confirmed', 'waitlisted')
+    LIMIT 1 FOR UPDATE;
+  IF old_reg IS NULL THEN RAISE EXCEPTION 'The player being replaced is not registered for this event.'; END IF;
+  IF EXISTS (SELECT 1 FROM public.registrations WHERE event_id = p_event_id AND user_id = p_new_user_id) THEN
+    RAISE EXCEPTION 'The selected member has a previous registration for this event. Choose a member who has never registered for this session.';
+  END IF;
+  SELECT * INTO v_new_profile FROM public.profiles WHERE id = p_new_user_id;
+  IF NOT FOUND OR v_new_profile.application_status IS DISTINCT FROM 'approved' THEN RAISE EXCEPTION 'The replacement must be an approved member.'; END IF;
+  IF v_event.members_only AND NOT public.has_active_paid_membership(p_new_user_id) THEN
+    RAISE EXCEPTION 'The replacement must have an active, paid membership for this members-only event.';
+  END IF;
+  UPDATE public.registrations SET user_id = p_new_user_id, updated_at = now() WHERE id = old_reg;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.replace_event_participant(uuid, uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.replace_event_participant(uuid, uuid, uuid) TO authenticated;
+
+-- Resolve the club's current season consistently for individual and family eligibility.
+CREATE OR REPLACE FUNCTION public.current_membership_season_year()
+RETURNS integer
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  WITH settings AS (
+    SELECT
+      COALESCE((SELECT season_start_month FROM public.membership_plan_settings WHERE id = 1), 4) AS start_month,
+      COALESCE((SELECT season_start_day FROM public.membership_plan_settings WHERE id = 1), 1) AS start_day,
+      COALESCE((SELECT season_end_month FROM public.membership_plan_settings WHERE id = 1), 9) AS end_month,
+      COALESCE((SELECT season_end_day FROM public.membership_plan_settings WHERE id = 1), 30) AS end_day,
+      EXTRACT(YEAR FROM current_date)::integer AS year,
+      EXTRACT(MONTH FROM current_date)::integer * 100 + EXTRACT(DAY FROM current_date)::integer AS today_key
+  )
+  SELECT CASE
+    WHEN today_key < start_month * 100 + start_day THEN year
+    WHEN today_key > end_month * 100 + end_day THEN year + 1
+    ELSE year
+  END
+  FROM settings;
+$$;
+REVOKE ALL ON FUNCTION public.current_membership_season_year() FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.is_paid_member()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT
+    EXISTS (
+      SELECT 1
+      FROM public.memberships m
+      WHERE m.user_id = (SELECT auth.uid())
+        AND m.status = 'active'
+        AND (m.payment_status = 'paid' OR EXISTS (
+          SELECT 1 FROM public.payments p
+          WHERE p.purpose = 'membership'
+            AND p.business_record_id = m.id::text
+            AND p.status IN ('succeeded', 'partially_refunded', 'refunded')
+        ))
+        AND (m.starts_on IS NULL OR m.starts_on <= current_date)
+        AND (m.ends_on IS NULL OR m.ends_on >= current_date)
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM public.membership_family_members fm
+      JOIN public.membership_families f ON f.id = fm.family_id
+      WHERE fm.user_id = (SELECT auth.uid())
+        AND fm.status IN ('confirmed', 'removed_next_season')
+        AND f.season_year = public.current_membership_season_year()
+        AND (f.paid_at IS NOT NULL OR f.payment_id IS NOT NULL)
+    );
+$$;
+GRANT EXECUTE ON FUNCTION public.is_paid_member() TO PUBLIC;
+
+CREATE OR REPLACE FUNCTION public.has_ever_paid_membership(v_user uuid DEFAULT auth.uid())
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.profiles pr
+    WHERE pr.id = v_user
+      AND pr.application_status = 'approved'
+      AND (
+        EXISTS (
+          SELECT 1 FROM public.memberships m
+          WHERE m.user_id = pr.id
+            AND (m.payment_status = 'paid' OR EXISTS (
+              SELECT 1 FROM public.payments p
+              WHERE p.purpose = 'membership'
+                AND p.business_record_id = m.id::text
+                AND p.status IN ('succeeded', 'partially_refunded', 'refunded')
+            ))
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM public.membership_family_members fm
+          JOIN public.membership_families f ON f.id = fm.family_id
+          WHERE fm.user_id = pr.id
+            AND (f.paid_at IS NOT NULL OR f.payment_id IS NOT NULL)
+        )
+      )
+  );
+$$;
+REVOKE ALL ON FUNCTION public.has_ever_paid_membership(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.has_ever_paid_membership(uuid) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.has_active_paid_membership(v_user uuid DEFAULT auth.uid())
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT
+    EXISTS (
+      SELECT 1
+      FROM public.memberships m
+      WHERE m.user_id = v_user
+        AND m.status = 'active'
+        AND (m.starts_on IS NULL OR m.starts_on <= current_date)
+        AND (m.ends_on IS NULL OR m.ends_on >= current_date)
+        AND (m.payment_status = 'paid' OR EXISTS (
+          SELECT 1 FROM public.payments p
+          WHERE p.purpose = 'membership'
+            AND p.business_record_id = m.id::text
+            AND p.status IN ('succeeded', 'partially_refunded', 'refunded')
+        ))
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM public.membership_family_members fm
+      JOIN public.membership_families f ON f.id = fm.family_id
+      WHERE fm.user_id = v_user
+        AND fm.status IN ('confirmed', 'removed_next_season')
+        AND f.season_year = public.current_membership_season_year()
+        AND (f.paid_at IS NOT NULL OR f.payment_id IS NOT NULL)
+    );
+$$;
+REVOKE ALL ON FUNCTION public.has_active_paid_membership(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.has_active_paid_membership(uuid) TO authenticated;
+
+-- END MIGRATION: 0041_payment_fulfillment.sql
+
+-- BEGIN MIGRATION: 0042_payment_ui_and_webhook_reconciliation.sql
+-- Expose payment state on the event roster so unpaid reservations are displayed as pending.
+-- Keep the existing roster visibility rules unchanged.
+CREATE OR REPLACE VIEW public.event_roster AS
+SELECT
+  r.id AS registration_id,
+  r.event_id,
+  r.user_id,
+  r.status,
+  r.queue_position,
+  r.created_at AS registered_at,
+  p.full_name,
+  p.avatar_url,
+  p.tennis_skill_level,
+  r.payment_status
+FROM public.registrations r
+JOIN public.profiles p ON p.id = r.user_id
+JOIN public.events e ON e.id = r.event_id
+WHERE (e.status = 'published' OR public.is_event_manager())
+  AND r.status IN ('confirmed', 'waitlisted')
+  AND (
+    public.is_event_manager()
+    OR (
+      (SELECT auth.uid()) IS NOT NULL
+      AND EXISTS (
+        SELECT 1
+        FROM public.profiles me
+        WHERE me.id = (SELECT auth.uid())
+          AND me.application_status = 'approved'
+      )
+      AND EXISTS (
+        SELECT 1
+        FROM public.registrations own
+        WHERE own.event_id = e.id
+          AND own.user_id = (SELECT auth.uid())
+          AND own.status IN ('confirmed', 'waitlisted')
+      )
+      AND public.current_user_has_active_paid_membership()
+    )
+  );
+GRANT SELECT ON public.event_roster TO anon, authenticated;
+-- END MIGRATION: 0042_payment_ui_and_webhook_reconciliation.sql
+
+
+-- BEGIN MIGRATION: 0043_payment_proceeds_and_reuse.sql
+-- Payment history proceeds and safe reuse of non-refunded tournament payments.
+ALTER TABLE public.payments
+  ADD COLUMN IF NOT EXISTS stripe_fee_minor bigint,
+  ADD COLUMN IF NOT EXISTS proceeds_minor bigint;
+
+COMMENT ON COLUMN public.payments.stripe_fee_minor IS 'Stripe processing fee from the charge balance transaction, in minor currency units.';
+COMMENT ON COLUMN public.payments.proceeds_minor IS 'Net proceeds from the charge balance transaction, in minor currency units.';
+
+CREATE OR REPLACE FUNCTION public.register_for_event(p_event_id uuid, p_idempotency_key text DEFAULT NULL)
+RETURNS TABLE(registration_id uuid, registration_state public.registration_status, position_in_waitlist bigint)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE
+  v_user uuid := auth.uid();
+  v_event public.events%rowtype;
+  v_profile public.profiles%rowtype;
+  v_count integer;
+  v_status public.registration_status;
+  v_queue bigint;
+  v_id uuid;
+  v_prior_payment public.payments%rowtype;
+BEGIN
+  IF v_user IS NULL THEN RAISE EXCEPTION 'Sign in is required'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = v_user AND p.application_status = 'approved') THEN
+    RAISE EXCEPTION 'Your registration is pending administrator approval.';
+  END IF;
+  SELECT * INTO v_event FROM public.events WHERE id = p_event_id FOR UPDATE;
+  IF NOT FOUND OR v_event.status <> 'published' THEN RAISE EXCEPTION 'Event is unavailable'; END IF;
+  IF (v_event.starts_at AT TIME ZONE 'America/Vancouver') <= (now() AT TIME ZONE 'America/Vancouver') THEN
+    RAISE EXCEPTION 'Registration is unavailable for events that have already started';
+  END IF;
+  IF now() < v_event.registration_opens_at THEN RAISE EXCEPTION 'Registration has not opened'; END IF;
+  IF v_event.registration_closes_at IS NOT NULL AND now() >= v_event.registration_closes_at THEN RAISE EXCEPTION 'Registration is closed'; END IF;
+  IF EXISTS (SELECT 1 FROM public.member_suspensions s WHERE s.user_id = v_user AND (v_event.starts_at AT TIME ZONE 'America/Vancouver')::date BETWEEN s.starts_on AND s.ends_on AND s.cancelled_at IS NULL) THEN
+    RAISE EXCEPTION 'Your account is suspended for the event date and cannot register.';
+  END IF;
+  IF v_event.members_only AND NOT public.has_active_paid_membership(v_user) THEN RAISE EXCEPTION 'An active, paid membership is required'; END IF;
+  IF EXISTS (SELECT 1 FROM public.registrations r WHERE r.event_id = p_event_id AND r.user_id = v_user AND r.status <> 'cancelled') THEN
+    RAISE EXCEPTION 'You are already registered or waitlisted';
+  END IF;
+  SELECT count(*) INTO v_count FROM public.registrations r WHERE r.event_id = p_event_id AND r.status = 'confirmed';
+  IF v_count < v_event.capacity THEN v_status := 'confirmed'; v_queue := NULL;
+  ELSE
+    IF NOT v_event.waitlist_enabled THEN RAISE EXCEPTION 'Event is full and waitlist is disabled'; END IF;
+    SELECT coalesce(max(r.queue_position), 0) + 1 INTO v_queue FROM public.registrations r WHERE r.event_id = p_event_id AND r.status = 'waitlisted';
+    v_status := 'waitlisted';
+  END IF;
+  -- Reuse a prior successful, never-refunded payment when the same member
+  -- withdraws and later registers for this same event at the same price.
+  -- A waitlisted registration is not marked paid until it has a confirmed place.
+  IF v_event.price_cents > 0 AND v_status = 'confirmed' THEN
+    SELECT p.* INTO v_prior_payment
+    FROM public.payments p
+    JOIN public.registrations previous_registration
+      ON previous_registration.id::text = p.business_record_id
+    WHERE p.user_id = v_user
+      AND p.purpose = 'event_registration'
+      AND p.status = 'succeeded'
+      AND COALESCE(p.refunded_amount_minor, 0) = 0
+      AND p.amount_minor = v_event.price_cents
+      AND previous_registration.event_id = p_event_id
+      AND previous_registration.user_id = v_user
+      AND previous_registration.status = 'cancelled'
+    ORDER BY p.succeeded_at DESC NULLS LAST, p.created_at DESC
+    LIMIT 1;
+  END IF;
+  SELECT * INTO v_profile FROM public.profiles WHERE id = v_user;
+  PERFORM set_config('app.audit_suppressed', 'true', true);
+  INSERT INTO public.registrations(
+    event_id, user_id, status, queue_position, amount_cents, payment_status,
+    payment_provider, provider_reference
+  )
+  VALUES (
+    p_event_id, v_user, v_status, v_queue, v_event.price_cents,
+    CASE WHEN v_event.price_cents = 0 THEN 'not_required'
+         WHEN v_status = 'confirmed' AND v_prior_payment.id IS NOT NULL THEN 'paid'
+         ELSE 'pending' END,
+    CASE WHEN v_status = 'confirmed' AND v_prior_payment.id IS NOT NULL THEN 'stripe' ELSE NULL END,
+    CASE WHEN v_status = 'confirmed' AND v_prior_payment.id IS NOT NULL
+         THEN COALESCE(v_prior_payment.stripe_payment_intent_id, v_prior_payment.stripe_checkout_session_id)
+         ELSE NULL END
+  )
+  RETURNING id INTO v_id;
+  PERFORM set_config('app.audit_suppressed', 'false', true);
+  PERFORM public.record_business_audit_event(
+    'event.registration.created', 'Added ' || coalesce(v_profile.full_name, 'a player') || ' to ' || v_event.title,
+    'registrations', v_id::text, p_event_id,
+    jsonb_build_object('entities', jsonb_build_array(jsonb_build_object(
+      'type', 'registration', 'change', 'added', 'player_id', v_user, 'player_name', coalesce(v_profile.full_name, 'Player ' || v_user::text),
+      'registration_id', v_id, 'event_id', p_event_id, 'event_name', v_event.title,
+      'old_status', NULL, 'new_status', v_status, 'new_queue_position', v_queue
+    )), 'operation', 'added'),
+    jsonb_build_object('registration_id', v_id, 'event_id', p_event_id, 'event_name', v_event.title,
+      'player_id', v_user, 'player_name', coalesce(v_profile.full_name, 'Player ' || v_user::text),
+      'new_status', v_status, 'queue_position', v_queue),
+    NULL, 'rpc', p_idempotency_key
+  );
+  RETURN QUERY SELECT v_id, v_status, v_queue;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.register_for_event(uuid, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.register_for_event(uuid, text) TO authenticated;
+-- END MIGRATION: 0043_payment_proceeds_and_reuse.sql
+
+
+-- BEGIN MIGRATION: 0044_unpaid_event_registration_reminders.sql
+-- Track payment reminders per registration so withdrawn/re-registered members
+-- can receive reminders for the new registration without duplicating old sends.
+CREATE TABLE IF NOT EXISTS public.event_registration_payment_reminders (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  registration_id uuid NOT NULL REFERENCES public.registrations(id) ON DELETE CASCADE,
+  event_id uuid NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  reminder_type text NOT NULL CHECK (reminder_type IN ('24h', '1h')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  sent_at timestamptz,
+  UNIQUE (registration_id, reminder_type)
+);
+
+CREATE INDEX IF NOT EXISTS event_registration_payment_reminders_event_idx
+  ON public.event_registration_payment_reminders(event_id, reminder_type, sent_at);
+
+ALTER TABLE public.event_registration_payment_reminders ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.event_registration_payment_reminders FROM PUBLIC, anon, authenticated;
+-- END MIGRATION: 0044_unpaid_event_registration_reminders.sql

@@ -126,7 +126,8 @@ export default async function MembersAdminPage({
       .order('created_at', { ascending: false }),
     db
       .from('payments')
-      .select('membership_id,status,created_at')
+      .select('business_record_id,status,created_at')
+      .eq('purpose', 'membership')
       .order('created_at', { ascending: false }),
     db
       .from('registrations')
@@ -151,11 +152,11 @@ export default async function MembersAdminPage({
     if (!membershipByUser.has(m.user_id)) membershipByUser.set(m.user_id, m);
   const paymentByMembership = new Map<string, string>();
   for (const p of paymentsResult.data ?? [])
-    if (p.membership_id) {
-      if (p.status === 'paid' || p.status === 'recorded_manually')
-        paymentByMembership.set(p.membership_id, 'paid');
-      else if (!paymentByMembership.has(p.membership_id))
-        paymentByMembership.set(p.membership_id, 'unpaid');
+    if (p.business_record_id) {
+      if (['succeeded', 'partially_refunded', 'refunded'].includes(p.status))
+        paymentByMembership.set(p.business_record_id, 'paid');
+      else if (!paymentByMembership.has(p.business_record_id))
+        paymentByMembership.set(p.business_record_id, 'unpaid');
     }
   const familyByUser = new Map<string, { familyId: string; paid: boolean; names: string[] }>();
   const familyGroups = new Map<string, FamilyMemberRow[]>();

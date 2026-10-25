@@ -7,7 +7,10 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   esbuild: { jsx: 'automatic' },
   resolve: {
-    alias: { '@': root },
+    alias: {
+      '@': root,
+      'server-only': path.resolve(root, 'tests/mocks/server-only.ts'),
+    },
   },
   test: {
     include: ['tests/unit/**/*.test.ts', 'tests/unit/**/*.test.tsx'],

@@ -76,7 +76,7 @@ const baseTables = {
     { id: 'm2', user_id: 'p2', status: 'expired', payment_status: 'paid' },
     { id: 'm3', user_id: 'p3', status: 'pending', payment_status: 'paid' },
   ],
-  payments: [{ membership_id: 'm1', user_id: 'p1', status: 'paid' }],
+  payments: [{ business_record_id: 'm1', user_id: 'p1', status: 'paid' }],
   membership_families: [
     { id: 'f1', paid_at: '2025-04-01T00:00:00Z' },
     { id: 'f2', paid_at: null },

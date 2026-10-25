@@ -46,6 +46,9 @@ importers:
       react-dom:
         specifier: ^18.3.1
         version: 18.3.1(react@18.3.1)
+      stripe:
+        specifier: ^22.3.2
+        version: 22.3.2(@types/node@22.20.5)
       tailwind-merge:
         specifier: ^2.6.0
         version: 2.6.1
@@ -4431,6 +4434,18 @@ packages:
       }
     engines: { node: '>=8' }
 
+  stripe@22.3.2:
+    resolution:
+      {
+        integrity: sha512-O13QOvgEIQvDlTy6Ubb5kB980wpbhmoZNsgCXKILjCMZS67f+bW+6w99k3gnSi/N1lkryoj1WYdpGT5Wc5edjg==,
+      }
+    engines: { node: '>=18' }
+    peerDependencies:
+      '@types/node': '>=18'
+    peerDependenciesMeta:
+      '@types/node':
+        optional: true
+
   styled-jsx@5.1.1:
     resolution:
       {
@@ -7702,6 +7717,10 @@ snapshots:
       min-indent: 1.0.1
 
   strip-json-comments@3.1.1: {}
+
+  stripe@22.3.2(@types/node@22.20.5):
+    optionalDependencies:
+      '@types/node': 22.20.5
 
   styled-jsx@5.1.1(react@18.3.1):
     dependencies:

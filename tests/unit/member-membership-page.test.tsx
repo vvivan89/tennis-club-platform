@@ -2,6 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
+function getCurrentSeasonYear() {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), 3, 1); // April 1
+  const end = new Date(now.getFullYear(), 8, 30); // Sept 30
+  if (now < start) return now.getFullYear();
+  if (now > end) return now.getFullYear() + 1;
+  return now.getFullYear();
+}
+
 const mocks = vi.hoisted(() => ({
   user: { id: 'member-1', email: 'member@example.com' } as null | { id: string; email: string },
   profile: {
@@ -52,7 +61,7 @@ const state = {
       },
       family: {
         id: 'family-1',
-        season_year: 2026,
+        season_year: getCurrentSeasonYear(),
         paid_at: '2026-01-10',
         paid_by: 'member-1',
         payment_id: 'payment-1',
@@ -99,15 +108,21 @@ const state = {
   payments: [
     {
       id: 'payment-1',
-      membership_id: 'membership-1',
-      amount_cents: 22000,
-      status: 'recorded_manually',
-      provider: 'etransfer',
-      paid_at: '2026-01-10',
+      purpose: 'membership',
+      business_record_id: 'membership-1',
+      amount_minor: 22000,
+      currency: 'CAD',
+      status: 'succeeded',
       created_at: '2026-01-10',
-      notes: 'Family plan paid',
+      succeeded_at: '2026-01-10',
+      refunded_amount_minor: 0,
     },
   ],
+  currentWaiver: {
+    version: 1,
+    title: 'Membership Waiver',
+    body_html: '<p>I accept the waiver</p>',
+  },
 };
 
 beforeEach(() => {
@@ -144,8 +159,8 @@ describe('Member membership portal', () => {
     expect(screen.getByText('Paid')).toBeInTheDocument();
     expect(screen.getByText('Relative One')).toBeInTheDocument();
     expect(screen.getAllByText('$220.00')).toHaveLength(3);
-    expect(screen.getByText('Family plan paid')).toBeInTheDocument();
-    expect(screen.getByText('recorded manually')).toBeInTheDocument();
+    expect(screen.getByText('Membership payment')).toBeInTheDocument();
+    expect(screen.getByText('succeeded')).toBeInTheDocument();
   });
 
   it('posts a family leave action and distinguishes next-season removal for paid plans', async () => {
@@ -153,7 +168,7 @@ describe('Member membership portal', () => {
     render(<MembershipPortal />);
     await user.click(await screen.findByRole('button', { name: 'Leave family' }));
     await waitFor(() => expect(mocks.posts).toHaveLength(1));
-    expect(JSON.parse(mocks.posts[0].body)).toEqual({ action: 'remove' });
+    expect(JSON.parse(mocks.posts[0].body)).toEqual({ action: 'remove', familyId: 'family-1' });
     expect(await screen.findByRole('status')).toHaveTextContent('scheduled for the next season');
   });
 
@@ -188,11 +203,20 @@ describe('Member membership portal', () => {
     const user = userEvent.setup();
     render(<MembershipPortal />);
     expect(await screen.findByText('Family invitation pending')).toBeInTheDocument();
+
+    // Accept the waiver first
+    const waiverCheckbox = screen.getByRole('checkbox', {
+      name: /accept the current membership waiver/i,
+    });
+    await user.click(waiverCheckbox);
+
     await user.click(screen.getByRole('button', { name: 'Accept invitation' }));
     await waitFor(() => expect(mocks.posts).toHaveLength(1));
-    expect(JSON.parse(mocks.posts[0].body)).toEqual({
+    const postBody = JSON.parse(mocks.posts[0].body);
+    expect(postBody).toMatchObject({
       action: 'confirm',
       invitationId: 'family-member-1',
+      waiverAccepted: true,
     });
     expect(await screen.findByRole('status')).toHaveTextContent('Saved.');
   });

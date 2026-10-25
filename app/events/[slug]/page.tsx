@@ -72,7 +72,7 @@ export default async function EventDetailsPage({ params }: { params: { slug: str
     user
       ? db
           .from('registrations')
-          .select('id,status,queue_position,created_at')
+          .select('id,status,queue_position,created_at,payment_status')
           .eq('event_id', event.id)
           .eq('user_id', user.id)
           .neq('status', 'cancelled')
@@ -94,39 +94,11 @@ export default async function EventDetailsPage({ params }: { params: { slug: str
       (profile?.role === 'organizer' && (event.organizer_id ?? event.created_by) === user?.id));
   let hasPaidMembership = false;
   if (user) {
-    const today = new Date().toISOString().slice(0, 10);
-    const { data: memberships } = await db
-      .from('memberships')
-      .select('id,payment_status')
-      .eq('user_id', user.id)
-      .eq('status', 'active')
-      .or(`ends_on.is.null,ends_on.gte.${today}`);
-    if (memberships?.length) {
-      const paidIds = memberships.filter((m) => m.payment_status === 'paid').map((m) => m.id);
-      const unpaidIds = memberships.filter((m) => m.payment_status !== 'paid').map((m) => m.id);
-      if (paidIds.length) hasPaidMembership = true;
-      if (!hasPaidMembership && unpaidIds.length) {
-        const { data: payments } = await db
-          .from('payments')
-          .select('membership_id,status')
-          .in('membership_id', unpaidIds)
-          .in('status', ['paid', 'recorded_manually']);
-        hasPaidMembership = !!payments?.length;
-      }
-    }
-    if (!hasPaidMembership) {
-      const { data: familyLinks } = await db
-        .from('membership_family_members')
-        .select('status,membership_families(paid_at,payment_id)')
-        .eq('user_id', user.id)
-        .in('status', ['confirmed', 'removed_next_season']);
-      hasPaidMembership = (familyLinks ?? []).some((link) => {
-        const family = Array.isArray(link.membership_families)
-          ? link.membership_families[0]
-          : link.membership_families;
-        return Boolean(family?.paid_at || family?.payment_id);
-      });
-    }
+    const { data: paidMembership, error: paidMembershipError } = await db.rpc(
+      'has_active_paid_membership',
+      { v_user: user.id },
+    );
+    if (!paidMembershipError) hasPaidMembership = paidMembership === true;
   }
   const registered = !!registration && registration.status !== 'cancelled';
   const canViewParticipants = isManager || (hasPaidMembership && registered);
@@ -135,7 +107,7 @@ export default async function EventDetailsPage({ params }: { params: { slug: str
       ? db
           .from('event_roster')
           .select(
-            'registration_id,user_id,status,queue_position,full_name,avatar_url,tennis_skill_level',
+            'registration_id,user_id,status,payment_status,queue_position,full_name,avatar_url,tennis_skill_level',
           )
           .eq('event_id', event.id)
       : Promise.resolve({ data: [] }),
@@ -232,6 +204,7 @@ export default async function EventDetailsPage({ params }: { params: { slug: str
           currentUserId={user?.id ?? null}
           currentRegistrationId={registration?.id ?? null}
           currentStatus={registration?.status ?? null}
+          currentPaymentStatus={registration?.payment_status ?? null}
           locationQuery={club?.location_query || event.location || ''}
           isManager={isManager}
           canViewParticipants={canViewParticipants}

@@ -85,16 +85,21 @@ export async function GET(request: Request) {
     if (family?.paid_at && family.season_year === season.year) paid = true;
     const { data: memberships } = await db
       .from('memberships')
-      .select('id,ends_on,status')
+      .select('id,ends_on,status,payment_status')
       .eq('user_id', p.id)
       .in('status', ['active', 'expired']);
     for (const m of memberships ?? []) {
+      if (m.payment_status === 'paid') {
+        paid = true;
+        break;
+      }
       if (m.ends_on === season.end.toISOString().slice(0, 10)) {
         const { data: payment } = await db
           .from('payments')
           .select('id')
-          .eq('membership_id', m.id)
-          .in('status', ['paid', 'recorded_manually'])
+          .eq('purpose', 'membership')
+          .eq('business_record_id', m.id)
+          .eq('status', 'succeeded')
           .maybeSingle();
         if (payment) paid = true;
       }

@@ -435,6 +435,7 @@ describe('membership family API', () => {
   it('rejects accepting an invitation when the member already belongs to a family', async () => {
     mocks.responses['profiles.maybeSingle'] = [owner];
     mocks.responses['membership_plan_settings.single'] = [settings];
+    mocks.responses['legal_document_versions.maybeSingle'] = [{ version: 1 }];
     mocks.responses['membership_family_members.maybeSingle'] = [
       { id: 'invite-1', family_id: 'family-1', status: 'pending' },
     ];
@@ -442,7 +443,14 @@ describe('membership family API', () => {
       [{ user_id: 'owner-2', profiles: { date_of_birth: '1985-01-01' } }],
       [{ id: 'existing-family' }],
     ];
-    const response = await POST(request({ action: 'confirm', invitationId: 'invite-1' }));
+    const response = await POST(
+      request({
+        action: 'confirm',
+        invitationId: 'invite-1',
+        waiverAccepted: true,
+        waiverVersion: 1,
+      }),
+    );
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({
       error: 'Leave your current family before accepting another invitation.',
@@ -453,6 +461,7 @@ describe('membership family API', () => {
   it('enforces adult limits on acceptance and does not confirm an over-capacity invitation', async () => {
     mocks.responses['profiles.maybeSingle'] = [owner];
     mocks.responses['membership_plan_settings.single'] = [{ ...settings, family_max_adults: 1 }];
+    mocks.responses['legal_document_versions.maybeSingle'] = [{ version: 1 }];
     mocks.responses['membership_family_members.maybeSingle'] = [
       { id: 'invite-1', family_id: 'family-1', status: 'pending' },
     ];
@@ -460,7 +469,14 @@ describe('membership family API', () => {
       [{ user_id: 'owner-2', profiles: { date_of_birth: '1985-01-01' } }],
       [],
     ];
-    const response = await POST(request({ action: 'confirm', invitationId: 'invite-1' }));
+    const response = await POST(
+      request({
+        action: 'confirm',
+        invitationId: 'invite-1',
+        waiverAccepted: true,
+        waiverVersion: 1,
+      }),
+    );
     expect(response.status).toBe(409);
     expect(await response.json()).toMatchObject({ error: expect.stringContaining('at its limit') });
     expect(mocks.calls).toEqual([]);
@@ -469,6 +485,7 @@ describe('membership family API', () => {
   it('confirms a valid invitation and records the acceptance timestamp', async () => {
     mocks.responses['profiles.maybeSingle'] = [owner];
     mocks.responses['membership_plan_settings.single'] = [settings];
+    mocks.responses['legal_document_versions.maybeSingle'] = [{ version: 1 }];
     mocks.responses['membership_family_members.maybeSingle'] = [
       { id: 'invite-2', family_id: 'family-2', status: 'pending' },
     ];
@@ -477,7 +494,14 @@ describe('membership family API', () => {
       [],
     ];
 
-    const response = await POST(request({ action: 'confirm', invitationId: 'invite-2' }));
+    const response = await POST(
+      request({
+        action: 'confirm',
+        invitationId: 'invite-2',
+        waiverAccepted: true,
+        waiverVersion: 1,
+      }),
+    );
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ success: true });
     expect(mocks.calls).toContainEqual({
@@ -490,15 +514,18 @@ describe('membership family API', () => {
   it('returns not-found for missing invitations/family membership and reports failed departure writes', async () => {
     mocks.responses['profiles.maybeSingle'] = [owner];
     mocks.responses['membership_plan_settings.single'] = [settings];
+    mocks.responses['legal_document_versions.maybeSingle'] = [{ version: 1 }];
     mocks.responses['membership_family_members.maybeSingle'] = [null];
-    const missingInvite = await POST(request({ action: 'confirm', invitationId: 'missing' }));
+    const missingInvite = await POST(
+      request({ action: 'confirm', invitationId: 'missing', waiverAccepted: true }),
+    );
     expect(missingInvite.status).toBe(404);
     expect(await missingInvite.json()).toEqual({ error: 'Invitation not found.' });
 
     mocks.responses['profiles.maybeSingle'] = [owner];
     mocks.responses['membership_plan_settings.single'] = [settings];
     mocks.responses['membership_family_members.maybeSingle'] = [null];
-    const notMember = await POST(request({ action: 'remove' }));
+    const notMember = await POST(request({ action: 'remove', familyId: 'family-1' }));
     expect(notMember.status).toBe(404);
     expect(await notMember.json()).toEqual({ error: 'You are not in a family.' });
 
@@ -510,7 +537,7 @@ describe('membership family API', () => {
     mocks.responses['membership_family_members.update'] = [
       { data: null, error: { message: 'write denied' } },
     ];
-    const failed = await POST(request({ action: 'remove' }));
+    const failed = await POST(request({ action: 'remove', familyId: 'family-1' }));
     expect(failed.status).toBe(500);
     expect(await failed.json()).toEqual({ error: 'Unexpected error.' });
   });
@@ -551,7 +578,7 @@ describe('membership family API', () => {
         membership_families: { paid_at: '2026-01-01', season_year: year },
       },
     ];
-    const paidResponse = await POST(request({ action: 'remove' }));
+    const paidResponse = await POST(request({ action: 'remove', familyId: 'family-1' }));
     expect(paidResponse.status).toBe(200);
     expect(await paidResponse.json()).toEqual({ success: true, effectiveNextSeason: true });
     expect(mocks.calls.at(-1)).toMatchObject({
@@ -569,7 +596,7 @@ describe('membership family API', () => {
         membership_families: { paid_at: null, season_year: year },
       },
     ];
-    const unpaidResponse = await POST(request({ action: 'remove' }));
+    const unpaidResponse = await POST(request({ action: 'remove', familyId: 'family-2' }));
     expect(unpaidResponse.status).toBe(200);
     expect(await unpaidResponse.json()).toEqual({ success: true, effectiveNextSeason: false });
     expect(mocks.calls.at(-1)).toMatchObject({ values: { status: 'declined' } });

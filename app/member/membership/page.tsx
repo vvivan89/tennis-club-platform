@@ -1,6 +1,7 @@
 'use client';
 import { TennisLoader } from '@/components/tennis-loader';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { CalendarDays, CheckCircle2, Clock3, CreditCard, Users } from 'lucide-react';
 import { SiteHeader } from '@/components/site-header';
 import { SiteFooter } from '@/components/site-footer';
@@ -22,6 +23,8 @@ type FamilyMember = {
   invited_by?: string | null;
   joined_at?: string | null;
   created_at?: string | null;
+  waiver_version?: string | null;
+  waiver_accepted_at?: string | null;
   profiles?: { id?: string; full_name: string | null; email: string | null } | null;
 };
 type Family = {
@@ -75,13 +78,14 @@ type Membership = {
 };
 type Payment = {
   id: string;
-  membership_id: string;
-  amount_cents: number;
+  purpose: string;
+  business_record_id: string | null;
+  amount_minor: number;
+  currency: string;
   status: string;
-  provider: string | null;
-  paid_at: string | null;
   created_at: string;
-  notes: string | null;
+  succeeded_at: string | null;
+  refunded_amount_minor: number;
 };
 type State = {
   families: FamilyEntry[];
@@ -89,6 +93,7 @@ type State = {
   settings: MembershipSettings | null;
   memberships: Membership[];
   payments: Payment[];
+  currentWaiver: { version: number; title: string; body_html: string } | null;
 };
 const emptyState: State = {
   families: [],
@@ -96,6 +101,7 @@ const emptyState: State = {
   settings: null,
   memberships: [],
   payments: [],
+  currentWaiver: null,
 };
 const money = (c: number) =>
   new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format((c || 0) / 100);
@@ -103,12 +109,44 @@ const date = (v: string | null | undefined) =>
   v
     ? new Date(v).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
     : '—';
+const getTargetSeason = (settings: MembershipSettings | null) => {
+  if (!settings) return null;
+  const now = new Date();
+  const startThisYear = new Date(
+    now.getFullYear(),
+    settings.season_start_month - 1,
+    settings.season_start_day,
+  );
+  const endThisYear = new Date(
+    now.getFullYear(),
+    settings.season_end_month - 1,
+    settings.season_end_day,
+    23,
+    59,
+    59,
+    999,
+  );
+  const year =
+    now < startThisYear
+      ? now.getFullYear()
+      : now > endThisYear
+        ? now.getFullYear() + 1
+        : now.getFullYear();
+  const dateKey = (value: Date) =>
+    `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+  return {
+    year,
+    startsOn: dateKey(new Date(year, settings.season_start_month - 1, settings.season_start_day)),
+    endsOn: dateKey(new Date(year, settings.season_end_month - 1, settings.season_end_day)),
+  };
+};
 export default function MembershipPortal() {
   const [state, setState] = useState<State>(emptyState);
   const [me, setMe] = useState<Profile | null>(null);
   const [selected, setSelected] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [waiverAccepted, setWaiverAccepted] = useState(false);
   const [message, setMessage] = useState('');
   const [club, setClub] = useState<{
     club_name: string;
@@ -152,8 +190,14 @@ export default function MembershipPortal() {
     void load();
   }, [load]);
   async function act(
-    action: 'invite' | 'confirm' | 'remove',
-    extra: { userId?: string; invitationId?: string } = {},
+    action: 'invite' | 'confirm' | 'remove' | 'accept_waiver',
+    extra: {
+      userId?: string;
+      invitationId?: string;
+      familyId?: string;
+      waiverAccepted?: boolean;
+      waiverVersion?: number;
+    } = {},
   ) {
     setBusy(true);
     setMessage('');
@@ -183,6 +227,55 @@ export default function MembershipPortal() {
       setBusy(false);
     }
   }
+  async function startCheckout(kind: 'individual' | 'family') {
+    if (!waiverAccepted) {
+      setMessage('Accept the current membership waiver before continuing to checkout.');
+      return;
+    }
+    setBusy(true);
+    setMessage('');
+    try {
+      const body: Record<string, unknown> = {
+        purpose: 'membership',
+        returnTo: '/member/membership',
+        returnLabel: 'Back to membership',
+        membershipKind: kind,
+        waiverAccepted: true,
+        waiverVersion: state.currentWaiver?.version,
+        idempotencyKey: crypto.randomUUID(),
+      };
+      const targetSeason = getTargetSeason(state.settings);
+      const latestMembership = state.memberships[0];
+      if (
+        kind === 'individual' &&
+        latestMembership?.id &&
+        targetSeason &&
+        latestMembership.starts_on === targetSeason.startsOn &&
+        latestMembership.ends_on === targetSeason.endsOn &&
+        latestMembership.payment_status !== 'paid'
+      )
+        body.businessRecordId = latestMembership.id;
+      if (kind === 'family' && active?.family?.id) body.businessRecordId = active.family.id;
+      const response = await fetch('/api/payments/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.checkoutUrl)
+        throw new Error(result.error || 'Could not start checkout.');
+      window.location.assign(result.checkoutUrl);
+    } catch (error) {
+      console.error('[Member membership] Checkout start failed', {
+        message: error instanceof Error ? error.message : 'unknown',
+      });
+      setMessage(
+        error instanceof Error ? error.message : 'Could not start checkout. Please try again.',
+      );
+      await load();
+      setBusy(false);
+    }
+  }
   const active = [...state.families]
     .filter(
       (x) =>
@@ -196,15 +289,34 @@ export default function MembershipPortal() {
     )[0];
   const currentFamily = active?.family;
   const currentMembers = active?.members ?? [];
+  const familyWaiversComplete =
+    Boolean(state.currentWaiver) &&
+    currentMembers
+      .filter((member) => member.status === 'confirmed')
+      .every(
+        (member) =>
+          member.waiver_version === String(state.currentWaiver?.version) &&
+          Boolean(member.waiver_accepted_at),
+      );
   const incoming = state.families.filter(
     (x) => x.membership.user_id === me?.id && x.membership.status === 'pending',
   );
   const latest = state.memberships?.[0];
-  const latestPayment = (state.payments ?? []).find(
-    (p) =>
-      p.membership_id === latest?.id && (p.status === 'paid' || p.status === 'recorded_manually'),
+  const targetSeason = getTargetSeason(state.settings);
+  const latestIsCurrentSeason = Boolean(
+    targetSeason &&
+    latest?.starts_on === targetSeason.startsOn &&
+    latest?.ends_on === targetSeason.endsOn,
   );
-  const familyPaid = Boolean(currentFamily?.paid_at || currentFamily?.payment_id);
+  const latestPayment = (state.payments ?? []).find(
+    (p) => p.business_record_id === latest?.id && p.status === 'succeeded',
+  );
+  const familyPaid = Boolean(
+    currentFamily &&
+    targetSeason &&
+    currentFamily.season_year === targetSeason.year &&
+    (currentFamily.paid_at || currentFamily.payment_id),
+  );
   const familyType =
     active?.membership.status === 'confirmed'
       ? 'Family membership'
@@ -225,15 +337,23 @@ export default function MembershipPortal() {
     active?.membership.status === 'removed_next_season';
   const paid = isActiveFamily
     ? familyPaid
-    : Boolean(latest && (latest.payment_status === 'paid' || latestPayment));
+    : Boolean(
+        latestIsCurrentSeason && latest && (latest.payment_status === 'paid' || latestPayment),
+      );
   const paidAt = isActiveFamily
-    ? (currentFamily?.paid_at ?? null)
-    : latestPayment?.paid_at || latestPayment?.created_at || null;
+    ? familyPaid
+      ? (currentFamily?.paid_at ?? null)
+      : null
+    : latestIsCurrentSeason
+      ? latestPayment?.succeeded_at || latestPayment?.created_at || null
+      : null;
   const familyPlan = Boolean(
-    familyType ||
-    String(latest?.membership_type || '')
-      .toLowerCase()
-      .includes('family'),
+    active?.membership.status === 'confirmed' ||
+    (active?.membership.status === 'removed_next_season' && familyPaid) ||
+    (latestIsCurrentSeason &&
+      String(latest?.membership_type || '')
+        .toLowerCase()
+        .includes('family')),
   );
   const currentPrice = familyPlan
     ? (state.settings?.family_price_cents ?? 22000)
@@ -277,11 +397,53 @@ export default function MembershipPortal() {
         <p className="mt-2 text-sm text-muted-foreground">
           Your membership, payments, and family plan for the club season ({seasonLabel}).
         </p>
+        <p className="mt-3 text-sm">
+          <Link className="underline underline-offset-4" href="/member/payments">
+            View full payment history
+          </Link>
+        </p>
         {message && (
           <p role="status" className="mt-4 rounded-lg border border-border bg-muted/30 p-3 text-sm">
             {message}
           </p>
         )}
+        {!loading &&
+          me?.application_status === 'approved' &&
+          (state.currentWaiver || state.memberships.length === 0 || !paid) && (
+            <section className="mt-5 rounded-xl border border-border p-4">
+              <h2 className="font-semibold">Membership waiver</h2>
+              {state.currentWaiver ? (
+                <>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {state.currentWaiver.title} · version {state.currentWaiver.version}
+                  </p>
+                  <details className="mt-3 rounded-md bg-muted/40 p-3">
+                    <summary className="cursor-pointer text-sm font-medium">
+                      Read the current waiver
+                    </summary>
+                    <div
+                      className="prose prose-sm dark:prose-invert mt-3 max-w-none"
+                      dangerouslySetInnerHTML={{ __html: state.currentWaiver.body_html }}
+                    />
+                  </details>
+                  <label className="mt-3 flex items-start gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={waiverAccepted}
+                      onChange={(event) => setWaiverAccepted(event.target.checked)}
+                    />
+                    <span>I have read and accept the current membership waiver.</span>
+                  </label>
+                </>
+              ) : (
+                <p className="mt-2 text-sm text-destructive">
+                  The current membership waiver is unavailable. Contact the club administrator
+                  before paying.
+                </p>
+              )}
+            </section>
+          )}
         {loading ? (
           <TennisLoader label="Loading membership details" />
         ) : (
@@ -351,6 +513,27 @@ export default function MembershipPortal() {
                     to end next season.
                   </p>
                 )}
+                {!paid &&
+                  (!isActiveFamily || active?.membership.status === 'removed_next_season') &&
+                  me?.application_status === 'approved' && (
+                    <div className="mt-5 border-t border-border pt-4">
+                      <Button
+                        disabled={
+                          busy || !waiverAccepted || !state.currentWaiver || !state.settings
+                        }
+                        onClick={() => void startCheckout('individual')}
+                      >
+                        {busy ? (
+                          <TennisLoader compact label="Starting checkout" />
+                        ) : (
+                          `Pay ${money(state.settings?.single_price_cents ?? 15000)} for membership`
+                        )}
+                      </Button>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Payment is confirmed by Stripe before your membership is activated.
+                      </p>
+                    </div>
+                  )}
               </section>
               <section className="rounded-xl border border-border p-5">
                 <div className="flex items-start gap-3">
@@ -408,14 +591,74 @@ export default function MembershipPortal() {
                           {m.user_id === me?.id ? ' (you)' : ''}
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          {m.profiles?.email || 'No email'} · {m.status.replaceAll('_', ' ')}
+                          {m.profiles?.email || 'No email'} · {m.status.replaceAll('_', ' ')} ·{' '}
+                          {state.currentWaiver &&
+                          m.waiver_version === String(state.currentWaiver.version) &&
+                          m.waiver_accepted_at
+                            ? 'waiver accepted'
+                            : 'waiver acceptance needed'}
                         </p>
                       </div>
                     ))}
                   </div>
+                  {active?.membership.status === 'confirmed' &&
+                    me?.application_status === 'approved' &&
+                    currentMembers.some(
+                      (member) =>
+                        member.user_id === me.id &&
+                        (member.waiver_version !== String(state.currentWaiver?.version) ||
+                          !member.waiver_accepted_at),
+                    ) && (
+                      <div className="mt-4">
+                        <Button
+                          variant="outline"
+                          disabled={busy || !waiverAccepted || !state.currentWaiver}
+                          onClick={() =>
+                            void act('accept_waiver', {
+                              familyId: currentFamily?.id,
+                              waiverAccepted: true,
+                              waiverVersion: state.currentWaiver?.version,
+                            })
+                          }
+                        >
+                          Accept waiver for family membership
+                        </Button>
+                      </div>
+                    )}
+                  {!familyPaid &&
+                    active?.membership.status === 'confirmed' &&
+                    me?.application_status === 'approved' && (
+                      <div className="mt-4">
+                        <Button
+                          disabled={
+                            busy ||
+                            !waiverAccepted ||
+                            !state.currentWaiver ||
+                            !state.settings ||
+                            !familyWaiversComplete
+                          }
+                          onClick={() => void startCheckout('family')}
+                        >
+                          {busy ? (
+                            <TennisLoader compact label="Starting checkout" />
+                          ) : (
+                            `Pay ${money(state.settings?.family_price_cents ?? 22000)} for family membership`
+                          )}
+                        </Button>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          Every confirmed family member must accept the current waiver before
+                          checkout. Family membership is marked paid only after Stripe confirms
+                          payment.
+                        </p>
+                      </div>
+                    )}
                   {active?.membership.status === 'confirmed' && (
                     <div className="mt-4 flex flex-wrap items-center gap-3">
-                      <Button variant="outline" disabled={busy} onClick={() => void act('remove')}>
+                      <Button
+                        variant="outline"
+                        disabled={busy}
+                        onClick={() => void act('remove', { familyId: currentFamily?.id })}
+                      >
                         Leave family
                       </Button>
                       {familyPaid && (
@@ -466,8 +709,14 @@ export default function MembershipPortal() {
                           </p>
                         </div>
                         <Button
-                          disabled={busy}
-                          onClick={() => void act('confirm', { invitationId: x.membership.id })}
+                          disabled={!waiverAccepted || !state.currentWaiver || busy}
+                          onClick={() =>
+                            void act('confirm', {
+                              invitationId: x.membership.id,
+                              waiverAccepted: true,
+                              waiverVersion: state.currentWaiver?.version,
+                            })
+                          }
                         >
                           Accept invitation
                         </Button>
@@ -494,10 +743,14 @@ export default function MembershipPortal() {
                       {state.payments.map((p) => (
                         <tr key={p.id} className="border-t border-border">
                           <td className="whitespace-nowrap px-3 py-2">
-                            {date(p.paid_at || p.created_at)}
+                            {date(p.succeeded_at || p.created_at)}
                           </td>
-                          <td className="px-3 py-2">{p.notes || 'Membership payment'}</td>
-                          <td className="px-3 py-2">{money(p.amount_cents)}</td>
+                          <td className="px-3 py-2">
+                            {p.purpose === 'membership'
+                              ? 'Membership payment'
+                              : p.purpose?.replaceAll('_', ' ') || 'Other'}
+                          </td>
+                          <td className="px-3 py-2">{money(p.amount_minor)}</td>
                           <td className="px-3 py-2 capitalize">
                             {String(p.status).replaceAll('_', ' ')}
                           </td>

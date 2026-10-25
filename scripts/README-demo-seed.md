@@ -10,33 +10,13 @@ This is a destructive reset of the seeder-owned demo dataset. Use only against y
 
 ## Scores and the two-day rule
 
-The seeder creates scores for past non-tournament sessions so historical scoreboard pages can be tested. If the database has the `block_old_event_scores` trigger enabled, temporarily disable it in Supabase SQL Editor before seeding:
-
-```sql
-ALTER TABLE public.event_scores DISABLE TRIGGER block_old_event_scores;
-```
-
-Run `npm run seed:demo`, then immediately restore the application rule, even if seeding fails:
-
-```sql
-ALTER TABLE public.event_scores ENABLE TRIGGER block_old_event_scores;
-```
-
-Verify the trigger state with:
-
-```sql
-SELECT tgname, tgenabled
-FROM pg_trigger
-WHERE tgname = 'block_old_event_scores';
-```
-
-The expected `tgenabled` value is `O`.
+The seeder keeps the `block_old_event_scores` trigger enabled. It creates scores only for the two deliberately recent past sessions, whose start times are generated relative to the current time so they fall within the database's two-day score-entry window. Older historical sessions are created without scores. Do not disable the trigger.
 
 ## Generated dataset
 
 - 100 unique demo accounts (one administrator and 99 members), with varied application and membership statuses.
 - Single/family memberships, payment records, and family-group links.
-- 18 past sessions and 8 upcoming sessions. Sessions whose registration window has not opened are left unregistered; open sessions include registrations and waitlists. Past sessions include court assignments and historical scores.
+- 18 past sessions and 8 upcoming sessions. Sessions whose registration window has not opened are left unregistered; open sessions include registrations and waitlists. Past sessions include court assignments; only the two recent past sessions receive scores because of the database two-day rule.
 - 5 published news posts with realistic titles and content.
 
 All seeded users use the same password configured in `DEMO_PASSWORD`. Default admin: `demo.admin@example.com`; example member: `demo.member002@example.com`.

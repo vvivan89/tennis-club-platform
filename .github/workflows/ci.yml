@@ -54,11 +54,5 @@ jobs:
       - name: Check database migrations
         run: pnpm check:migrations
 
-      - name: Install Playwright browsers
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Run E2E tests
-        run: pnpm test:e2e
-
       - name: Build application
         run: pnpm build

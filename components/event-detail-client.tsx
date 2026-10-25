@@ -12,6 +12,7 @@ type Roster = {
   registration_id: string;
   user_id: string;
   status: string;
+  payment_status?: string | null;
   queue_position: number | null;
   full_name: string;
   avatar_url: string | null;
@@ -63,6 +64,7 @@ export function EventDetailClient({
   currentUserId,
   currentRegistrationId,
   currentStatus,
+  currentPaymentStatus,
   locationQuery,
   isManager,
   canViewParticipants,
@@ -75,6 +77,7 @@ export function EventDetailClient({
   currentUserId: string | null;
   currentRegistrationId: string | null;
   currentStatus: string | null;
+  currentPaymentStatus: string | null;
   locationQuery: string;
   isManager: boolean;
   canViewParticipants: boolean;
@@ -88,6 +91,7 @@ export function EventDetailClient({
     currentRegistrationId,
   );
   const [liveStatus, setLiveStatus] = useState<string | null>(currentStatus);
+  const [livePaymentStatus, setLivePaymentStatus] = useState<string | null>(currentPaymentStatus);
   const [liveRemainingSpots, setLiveRemainingSpots] = useState<number>(remainingSpots);
   const [liveCourts, setLiveCourts] = useState<Court[]>(courts);
   const [view, setView] = useState<'courts' | 'list'>('list');
@@ -158,8 +162,9 @@ export function EventDetailClient({
     setLiveRoster(roster);
     setLiveRegistrationId(currentRegistrationId);
     setLiveStatus(currentStatus);
+    setLivePaymentStatus(currentPaymentStatus);
     setLiveRemainingSpots(remainingSpots);
-  }, [roster, currentRegistrationId, currentStatus, remainingSpots]);
+  }, [roster, currentRegistrationId, currentStatus, currentPaymentStatus, remainingSpots]);
 
   function notifyInBackground() {
     void (async () => {
@@ -186,13 +191,13 @@ export function EventDetailClient({
         db
           .from('event_roster')
           .select(
-            'registration_id,user_id,status,queue_position,full_name,avatar_url,tennis_skill_level',
+            'registration_id,user_id,status,payment_status,queue_position,full_name,avatar_url,tennis_skill_level',
           )
           .eq('event_id', event.id),
         currentUserId
           ? db
               .from('registrations')
-              .select('id,status,queue_position,created_at')
+              .select('id,status,queue_position,created_at,payment_status')
               .eq('event_id', event.id)
               .eq('user_id', currentUserId)
               .neq('status', 'cancelled')
@@ -204,6 +209,7 @@ export function EventDetailClient({
                 status: string;
                 queue_position: number | null;
                 created_at: string;
+                payment_status: string;
               }[],
               error: null,
             }),
@@ -218,6 +224,7 @@ export function EventDetailClient({
       const ownReg = ownRegs?.[0] ?? null;
       setLiveRegistrationId(ownReg?.id ?? null);
       setLiveStatus(ownReg?.status ?? null);
+      setLivePaymentStatus(ownReg?.payment_status ?? null);
     }
   }
   useEffect(() => {
@@ -254,6 +261,87 @@ export function EventDetailClient({
       void db.removeChannel(channel);
     };
   }, [event.id]);
+  async function startEventCheckout(registrationId: string) {
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      const response = await fetch('/api/payments/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          purpose: 'event_registration',
+          businessRecordId: registrationId,
+          idempotencyKey: crypto.randomUUID(),
+          returnTo: `/events/${event.slug || event.id}`,
+          returnLabel: `Back to ${event.title}`,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.checkoutUrl)
+        throw new Error(result.error || 'Could not start checkout.');
+      window.location.assign(result.checkoutUrl);
+    } catch (e) {
+      console.error('[Event detail] Checkout creation failed', {
+        message: e instanceof Error ? e.message : 'unknown',
+      });
+      setError(
+        e instanceof Error
+          ? e.message
+          : 'Registration is reserved, but payment could not be started. Please try again.',
+      );
+      setMessage('Your registration is reserved, but payment is still required.');
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function checkEventPaymentStatus(registrationId: string) {
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      const response = await fetch(
+        `/api/payments/status?registration_id=${encodeURIComponent(registrationId)}`,
+        { cache: 'no-store' },
+      );
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Could not check payment status.');
+      if (!result.payment) {
+        await startEventCheckout(registrationId);
+        return;
+      }
+      const status = String(result.payment.status || 'pending');
+      if (status === 'succeeded' && result.fulfilled) {
+        setLivePaymentStatus('paid');
+        setMessage('Payment confirmed. Your registration is complete.');
+        await refreshRoster();
+        router.refresh();
+        return;
+      }
+      const registrationPaymentStatus =
+        status === 'succeeded' ? 'pending' : status === 'processing' ? 'pending' : status;
+      setLivePaymentStatus(registrationPaymentStatus);
+      if (result.checkoutUrl && status === 'pending') {
+        window.location.assign(result.checkoutUrl);
+        return;
+      }
+      if (status === 'succeeded') {
+        setMessage('Payment confirmed. Your registration is being finalized. Check again shortly.');
+      } else if (status === 'failed' || status === 'canceled') {
+        setMessage('The previous payment was not completed. You can try paying the fee again.');
+      } else {
+        setMessage(
+          'Payment is still pending. If you just completed checkout, check again shortly.',
+        );
+      }
+      await refreshRoster();
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not check payment status.');
+    } finally {
+      setBusy(false);
+    }
+  }
   async function register() {
     setBusy(true);
     setError('');
@@ -268,15 +356,38 @@ export function EventDetailClient({
       if (error) throw error;
       delete operationKeys.current[operation];
       const result = data?.[0];
+      let registrationPaymentStatus: string | null = null;
       if (result?.registration_id) {
+        const { data: createdRegistration, error: createdRegistrationError } = await db
+          .from('registrations')
+          .select('payment_status')
+          .eq('id', result.registration_id)
+          .eq('user_id', currentUserId ?? '')
+          .maybeSingle();
+        if (createdRegistrationError) throw createdRegistrationError;
+        registrationPaymentStatus = createdRegistration?.payment_status ?? null;
         setLiveRegistrationId(result.registration_id);
         setLiveStatus(result.registration_state);
+        setLivePaymentStatus(
+          registrationPaymentStatus ?? (event.price_cents > 0 ? 'pending' : 'not_required'),
+        );
+      }
+      if (
+        event.price_cents > 0 &&
+        result?.registration_state === 'confirmed' &&
+        result?.registration_id &&
+        registrationPaymentStatus !== 'paid'
+      ) {
+        await startEventCheckout(result.registration_id);
+        return;
       }
       await refreshRoster();
       const label =
         result?.registration_state === 'waitlisted'
           ? `Added to the waitlist at position ${result?.position_in_waitlist ?? '—'}.`
-          : 'Registration confirmed.';
+          : registrationPaymentStatus === 'paid'
+            ? 'Registration confirmed. Your previous tournament payment has been applied.'
+            : 'Registration confirmed.';
       setMessage(label);
       notifyInBackground();
       router.refresh();
@@ -293,6 +404,22 @@ export function EventDetailClient({
     setError('');
     setMessage('');
     try {
+      if (
+        event.price_cents > 0 &&
+        livePaymentStatus !== 'paid' &&
+        livePaymentStatus !== 'not_required'
+      ) {
+        const cancelResponse = await fetch('/api/payments/cancel', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ registrationId: liveRegistrationId }),
+        });
+        const cancelResult = await cancelResponse.json();
+        if (!cancelResponse.ok) {
+          setError(cancelResult.error || 'Could not cancel the pending payment.');
+          return;
+        }
+      }
       const operation = `withdraw:${liveRegistrationId}`;
       const idempotencyKey = (operationKeys.current[operation] ??= crypto.randomUUID());
       const { error } = await db.rpc('withdraw_from_event', {
@@ -492,11 +619,57 @@ export function EventDetailClient({
             ) : registered ? (
               <>
                 <span className="self-center text-sm font-medium capitalize">
-                  {liveStatus}
+                  {liveStatus === 'confirmed' &&
+                  event.price_cents > 0 &&
+                  livePaymentStatus !== 'paid' &&
+                  livePaymentStatus !== 'not_required'
+                    ? 'Pending'
+                    : liveStatus}
                   {liveStatus === 'waitlisted' && liveRegistrationId
                     ? ` · position ${waitlisted.find((r) => r.registration_id === liveRegistrationId)?.queue_position ?? '—'}`
                     : ''}
                 </span>
+                {event.price_cents > 0 &&
+                  liveStatus === 'confirmed' &&
+                  livePaymentStatus !== 'paid' &&
+                  livePaymentStatus !== 'not_required' && (
+                    <Button
+                      disabled={busy}
+                      onClick={() =>
+                        liveRegistrationId &&
+                        (livePaymentStatus === 'pending' || livePaymentStatus === 'processing'
+                          ? void checkEventPaymentStatus(liveRegistrationId)
+                          : void startEventCheckout(liveRegistrationId))
+                      }
+                    >
+                      {busy ? (
+                        <TennisLoader
+                          compact
+                          label={
+                            livePaymentStatus === 'pending' || livePaymentStatus === 'processing'
+                              ? 'Checking payment'
+                              : 'Starting checkout'
+                          }
+                        />
+                      ) : livePaymentStatus === 'pending' || livePaymentStatus === 'processing' ? (
+                        'Check the payment status'
+                      ) : (
+                        'Pay the fee'
+                      )}
+                    </Button>
+                  )}
+                {event.price_cents > 0 &&
+                  liveStatus === 'confirmed' &&
+                  livePaymentStatus !== 'paid' &&
+                  livePaymentStatus !== 'not_required' && (
+                    <p
+                      role="status"
+                      className="basis-full rounded-md border border-amber-500/50 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
+                    >
+                      Your place is reserved while payment is pending. If payment is not completed,
+                      you may be removed from the participant list.
+                    </p>
+                  )}
                 {canWithdraw && (
                   <Button
                     variant="outline"
@@ -740,7 +913,13 @@ export function EventDetailClient({
                             </span>
                           )}
                         </td>
-                        <td className="px-4 py-3 capitalize">Confirmed</td>
+                        <td className="px-4 py-3 capitalize">
+                          {event.price_cents > 0 &&
+                          p.payment_status !== 'paid' &&
+                          p.payment_status !== 'not_required'
+                            ? 'Pending'
+                            : 'Confirmed'}
+                        </td>
                         <td className="px-4 py-3">
                           {liveCourts
                             .filter((c) => c.registration_id === p.registration_id)

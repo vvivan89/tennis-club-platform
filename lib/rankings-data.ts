@@ -24,8 +24,13 @@ type ScoreRow = {
 type RegistrationRow = { id: string; user_id: string; event_id: string };
 type EventRow = { id: string; title: string; starts_at: string; ends_at: string | null };
 type MembershipRow = { id: string; user_id: string; status: string; payment_status: string | null };
-type PaymentRow = { membership_id: string | null; user_id: string | null; status: string };
-type FamilyRow = { id: string; paid_at: string | null };
+type PaymentRow = { business_record_id: string | null; user_id: string | null; status: string };
+type FamilyRow = {
+  id: string;
+  paid_at: string | null;
+  payment_id: string | null;
+  season_year: number;
+};
 type FamilyMemberRow = { user_id: string; family_id: string; status: string };
 export type PlayerGame = {
   id: string;
@@ -71,9 +76,10 @@ export async function getRankingsData(): Promise<RankingsData> {
     admin.from('memberships').select('id,user_id,status,payment_status'),
     admin
       .from('payments')
-      .select('membership_id,user_id,status')
-      .in('status', ['paid', 'recorded_manually']),
-    admin.from('membership_families').select('id,paid_at'),
+      .select('business_record_id,user_id,status')
+      .eq('purpose', 'membership')
+      .eq('status', 'succeeded'),
+    admin.from('membership_families').select('id,paid_at,payment_id,season_year'),
     admin
       .from('membership_family_members')
       .select('user_id,family_id,status')
@@ -96,7 +102,7 @@ export async function getRankingsData(): Promise<RankingsData> {
   const paymentRows = (payments ?? []) as PaymentRow[];
   const familyRows = (families ?? []) as FamilyRow[];
   const familyMemberRows = (familyMembers ?? []) as FamilyMemberRow[];
-  const paidMembershipIds = new Set(paymentRows.map((x) => x.membership_id).filter(Boolean));
+  const paidMembershipIds = new Set(paymentRows.map((x) => x.business_record_id).filter(Boolean));
   const paidUserIds = new Set<string>();
   for (const m of membershipRows) {
     if (
@@ -105,7 +111,15 @@ export async function getRankingsData(): Promise<RankingsData> {
     )
       paidUserIds.add(m.user_id);
   }
-  const paidFamilyIds = new Set(familyRows.filter((f) => Boolean(f.paid_at)).map((f) => f.id));
+  const seasonSettings = (settingsRow ?? {
+    season_start_month: 4,
+    season_start_day: 1,
+    season_end_month: 9,
+    season_end_day: 30,
+  }) as SeasonSettings;
+  const paidFamilyIds = new Set(
+    familyRows.filter((f) => Boolean(f.paid_at || f.payment_id)).map((f) => f.id),
+  );
   for (const fm of familyMemberRows) {
     if (paidFamilyIds.has(fm.family_id)) paidUserIds.add(fm.user_id);
   }
@@ -204,11 +218,6 @@ export async function getRankingsData(): Promise<RankingsData> {
     games,
     profileById,
     events: (events ?? []) as EventRow[],
-    settings: (settingsRow ?? {
-      season_start_month: 4,
-      season_start_day: 1,
-      season_end_month: 9,
-      season_end_day: 30,
-    }) as SeasonSettings,
+    settings: seasonSettings,
   };
 }

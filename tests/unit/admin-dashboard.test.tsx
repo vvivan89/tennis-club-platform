@@ -111,6 +111,7 @@ describe('admin dashboard', () => {
       },
     ];
     mocks.rows.payments = [
+      { business_record_id: 'm2', status: 'succeeded', created_at: '2026-01-05' },
       { membership_id: 'm2', status: 'pending' },
       { membership_id: 'm2', status: 'recorded_manually' },
     ];

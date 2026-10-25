@@ -5,27 +5,57 @@
  * Demo accounts use the reserved .test domain and are safe fake identities.
  */
 import { createClient } from '@supabase/supabase-js';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
-// EDIT THESE VALUES DIRECTLY before running the script.
-// Supabase Dashboard -> Project Settings -> API Keys.
-// Use the project URL and a server-side secret/service_role key from the SAME project.
-// Never commit this file with your real secret key or share it publicly.
-const SUPABASE_URL = 'PASTE_YOUR_SUPABASE_PROJECT_URL_HERE';
-const SUPABASE_SERVICE_ROLE_KEY = 'PASTE_YOUR_SUPABASE_SECRET_OR_SERVICE_ROLE_KEY_HERE';
-const DEMO_PASSWORD = 'PCTC-Demo-2026!';
+// Load local environment files without overwriting variables already exported by the shell.
+// This keeps the script runnable with `pnpm seed:demo` or `node scripts/seed-demo-data.mjs`.
+function loadEnvFile(filePath) {
+  let contents;
+  try {
+    contents = readFileSync(filePath, 'utf8');
+  } catch (error) {
+    if (error?.code === 'ENOENT') return;
+    throw error;
+  }
 
-// Environment variables remain supported as a fallback, but are not required
-// when the two constants above have been filled in.
-const url = SUPABASE_URL.startsWith('https://')
-  ? SUPABASE_URL
-  : process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
-const serviceKey = SUPABASE_SERVICE_ROLE_KEY.startsWith('PASTE_')
-  ? process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-  : SUPABASE_SERVICE_ROLE_KEY;
-if (!url || !serviceKey || url.includes('PASTE_YOUR_')) {
-  console.error(
-    'Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY at the top of scripts/seed-demo-data.mjs, then run the script again.',
-  );
+  for (const line of contents.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const match = trimmed.match(/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+    if (!match) continue;
+    const [, key, rawValue] = match;
+    if (process.env[key] !== undefined) continue;
+    let value = rawValue.trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    } else {
+      value = value.replace(/\s+#.*$/, '').trim();
+    }
+    process.env[key] = value;
+  }
+}
+
+loadEnvFile(resolve(process.cwd(), '.env.local'));
+loadEnvFile(resolve(process.cwd(), '.env'));
+
+const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const DEMO_PASSWORD = process.env.PCTC_DEMO_PASSWORD || '';
+const missing = [];
+if (!url) missing.push('SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL)');
+if (!serviceKey) missing.push('SUPABASE_SERVICE_ROLE_KEY');
+if (!DEMO_PASSWORD) missing.push('PCTC_DEMO_PASSWORD');
+if (missing.length) {
+  console.error(`Missing required environment variable(s): ${missing.join(', ')}.`);
+  console.error('Set them in .env.local, .env, or your shell before running the demo seed script.');
+  process.exit(1);
+}
+if (!/^https:\/\//.test(url)) {
+  console.error('SUPABASE_URL must be a valid https:// Supabase project URL.');
   process.exit(1);
 }
 const supabase = createClient(url, serviceKey, {
@@ -269,35 +299,28 @@ async function resetPreviousDemoData() {
     ]),
   ];
 
-  // Payments reference memberships and registrations without cascading deletes.
-  must(
-    await supabase.from('payments').delete().like('notes', 'PCTC demo seed%'),
-    'Delete previous demo seed payments',
-  );
+  // Payments use the current Stripe foundation schema. Do not query legacy columns
+  // such as notes, recorded_by, membership_id, or registration_id.
+  const demoSeedPayments =
+    must(
+      await supabase.from('payments').select('id').like('idempotency_key', 'demo-seed:%'),
+      'Find previous demo seed payments',
+    ) || [];
+  const userPayments = userIds.length
+    ? must(
+        await supabase.from('payments').select('id').in('user_id', userIds),
+        'Find payments belonging to previous demo users',
+      ) || []
+    : [];
+  const paymentIds = [...new Set([...demoSeedPayments, ...userPayments].map((row) => row.id))];
+
   await deleteIn(
-    'payments',
-    'user_id',
-    userIds,
-    'Delete payments belonging to previous demo users',
+    'payment_refunds',
+    'payment_id',
+    paymentIds,
+    'Delete refunds for previous demo payments',
   );
-  await deleteIn(
-    'payments',
-    'recorded_by',
-    userIds,
-    'Delete payments recorded by previous demo users',
-  );
-  await deleteIn(
-    'payments',
-    'membership_id',
-    membershipIds,
-    'Delete payments linked to previous demo memberships',
-  );
-  await deleteIn(
-    'payments',
-    'registration_id',
-    registrationIds,
-    'Delete payments linked to previous demo registrations',
-  );
+  await deleteIn('payments', 'id', paymentIds, 'Delete previous demo payments');
 
   // Clean auxiliary records that can otherwise keep demo profiles referenced.
   await deleteIn(
@@ -345,10 +368,9 @@ async function resetPreviousDemoData() {
       await supabase.from('events').update({ created_by: null }).in('created_by', userIds),
       'Detach demo creators from non-demo events',
     );
-    must(
-      await supabase.from('event_scores').update({ entered_by: null }).in('entered_by', userIds),
-      'Detach demo score authors from non-demo scores',
-    );
+    // Do not update event_scores here: the score-entry window trigger also rejects
+    // metadata-only updates on old events. Seed-owned events are deleted below, which
+    // removes their scores without bypassing the database rule.
     must(
       await supabase.from('documents').update({ uploaded_by: null }).in('uploaded_by', userIds),
       'Detach demo uploaders from documents',
@@ -459,9 +481,10 @@ function makeEvents(adminId) {
     });
   }
   // Two recent past sessions can accept scores under the application's two-day score-entry rule.
+  // Use relative timestamps rather than fixed UTC hours so both sessions remain within the
+  // database trigger's two-day window regardless of the time of day the seeder is run.
   for (let i = 0; i < 2; i++) {
-    const start = shiftDays(now, -(i + 1));
-    start.setUTCHours(2 + i, 0, 0, 0);
+    const start = new Date(now.getTime() - (i + 1) * 6 * 3600000);
     items.push({
       slug: `pctc-demo-recent-past-${i + 1}`,
       title: i === 0 ? 'Recent Social Doubles' : 'Recent Ladder Match',
@@ -572,19 +595,21 @@ async function main() {
       ),
     );
   const paidMemberships = insertedMemberships.filter((m) => m.payment_status === 'paid');
-  const paymentRows = paidMemberships.map((m, i) => ({
-    user_id: m.user_id,
-    membership_id: m.id,
-    amount_cents: i % 2 === 0 ? 15000 : 22000,
-    currency: 'CAD',
-    provider: pick(['etransfer', 'cash', 'cheque', 'stripe'], i),
-    status: i % 9 === 0 ? 'recorded_manually' : 'paid',
-    provider_reference: `PCTC-DEMO-MEM-${String(i + 1).padStart(3, '0')}`,
-    recorded_by: adminId,
-    notes: 'PCTC demo seed — membership payment',
-    created_at: iso(shiftDays(now, -(i % 100))),
-    paid_at: iso(shiftDays(now, -(i % 100))),
-  }));
+  const paymentRows = paidMemberships.map((m, i) => {
+    const paidAt = iso(shiftDays(now, -(i % 100)));
+    return {
+      user_id: m.user_id,
+      purpose: 'membership',
+      business_record_id: m.id,
+      amount_minor: i % 2 === 0 ? 15000 : 22000,
+      currency: 'cad',
+      status: 'succeeded',
+      idempotency_key: `demo-seed:membership:${m.id}`,
+      created_at: paidAt,
+      updated_at: paidAt,
+      succeeded_at: paidAt,
+    };
+  });
   for (let i = 0; i < paymentRows.length; i += 100)
     must(
       await supabase.from('payments').insert(paymentRows.slice(i, i + 100)),
@@ -760,14 +785,15 @@ async function main() {
       'Insert demo court assignments',
     );
 
-  // Seed scores for every past non-tournament demo session. Before running this script,
-  // temporarily disable the block_old_event_scores trigger in Supabase SQL Editor;
-  // re-enable it immediately after the seed completes (instructions in scripts/README-demo-seed.md).
+  // The database enforces that scores may only be entered within two days of the event.
+  // Seed scores only for the two deliberately recent past sessions; never attempt to insert
+  // scores for the older historical demo sessions. The trigger stays enabled throughout.
   const scoreRows = [];
-  const scoreEligibleEvents = insertedEvents.filter(
-    (event) =>
-      new Date(event.starts_at).getTime() < now.getTime() && event.event_type !== 'tournament',
-  );
+  const scoreCutoff = now.getTime() - 2 * 86400000;
+  const scoreEligibleEvents = insertedEvents.filter((event) => {
+    const startsAt = new Date(event.starts_at).getTime();
+    return startsAt < now.getTime() && startsAt >= scoreCutoff && event.event_type !== 'tournament';
+  });
   for (const event of scoreEligibleEvents) {
     const confirmed = (registrationsByEvent.get(event.id) || []).filter(
       (r) => r.status === 'confirmed',

@@ -49,7 +49,7 @@ export default async function DashboardPage() {
   ] = await Promise.all([
     db
       .from('memberships')
-      .select('membership_type,status,payment_status,created_at')
+      .select('id,membership_type,status,payment_status,created_at,starts_on,ends_on')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -71,10 +71,11 @@ export default async function DashboardPage() {
       .maybeSingle(),
     db
       .from('payments')
-      .select('paid_at,created_at,membership_id')
+      .select('succeeded_at,created_at,business_record_id')
       .eq('user_id', user.id)
-      .in('status', ['paid', 'recorded_manually'])
-      .order('paid_at', { ascending: false, nullsFirst: false })
+      .eq('purpose', 'membership')
+      .eq('status', 'succeeded')
+      .order('succeeded_at', { ascending: false, nullsFirst: false })
       .limit(1)
       .maybeSingle(),
   ]);
@@ -103,6 +104,48 @@ export default async function DashboardPage() {
     );
     familyInfo = family;
   }
+
+  const seasonSettings = membershipSettings ?? {
+    season_start_month: 4,
+    season_start_day: 1,
+    season_end_month: 9,
+    season_end_day: 30,
+  };
+  const nowForSeason = new Date();
+  const seasonStartThisYear = new Date(
+    nowForSeason.getFullYear(),
+    seasonSettings.season_start_month - 1,
+    seasonSettings.season_start_day,
+  );
+  const seasonEndThisYear = new Date(
+    nowForSeason.getFullYear(),
+    seasonSettings.season_end_month - 1,
+    seasonSettings.season_end_day,
+    23,
+    59,
+    59,
+    999,
+  );
+  const targetSeasonYear =
+    nowForSeason < seasonStartThisYear
+      ? nowForSeason.getFullYear()
+      : nowForSeason > seasonEndThisYear
+        ? nowForSeason.getFullYear() + 1
+        : nowForSeason.getFullYear();
+  const targetSeasonStart = `${targetSeasonYear}-${String(seasonSettings.season_start_month).padStart(2, '0')}-${String(seasonSettings.season_start_day).padStart(2, '0')}`;
+  const targetSeasonEnd = `${targetSeasonYear}-${String(seasonSettings.season_end_month).padStart(2, '0')}-${String(seasonSettings.season_end_day).padStart(2, '0')}`;
+  const familyPaidThisSeason = Boolean(
+    familyInfo &&
+    familyInfo.season_year === targetSeasonYear &&
+    (familyInfo.paid_at || familyInfo.payment_id),
+  );
+  const individualMembershipCurrentSeason = Boolean(
+    latestMembership &&
+    latestMembership.starts_on === targetSeasonStart &&
+    latestMembership.ends_on === targetSeasonEnd,
+  );
+  const latestPaymentForMembership =
+    latestPayment?.business_record_id === latestMembership?.id ? latestPayment : null;
 
   if (profile?.application_status !== 'approved') {
     const clubName = club?.club_name || 'Port Coquitlam Tennis Club';
@@ -224,28 +267,34 @@ export default async function DashboardPage() {
                     ? 'Family invitation pending'
                     : familyLink?.status === 'removed_next_season'
                       ? 'Family membership · leaving next season'
-                      : latestMembership?.membership_type
+                      : individualMembershipCurrentSeason && latestMembership?.membership_type
                         ? String(latestMembership.membership_type).toLowerCase().includes('family')
                           ? 'Family membership'
                           : 'Single membership'
-                        : 'No membership assigned'}
+                        : latestMembership?.membership_type
+                          ? 'Previous-season membership'
+                          : 'No membership assigned'}
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
                 {familyLink
-                  ? familyInfo?.paid_at || familyInfo?.payment_id
+                  ? familyPaidThisSeason
                     ? 'Family membership paid'
-                    : 'Family membership unpaid'
-                  : latestMembership?.payment_status === 'paid'
-                    ? 'Membership paid'
-                    : 'Payment status: ' + (latestMembership?.payment_status || 'unpaid')}
+                    : 'Family membership unpaid for the current season'
+                  : individualMembershipCurrentSeason
+                    ? latestMembership?.payment_status === 'paid'
+                      ? 'Membership paid'
+                      : 'Payment status: unpaid'
+                    : 'No payment recorded for the current season'}
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
                 Season fee:{' '}
                 {new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(
-                  (familyLink ||
-                  String(latestMembership?.membership_type || '')
-                    .toLowerCase()
-                    .includes('family')
+                  ((['confirmed', 'removed_next_season'].includes(familyLink?.status || '') &&
+                    familyInfo?.season_year === targetSeasonYear) ||
+                  (individualMembershipCurrentSeason &&
+                    String(latestMembership?.membership_type || '')
+                      .toLowerCase()
+                      .includes('family'))
                     ? (membershipSettings?.family_price_cents ?? 22000)
                     : (membershipSettings?.single_price_cents ?? 15000)) / 100,
                 )}
@@ -254,13 +303,24 @@ export default async function DashboardPage() {
                 Paid date:{' '}
                 {(
                   familyLink
-                    ? familyInfo?.paid_at || null
-                    : latestPayment?.paid_at || latestPayment?.created_at || null
+                    ? familyPaidThisSeason
+                      ? familyInfo?.paid_at || null
+                      : null
+                    : individualMembershipCurrentSeason
+                      ? latestPaymentForMembership?.succeeded_at ||
+                        latestPaymentForMembership?.created_at ||
+                        null
+                      : null
                 )
                   ? new Date(
                       (familyLink
-                        ? familyInfo?.paid_at
-                        : latestPayment?.paid_at || latestPayment?.created_at) as string,
+                        ? familyPaidThisSeason
+                          ? familyInfo?.paid_at
+                          : null
+                        : individualMembershipCurrentSeason
+                          ? latestPaymentForMembership?.succeeded_at ||
+                            latestPaymentForMembership?.created_at
+                          : null) as string,
                     ).toLocaleDateString('en-CA', {
                       year: 'numeric',
                       month: 'short',

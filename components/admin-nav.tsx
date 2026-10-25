@@ -13,11 +13,13 @@ import {
   Files,
   ShieldCheck,
   ClipboardList,
+  CreditCard,
 } from 'lucide-react';
 const adminLinks = [
   { href: '/admin/dashboard', label: 'Dashboard', Icon: LayoutDashboard },
   { href: '/admin/club-profile', label: 'Club Profile', Icon: Building2 },
   { href: '/admin/members', label: 'Membership', Icon: Users },
+  { href: '/admin/payments', label: 'Payments', Icon: CreditCard },
   { href: '/admin/events', label: 'Events', Icon: CalendarDays },
   { href: '/admin/website', label: 'Publications', Icon: Newspaper },
   { href: '/admin/documents', label: 'Documents', Icon: Files },
