@@ -3,14 +3,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   constructEvent: vi.fn(),
   retrievePaymentIntent: vi.fn(),
+  retrieveCharge: vi.fn(),
   rpc: vi.fn(),
   from: vi.fn(),
+  writes: [] as Array<{ table: string; values: Record<string, unknown> }>,
 }));
 
 vi.mock('@/lib/payments/stripe', () => ({
   getStripeClient: () => ({
     webhooks: { constructEvent: mocks.constructEvent },
     paymentIntents: { retrieve: mocks.retrievePaymentIntent },
+    charges: { retrieve: mocks.retrieveCharge },
   }),
   getStripeWebhookSecret: () => 'whsec_test',
 }));
@@ -19,6 +22,61 @@ vi.mock('@/lib/payments/server', () => ({
 }));
 
 import { POST } from '@/app/api/webhooks/stripe/route';
+
+function configureEvent(type: string, object: Record<string, unknown>) {
+  mocks.constructEvent.mockReturnValue({
+    id: `evt_${type.replaceAll('.', '_')}`,
+    type,
+    livemode: false,
+    data: { object },
+  });
+  mocks.rpc.mockImplementation(async (name: string) => ({
+    data: name === 'claim_stripe_webhook_event',
+    error: null,
+  }));
+}
+
+function configureStorage(
+  payment: Record<string, unknown>,
+  options: {
+    latestPayment?: Record<string, unknown> | null;
+    updateResult?: { data: unknown; error: unknown };
+    refunds?: Array<Record<string, unknown>>;
+  } = {},
+) {
+  let lookupCount = 0;
+  mocks.from.mockImplementation((table: string) => {
+    if (table === 'payments') {
+      let operation = 'select';
+      const query = {
+        select: () => query,
+        eq: () => query,
+        in: () => query,
+        update: (values: Record<string, unknown>) => {
+          operation = 'update';
+          mocks.writes.push({ table, values });
+          return query;
+        },
+        maybeSingle: async () => {
+          if (operation === 'update')
+            return options.updateResult ?? { data: { id: payment.id }, error: null };
+          const result = lookupCount++ === 0 ? payment : (options.latestPayment ?? null);
+          return { data: result, error: null };
+        },
+      };
+      return query;
+    }
+    if (table === 'payment_refunds') return { upsert: async () => ({ error: null }) };
+    if (table === 'stripe_webhook_events')
+      return { update: () => ({ eq: async () => ({ error: null }) }) };
+    if (table === 'audit_logs') return { upsert: async () => ({ error: null }) };
+    throw new Error(`Unexpected table ${table}`);
+  });
+  mocks.retrieveCharge.mockResolvedValue({
+    amount_refunded: 250,
+    refunds: { data: options.refunds ?? [] },
+  });
+}
 
 function request(signature?: string) {
   return new Request('http://localhost/api/webhooks/stripe', {
@@ -31,6 +89,7 @@ function request(signature?: string) {
 describe('Stripe webhook endpoint', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    mocks.writes = [];
   });
 
   it('rejects requests without a Stripe signature before accessing storage', async () => {
@@ -66,6 +125,170 @@ describe('Stripe webhook endpoint', () => {
       p_livemode: false,
     });
     expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it('ignores unsupported events and safely rejects a failed event claim', async () => {
+    mocks.constructEvent.mockReturnValue({
+      id: 'evt_ignored',
+      type: 'customer.updated',
+      livemode: false,
+      data: { object: {} },
+    });
+    const ignored = await POST(request('valid-signature'));
+    expect(await ignored.json()).toEqual({ received: true, ignored: true });
+    expect(mocks.rpc).not.toHaveBeenCalled();
+
+    mocks.constructEvent.mockReturnValue({
+      id: 'evt_claim_failure',
+      type: 'payment_intent.processing',
+      livemode: false,
+      data: { object: {} },
+    });
+    mocks.rpc.mockResolvedValueOnce({ data: null, error: { message: 'storage unavailable' } });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const failed = await POST(request('valid-signature'));
+    expect(failed.status).toBe(500);
+    expect(await failed.json()).toEqual({ error: 'Could not safely claim webhook event.' });
+  });
+
+  it.each([
+    ['payment_intent.processing', 'processing'],
+    ['payment_intent.payment_failed', 'failed'],
+    ['payment_intent.canceled', 'canceled'],
+  ])('updates pending payments for %s events', async (eventType, nextStatus) => {
+    const payment = {
+      id: 'payment-transition',
+      status: 'pending',
+      amount_minor: 1250,
+      currency: 'cad',
+      stripe_payment_intent_id: null,
+      last_stripe_event_id: null,
+      purpose: 'membership',
+      business_record_id: 'membership-1',
+      user_id: 'user-1',
+    };
+    configureEvent(eventType, {
+      id: 'pi-transition',
+      amount: 1250,
+      currency: 'cad',
+      last_payment_error: eventType.endsWith('payment_failed') ? { code: 'card_declined' } : null,
+      metadata: {
+        pctc_payment_id: payment.id,
+        pctc_purpose: payment.purpose,
+        pctc_business_record_id: payment.business_record_id,
+        pctc_user_id: payment.user_id,
+      },
+    });
+    configureStorage(payment);
+    const response = await POST(request('valid-signature'));
+    expect(response.status).toBe(200);
+    expect(mocks.writes).toContainEqual({
+      table: 'payments',
+      values: expect.objectContaining({
+        status: nextStatus,
+        stripe_payment_intent_id: 'pi-transition',
+      }),
+    });
+    if (eventType === 'payment_intent.payment_failed') {
+      expect(mocks.writes[0]?.values).toMatchObject({
+        failure_code: 'card_declined',
+        failure_message: 'Payment failed. See the Stripe dashboard for diagnostic details.',
+      });
+    }
+    expect(mocks.rpc).not.toHaveBeenCalledWith('fulfill_successful_payment', expect.anything());
+  });
+
+  it('cancels pending payments on checkout expiration and preserves a concurrent success', async () => {
+    const payment = {
+      id: 'payment-expired',
+      status: 'pending',
+      purpose: 'membership',
+      business_record_id: 'membership-1',
+      user_id: 'user-1',
+      stripe_checkout_session_id: 'cs-expired',
+    };
+    const metadata = {
+      pctc_purpose: payment.purpose,
+      pctc_business_record_id: payment.business_record_id,
+      pctc_user_id: payment.user_id,
+    };
+    configureEvent('checkout.session.expired', {
+      id: 'cs-expired',
+      metadata: { ...metadata, pctc_payment_id: payment.id },
+    });
+    configureStorage(payment);
+    const canceled = await POST(request('valid-signature'));
+    expect(canceled.status).toBe(200);
+
+    configureEvent('checkout.session.expired', {
+      id: 'cs-expired',
+      metadata: { ...metadata, pctc_payment_id: payment.id },
+    });
+    configureStorage(payment, {
+      updateResult: { data: null, error: null },
+      latestPayment: { status: 'succeeded' },
+    });
+    const concurrentSuccess = await POST(request('valid-signature'));
+    expect(concurrentSuccess.status).toBe(200);
+  });
+
+  it('accepts abandoned async checkouts without a PaymentIntent and stores charge refunds', async () => {
+    const payment = {
+      id: 'payment-event',
+      status: 'succeeded',
+      amount_minor: 1250,
+      currency: 'cad',
+      refunded_amount_minor: 0,
+      stripe_payment_intent_id: 'pi-refund',
+      purpose: 'membership',
+      business_record_id: 'membership-1',
+      user_id: 'user-1',
+      stripe_checkout_session_id: 'cs-abandoned',
+    };
+    configureEvent('checkout.session.async_payment_failed', {
+      id: 'cs-abandoned',
+      payment_intent: null,
+      metadata: {
+        pctc_payment_id: payment.id,
+        pctc_purpose: payment.purpose,
+        pctc_business_record_id: payment.business_record_id,
+        pctc_user_id: payment.user_id,
+      },
+    });
+    configureStorage(payment);
+    const abandoned = await POST(request('valid-signature'));
+    expect(abandoned.status).toBe(200);
+    expect(mocks.retrievePaymentIntent).not.toHaveBeenCalled();
+
+    configureEvent('charge.refunded', {
+      id: 'ch-refund',
+      payment_intent: 'pi-refund',
+      amount: 1250,
+      currency: 'cad',
+    });
+    configureStorage(payment, {
+      refunds: [
+        {
+          id: 're-1',
+          amount: 250,
+          currency: 'cad',
+          status: null,
+          reason: null,
+        },
+      ],
+    });
+    const refunded = await POST(request('valid-signature'));
+    expect(refunded.status).toBe(200);
+    expect(mocks.retrieveCharge).toHaveBeenCalledWith('ch-refund', {
+      expand: ['refunds.data'],
+    });
+    expect(mocks.writes).toContainEqual({
+      table: 'payments',
+      values: expect.objectContaining({
+        status: 'partially_refunded',
+        refunded_amount_minor: 250,
+      }),
+    });
   });
 
   it('fulfills the linked business record after a validated successful payment', async () => {

@@ -13,6 +13,7 @@ vi.mock('@/lib/supabase-browser', () => ({
 
 import { PaymentHistoryTable } from '@/components/payment-history-table';
 import { AdminPaymentRefundForm } from '@/components/admin-payment-refund-form';
+import { AdminManualPaymentRefundForm } from '@/components/admin-manual-payment-refund-form';
 
 const rows = [
   {
@@ -90,10 +91,7 @@ describe('PaymentHistoryTable', () => {
     expect(screen.getByText('Showing 1 of 2 payments')).toBeInTheDocument();
     expect(screen.getByText('Jordan Member')).toBeInTheDocument();
     await user.clear(screen.getByRole('searchbox', { name: 'Search user or event' }));
-    await user.selectOptions(
-      screen.getByRole('combobox', { name: 'Payment status' }),
-      'succeeded',
-    );
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Payment status' }), 'succeeded');
     expect(screen.getByText('Alex Member')).toBeInTheDocument();
     expect(screen.queryByText('Jordan Member')).not.toBeInTheDocument();
     await user.clear(screen.getByLabelText('From date'));
@@ -154,5 +152,47 @@ describe('AdminPaymentRefundForm', () => {
     rerender(<AdminPaymentRefundForm paymentId="payment-3" remainingMinor={1000} />);
     await user.click(screen.getByRole('button', { name: 'Request refund for payment-3' }));
     expect(await screen.findByRole('status')).toHaveTextContent('Refund unavailable');
+  });
+});
+
+describe('AdminManualPaymentRefundForm', () => {
+  it('requires confirmation, submits the refund, and reports server errors', async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ amountMinor: 1250, currency: 'cad' }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: 'Manual ledger unavailable.' }), { status: 503 }),
+      );
+    const { rerender } = render(
+      <AdminManualPaymentRefundForm paymentId="interac-1" remainingMinor={2500} />,
+    );
+    const amount = screen.getByRole('spinbutton', { name: 'Manual refund amount for interac-1' });
+    await user.clear(amount);
+    await user.type(amount, '12.50');
+    await user.type(screen.getByLabelText('Manual refund note for interac-1'), ' member request ');
+    await user.click(screen.getByRole('button', { name: 'Record manual refund for interac-1' }));
+    expect(screen.getByRole('alertdialog')).toHaveTextContent('This records the refund in PCTC');
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Record manual refund for interac-1' }));
+    await user.click(screen.getByRole('button', { name: 'Record refund' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({
+      paymentId: 'interac-1',
+      amountMinor: 1250,
+      note: 'member request',
+      idempotencyKey: expect.any(String),
+    });
+    expect(await screen.findByRole('status')).toHaveTextContent('Refund recorded');
+    expect(routerRefresh).toHaveBeenCalledOnce();
+
+    rerender(<AdminManualPaymentRefundForm paymentId="interac-2" remainingMinor={1000} />);
+    await user.click(screen.getByRole('button', { name: 'Record manual refund for interac-2' }));
+    await user.click(screen.getByRole('button', { name: 'Record refund' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Manual ledger unavailable.');
   });
 });

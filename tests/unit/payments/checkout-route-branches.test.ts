@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   user: null as null | { id: string; email?: string },
@@ -37,6 +37,7 @@ function queryFor(table: string) {
   const query = {
     select: () => query,
     eq: () => query,
+    is: () => query,
     in: () => query,
     order: () => query,
     limit: () => query,
@@ -107,6 +108,38 @@ const profile = {
 };
 const waiver = { version: 3 };
 
+function configureEventRegistration(
+  overrides: Record<string, unknown> = {},
+  eventOverrides: Record<string, unknown> = {},
+) {
+  configureCommon();
+  const event = {
+    id: 'event-1',
+    title: 'Summer Social',
+    price_cents: 2500,
+    status: 'published',
+    starts_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    registration_opens_at: '2020-01-01T00:00:00Z',
+    registration_closes_at: null,
+    members_only: false,
+    ...eventOverrides,
+  };
+  mocks.responses['registrations.maybeSingle'] = [
+    {
+      id: 'registration-1',
+      event_id: 'event-1',
+      user_id: 'member-1',
+      status: 'confirmed',
+      payment_status: 'pending',
+      amount_cents: 2500,
+      created_at: new Date(Date.now() - 60_000).toISOString(),
+      event,
+      ...overrides,
+    },
+  ];
+  return { purpose: 'event_registration', businessRecordId: 'registration-1' };
+}
+
 function configureCommon() {
   mocks.responses['profiles.maybeSingle'] = [profile];
   mocks.responses['membership_plan_settings.maybeSingle'] = [settings];
@@ -141,6 +174,10 @@ beforeEach(() => {
   });
   vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://supabase.example');
   vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service-test');
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe('checkout route branch coverage', () => {
@@ -429,5 +466,87 @@ describe('checkout route branch coverage', () => {
     );
     expect(await open.json()).toMatchObject({ checkoutUrl: 'https://checkout.example/existing' });
     expect(mocks.sessionCreate).not.toHaveBeenCalled();
+  });
+
+  it('rejects event registrations outside payment-eligible states and windows', async () => {
+    const body = configureEventRegistration();
+    mocks.responses['registrations.maybeSingle'] = [];
+    expect((await POST(request({ ...body, businessRecordId: '' }))).status).toBe(400);
+
+    for (const override of [
+      { registration: { status: 'confirmed', payment_status: 'not_required' } },
+      { registration: { status: 'confirmed', payment_status: 'refunded' } },
+      { event: { status: 'draft' } },
+      { event: { starts_at: new Date(Date.now() - 60_000).toISOString() } },
+      { event: { registration_opens_at: new Date(Date.now() + 60_000).toISOString() } },
+      { event: { registration_closes_at: new Date(Date.now() - 60_000).toISOString() } },
+      { event: { price_cents: 0 } },
+    ]) {
+      const registrationOverrides = override.registration ?? {};
+      const registration = configureEventRegistration(registrationOverrides, override.event ?? {});
+      const response = await POST(request(registration));
+      expect(response.status).toBe(409);
+    }
+  });
+
+  it('submits Interac requests, emails instructions, and reuses submitted requests', async () => {
+    const body = configureEventRegistration();
+    mocks.responses['payment_method_settings.maybeSingle'] = [
+      {
+        interac_enabled: true,
+        interac_recipient_email: 'transfer@example.test',
+        interac_instructions: 'Add your member name.',
+      },
+    ];
+    mocks.responses['payments.maybeSingle'] = [null];
+    mocks.responses['payments.insert.single'] = [{ id: 'interac-payment-1' }];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
+    vi.stubEnv('RESEND_API_KEY', 'resend-test');
+    vi.stubEnv('RESEND_FROM_EMAIL', 'Club <club@example.test>');
+
+    const submitted = await POST(request({ ...body, provider: 'interac' }));
+    expect(submitted.status).toBe(200);
+    expect(await submitted.json()).toMatchObject({
+      provider: 'interac',
+      paymentId: 'interac-payment-1',
+      amountMinor: 2500,
+      recipientEmail: 'transfer@example.test',
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(mocks.calls).toContainEqual(
+      expect.objectContaining({
+        table: 'payments',
+        operation: 'insert',
+        values: expect.objectContaining({ provider: 'interac', manual_review_status: 'submitted' }),
+      }),
+    );
+
+    mocks.calls = [];
+    configureEventRegistration();
+    mocks.responses['payment_method_settings.maybeSingle'] = [
+      {
+        interac_enabled: true,
+        interac_recipient_email: 'transfer@example.test',
+        interac_instructions: 'Add your member name.',
+      },
+    ];
+    mocks.responses['payments.maybeSingle'] = [
+      {
+        id: 'interac-payment-existing',
+        user_id: 'member-1',
+        provider: 'interac',
+        amount_minor: 2500,
+        currency: 'cad',
+        status: 'pending',
+        manual_review_status: 'submitted',
+      },
+    ];
+    const reused = await POST(request({ ...body, provider: 'interac' }));
+    expect(reused.status).toBe(200);
+    expect(await reused.json()).toMatchObject({ paymentId: 'interac-payment-existing' });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(mocks.calls).not.toContainEqual(
+      expect.objectContaining({ table: 'payments', operation: 'insert' }),
+    );
   });
 });
