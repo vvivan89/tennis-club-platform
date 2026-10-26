@@ -22,7 +22,7 @@ export default async function MemberPaymentsPage() {
     db
       .from('payments')
       .select(
-        'id,purpose,business_record_id,amount_minor,currency,status,refunded_amount_minor,created_at,succeeded_at',
+        'id,purpose,business_record_id,amount_minor,currency,status,provider,refunded_amount_minor,created_at,succeeded_at',
       )
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
@@ -33,6 +33,7 @@ export default async function MemberPaymentsPage() {
 
   let rows: Array<{
     id: string;
+    provider: string;
     purpose: string;
     eventName: string | null;
     amountMinor: number;
@@ -71,6 +72,7 @@ export default async function MemberPaymentsPage() {
       const event = registration ? eventById.get(registration.event_id) : null;
       return {
         id: payment.id,
+        provider: payment.provider ?? 'stripe',
         purpose: payment.purpose,
         eventName: event?.title ?? null,
         amountMinor: payment.amount_minor,

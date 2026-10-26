@@ -3,9 +3,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AdminPaymentRefundForm } from '@/components/admin-payment-refund-form';
+import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 
 type PaymentRow = {
   id: string;
+  provider?: string;
   purpose: string;
   eventName: string | null;
   amountMinor: number;
@@ -33,6 +35,10 @@ function formatPurpose(purpose: string) {
     .replace(/\b\w/g, (character) => character.toLocaleUpperCase());
 }
 
+function titleProvider(provider?: string) {
+  return (provider || 'stripe').replace(/^\w/, (character) => character.toUpperCase());
+}
+
 function formatStatus(status: string) {
   return status.replaceAll('_', ' ').replace(/\b\w/g, (character) => character.toLocaleUpperCase());
 }
@@ -56,9 +62,19 @@ export function PaymentHistoryTable({
 }) {
   const router = useRouter();
   useEffect(() => {
-    // Keep member and admin history synchronized with asynchronous Stripe refunds.
+    const db = createSupabaseBrowserClient();
+    const channel = db
+      .channel('payment-history-live-updates')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'payments' }, () => {
+        router.refresh();
+      })
+      .subscribe();
+    // Keep history synchronized if realtime is temporarily unavailable.
     const timer = setInterval(() => router.refresh(), 15000);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      void db.removeChannel(channel);
+    };
   }, [router]);
   const [search, setSearch] = useState('');
   const [purpose, setPurpose] = useState('all');
@@ -90,7 +106,7 @@ export function PaymentHistoryTable({
           ? row.eventName || 'Event Registration'
           : formatPurpose(row.purpose);
       if (purpose !== 'all' && purposeLabel !== purpose) return false;
-      if (admin && status !== 'all' && row.status !== status) return false;
+      if (status !== 'all' && row.status !== status) return false;
       if (minAmount !== '' && row.amountMinor < Number(minAmount) * 100) return false;
       if (maxAmount !== '' && row.amountMinor > Number(maxAmount) * 100) return false;
       const date = (admin ? row.createdAt : row.succeededAt || row.createdAt).slice(0, 10);
@@ -108,7 +124,7 @@ export function PaymentHistoryTable({
   return (
     <div className="mt-6 space-y-4">
       <div
-        className={`grid gap-3 rounded-xl border border-border p-4 sm:grid-cols-2 ${admin ? 'lg:grid-cols-9' : 'lg:grid-cols-6'}`}
+        className={`grid gap-3 rounded-xl border border-border p-4 sm:grid-cols-2 ${admin ? 'lg:grid-cols-9' : 'lg:grid-cols-7'}`}
       >
         {admin && (
           <label className="block text-sm lg:col-span-2">
@@ -137,23 +153,21 @@ export function PaymentHistoryTable({
             ))}
           </select>
         </label>
-        {admin && (
-          <label className="block text-sm">
-            <span className="mb-1 block text-muted-foreground">Status</span>
-            <select
-              value={status}
-              onChange={(event) => setStatus(event.target.value)}
-              className="w-full rounded-md border border-input bg-background px-3 py-2"
-            >
-              <option value="all">All statuses</option>
-              {PAYMENT_STATUSES.map((value) => (
-                <option key={value} value={value}>
-                  {formatStatus(value)}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+        <label className="block text-sm">
+          <span className="mb-1 block text-muted-foreground">Payment status</span>
+          <select
+            value={status}
+            onChange={(event) => setStatus(event.target.value)}
+            className="w-full rounded-md border border-input bg-background px-3 py-2"
+          >
+            <option value="all">All statuses</option>
+            {PAYMENT_STATUSES.map((value) => (
+              <option key={value} value={value}>
+                {formatStatus(value)}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="block text-sm">
           <span className="mb-1 block text-muted-foreground">Minimum amount</span>
           <input
@@ -228,6 +242,7 @@ export function PaymentHistoryTable({
               {admin && <th className="whitespace-nowrap px-3 py-3">Proceeds</th>}
               <th className="whitespace-nowrap px-3 py-3">Refunded</th>
               <th className="px-3 py-3">Status</th>
+              {!admin && <th className="px-3 py-3">Method</th>}
               {!admin && <th className="px-3 py-3">Reference</th>}
               {admin && <th className="min-w-64 px-3 py-3">Refund action</th>}
             </tr>
@@ -274,6 +289,7 @@ export function PaymentHistoryTable({
                       : '—'}
                   </td>
                   <td className="px-3 py-3">{formatStatus(row.status)}</td>
+                  {!admin && <td className="px-3 py-3">{titleProvider(row.provider)}</td>}
                   {!admin && (
                     <td className="max-w-48 truncate px-3 py-3 font-mono text-xs">{row.id}</td>
                   )}
@@ -292,7 +308,7 @@ export function PaymentHistoryTable({
             {!filteredRows.length && (
               <tr>
                 <td
-                  colSpan={admin ? 8 : 6}
+                  colSpan={admin ? 8 : 7}
                   className="px-4 py-8 text-center text-sm text-muted-foreground"
                 >
                   No payments match these filters.

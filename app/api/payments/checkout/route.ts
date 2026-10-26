@@ -9,6 +9,7 @@ export const runtime = 'nodejs';
 
 type CheckoutBody = {
   purpose?: 'membership' | 'event_registration';
+  provider?: 'stripe' | 'interac';
   businessRecordId?: string;
   membershipKind?: 'individual' | 'family';
   waiverAccepted?: boolean;
@@ -389,6 +390,297 @@ export async function POST(request: Request) {
           { status: 409 },
         );
       description = `PCTC event registration — ${event.title}`;
+    }
+
+    if (body.provider === 'interac') {
+      const { data: methodSettings, error: methodSettingsError } = await db
+        .from('payment_method_settings')
+        .select('interac_enabled,interac_recipient_email,interac_instructions')
+        .eq('id', 1)
+        .maybeSingle();
+      if (methodSettingsError) throw new Error('Could not load Interac payment settings.');
+      if (!methodSettings?.interac_enabled || !methodSettings.interac_recipient_email.trim())
+        return NextResponse.json(
+          { error: 'Interac e-Transfer is not currently available.' },
+          { status: 503 },
+        );
+      // The database permits only one active payment per business record across
+      // all providers. Inspect that record before creating an Interac request so
+      // a member can safely switch away from an abandoned Stripe Checkout.
+      const { data: prior, error: priorError } = await db
+        .from('payments')
+        .select(
+          'id,user_id,provider,amount_minor,currency,status,manual_review_status,stripe_checkout_session_id',
+        )
+        .eq('purpose', body.purpose)
+        .eq('business_record_id', businessRecordId)
+        .in('status', ['pending', 'processing', 'succeeded', 'partially_refunded', 'refunded'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (priorError) throw new Error('Could not check existing payment requests.');
+
+      let paymentId: string | undefined;
+      let shouldSendInstructions = false;
+      if (prior) {
+        if (prior.user_id !== user.id) {
+          return NextResponse.json(
+            {
+              error:
+                'An active payment already exists for this registration. Contact the club if you believe this is an error.',
+            },
+            { status: 409 },
+          );
+        }
+        if (prior.amount_minor !== amountMinor || prior.currency?.toLowerCase() !== currency) {
+          return NextResponse.json(
+            { error: 'An existing payment request has a different amount. Contact the club.' },
+            { status: 409 },
+          );
+        }
+        if (
+          prior.provider === 'interac' &&
+          ['submitted', 'investigating'].includes(prior.manual_review_status || '') &&
+          prior.status === 'pending'
+        ) {
+          paymentId = prior.id;
+        } else if (prior.provider === 'stripe' && prior.status === 'pending') {
+          if (!prior.stripe_checkout_session_id) {
+            console.error(
+              '[Payments] Cannot switch pending Stripe payment to Interac without a Checkout Session ID',
+              { paymentId: prior.id },
+            );
+            return NextResponse.json(
+              {
+                error:
+                  'A previous card checkout is still active. Refresh the page and try again in a few minutes, or contact the club if the problem continues.',
+              },
+              { status: 409 },
+            );
+          }
+          const stripe = getStripeClient();
+          let stripeSession;
+          try {
+            stripeSession = await stripe.checkout.sessions.retrieve(
+              prior.stripe_checkout_session_id,
+            );
+          } catch (sessionError) {
+            console.error(
+              '[Payments] Could not inspect existing Stripe Checkout before switching to Interac',
+              {
+                paymentId: prior.id,
+                message:
+                  sessionError instanceof Error ? sessionError.message : 'Unknown Stripe error',
+              },
+            );
+            return NextResponse.json(
+              {
+                error:
+                  'Could not safely switch payment methods. Please try again or contact the club.',
+              },
+              { status: 409 },
+            );
+          }
+          if (stripeSession.status === 'complete') {
+            return NextResponse.json(
+              {
+                error:
+                  'The existing card checkout has already been completed or is processing. Check your payment history before starting another payment.',
+              },
+              { status: 409 },
+            );
+          }
+          if (stripeSession.status === 'open') {
+            try {
+              await stripe.checkout.sessions.expire(stripeSession.id);
+            } catch (expireError) {
+              console.error(
+                '[Payments] Could not expire existing Stripe Checkout before switching to Interac',
+                {
+                  paymentId: prior.id,
+                  sessionId: stripeSession.id,
+                  message:
+                    expireError instanceof Error ? expireError.message : 'Unknown Stripe error',
+                },
+              );
+              return NextResponse.json(
+                {
+                  error:
+                    'Could not safely close the existing card checkout. Please try again or contact the club.',
+                },
+                { status: 409 },
+              );
+            }
+          } else if (stripeSession.status !== 'expired') {
+            return NextResponse.json(
+              {
+                error:
+                  'The existing card payment cannot safely be replaced yet. Check your payment history or contact the club.',
+              },
+              { status: 409 },
+            );
+          }
+          const { data: canceled, error: cancelError } = await db
+            .from('payments')
+            .update({
+              status: 'canceled',
+              canceled_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', prior.id)
+            .eq('provider', 'stripe')
+            .eq('status', 'pending')
+            .select('id')
+            .maybeSingle();
+          if (cancelError)
+            throw new Error(
+              'The old card checkout was closed, but its payment record could not be updated. Retry safely.',
+            );
+          if (!canceled) {
+            // Stripe's checkout.session.expired webhook can win this race and
+            // mark the row canceled before this request updates it.
+            const { data: latestPayment, error: latestPaymentError } = await db
+              .from('payments')
+              .select('status')
+              .eq('id', prior.id)
+              .maybeSingle();
+            if (latestPaymentError)
+              throw new Error('Could not verify the previous payment state. Retry safely.');
+            if (!latestPayment || !['canceled', 'failed'].includes(latestPayment.status)) {
+              return NextResponse.json(
+                {
+                  error:
+                    'The payment state changed while switching methods. Refresh the page and check payment history before retrying.',
+                },
+                { status: 409 },
+              );
+            }
+          }
+          shouldSendInstructions = true;
+        } else {
+          return NextResponse.json(
+            {
+              error:
+                'An active or completed payment already exists for this registration. Check your payment history before trying again.',
+            },
+            { status: 409 },
+          );
+        }
+      } else {
+        shouldSendInstructions = true;
+      }
+
+      if (!paymentId) {
+        const { data: created, error: createError } = await db
+          .from('payments')
+          .insert({
+            user_id: user.id,
+            purpose: body.purpose,
+            business_record_id: businessRecordId,
+            amount_minor: amountMinor,
+            currency,
+            status: 'pending',
+            provider: 'interac',
+            manual_review_status: 'submitted',
+            manual_submitted_at: new Date().toISOString(),
+            idempotency_key: `interac:${user.id}:${body.purpose}:${businessRecordId}:${randomUUID()}`,
+          })
+          .select('id')
+          .single();
+        if (createError || !created) {
+          // A concurrent request may have created the active payment after our lookup.
+          // Keep diagnostics server-side and return a useful conflict for that race.
+          console.error('[Payments] Interac payment insert failed', {
+            code: createError?.code ?? null,
+            message: createError?.message ?? (created ? null : 'Insert returned no row'),
+            details: createError?.details ?? null,
+            hint: createError?.hint ?? null,
+            userId: user.id,
+            purpose: body.purpose,
+            businessRecordId,
+            amountMinor,
+            currency,
+          });
+          if (createError?.code === '23505') {
+            return NextResponse.json(
+              {
+                error:
+                  'An active payment request already exists for this registration. Refresh the page and check payment history before retrying.',
+              },
+              { status: 409 },
+            );
+          }
+          throw new Error('Could not create Interac payment request.');
+        }
+        paymentId = created.id;
+        const { error: auditError } = await db.from('audit_logs').insert({
+          actor_user_id: user.id,
+          actor_label: profile.full_name || 'member',
+          action: 'payment.interac_submitted',
+          outcome: 'success',
+          target_table: 'payments',
+          target_record_id: paymentId,
+          source: 'interac_payment',
+          summary: `Interac payment submitted for ${body.purpose}.`,
+          changes: { amountMinor, currency, purpose: body.purpose },
+          idempotency_key: `payment:interac-submitted:${paymentId}`,
+        });
+        if (auditError)
+          console.error('[Payments] Interac audit write failed', {
+            paymentId,
+            message: auditError.message,
+          });
+      }
+      if (
+        shouldSendInstructions &&
+        profile.email &&
+        process.env.RESEND_API_KEY &&
+        (process.env.RESEND_FROM_EMAIL || process.env.RESEND_FROM || process.env.EMAIL_FROM)
+      ) {
+        try {
+          const from =
+            process.env.RESEND_FROM_EMAIL || process.env.RESEND_FROM || process.env.EMAIL_FROM!;
+          const emailResponse = await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              from,
+              to: [profile.email],
+              subject: 'PCTC Interac payment instructions',
+              text: `Your PCTC Interac payment request is pending.\n\nAmount: ${(amountMinor / 100).toFixed(2)} CAD\nSend to: ${methodSettings.interac_recipient_email}\nPayment reference: ${paymentId}\n\n${methodSettings.interac_instructions}\n\nYour membership or event registration will be finalized after the club confirms receipt.`,
+            }),
+          });
+          if (emailResponse.ok)
+            await db
+              .from('payments')
+              .update({ manual_instructions_sent_at: new Date().toISOString() })
+              .eq('id', paymentId)
+              .is('manual_instructions_sent_at', null);
+          else
+            console.error('[Payments] Interac instructions email failed', {
+              paymentId,
+              status: emailResponse.status,
+            });
+        } catch (emailError) {
+          console.error('[Payments] Interac instructions email failed', {
+            paymentId,
+            message: emailError instanceof Error ? emailError.message : 'unknown',
+          });
+        }
+      }
+      return NextResponse.json({
+        provider: 'interac',
+        paymentId,
+        amountMinor,
+        currency,
+        recipientEmail: methodSettings.interac_recipient_email,
+        instructions: methodSettings.interac_instructions,
+        message:
+          'Interac request submitted. Your membership or event registration will be finalized after an administrator confirms receipt.',
+      });
     }
 
     const origin = new URL(request.url).origin;

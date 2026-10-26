@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { createPaymentServiceClient } from '@/lib/payments/server';
 import { AdminNav } from '@/components/admin-nav';
-import { PaymentHistoryTable } from '@/components/payment-history-table';
+import { AdminPaymentsWorkspace } from '@/components/admin-payments-workspace';
 import { syncPaymentProceeds } from '@/lib/payments/proceeds';
 
 export const dynamic = 'force-dynamic';
@@ -22,15 +22,51 @@ export default async function AdminPaymentsPage() {
     redirect('/member/dashboard');
 
   const db = createPaymentServiceClient();
-  const { data: payments, error } = await db
-    .from('payments')
-    .select(
-      'id,user_id,purpose,business_record_id,amount_minor,currency,status,refunded_amount_minor,created_at,succeeded_at,stripe_payment_intent_id,stripe_fee_minor,proceeds_minor',
-    )
-    .order('created_at', { ascending: false })
-    .limit(200);
+  type AdminPaymentRecord = {
+    id: string;
+    user_id: string;
+    purpose: string;
+    business_record_id: string | null;
+    amount_minor: number;
+    currency: string;
+    status: string;
+    provider: string | null;
+    manual_review_status: string | null;
+    refunded_amount_minor: number;
+    created_at: string;
+    succeeded_at: string | null;
+    stripe_payment_intent_id: string | null;
+    stripe_fee_minor: number | null;
+    proceeds_minor: number | null;
+  };
+  const payments: AdminPaymentRecord[] = [];
+  let error: { message: string } | null = null;
+  for (let offset = 0; ; offset += 1000) {
+    const result = await db
+      .from('payments')
+      .select(
+        'id,user_id,purpose,business_record_id,amount_minor,currency,status,provider,manual_review_status,refunded_amount_minor,created_at,succeeded_at,stripe_payment_intent_id,stripe_fee_minor,proceeds_minor',
+      )
+      .order('created_at', { ascending: false })
+      .range(offset, offset + 999);
+    if (result.error) {
+      error = result.error;
+      break;
+    }
+    const batch = (result.data ?? []) as AdminPaymentRecord[];
+    payments.push(...batch);
+    if (batch.length < 1000) break;
+  }
+
+  const { data: interacSettings } = await db
+    .from('payment_method_settings')
+    .select('interac_enabled,interac_recipient_email,interac_instructions')
+    .eq('id', 1)
+    .maybeSingle();
 
   let rows: Array<{
+    provider: string;
+    manualReviewStatus: string | null;
     id: string;
     purpose: string;
     eventName: string | null;
@@ -38,6 +74,7 @@ export default async function AdminPaymentsPage() {
     currency: string;
     status: string;
     refundedAmountMinor: number;
+    feeMinor: number | null;
     proceedsMinor: number | null;
     createdAt: string;
     succeededAt: string | null;
@@ -84,6 +121,7 @@ export default async function AdminPaymentsPage() {
       payments
         .filter(
           (payment) =>
+            payment.provider === 'stripe' &&
             ['succeeded', 'partially_refunded', 'refunded'].includes(payment.status) &&
             payment.stripe_payment_intent_id &&
             payment.proceeds_minor == null,
@@ -124,12 +162,15 @@ export default async function AdminPaymentsPage() {
       const remaining = payment.amount_minor - payment.refunded_amount_minor;
       return {
         id: payment.id,
+        provider: payment.provider ?? 'stripe',
+        manualReviewStatus: payment.manual_review_status ?? null,
         purpose: payment.purpose,
         eventName: event?.title ?? null,
         amountMinor: payment.amount_minor,
         currency: payment.currency,
         status: payment.status,
         refundedAmountMinor: payment.refunded_amount_minor,
+        feeMinor: payment.stripe_fee_minor,
         proceedsMinor:
           payment.proceeds_minor == null
             ? null
@@ -139,6 +180,7 @@ export default async function AdminPaymentsPage() {
         userName: person?.full_name ?? null,
         userEmail: person?.email ?? null,
         refundable: Boolean(
+          payment.provider === 'stripe' &&
           payment.stripe_payment_intent_id &&
           ['succeeded', 'partially_refunded'].includes(payment.status) &&
           remaining > 0,
@@ -158,7 +200,14 @@ export default async function AdminPaymentsPage() {
             Could not load payments.
           </p>
         ) : (
-          <PaymentHistoryTable rows={rows} admin />
+          <AdminPaymentsWorkspace
+            rows={rows}
+            initialSettings={{
+              interac_enabled: interacSettings?.interac_enabled ?? false,
+              interac_recipient_email: interacSettings?.interac_recipient_email ?? '',
+              interac_instructions: interacSettings?.interac_instructions ?? '',
+            }}
+          />
         )}
       </div>
     </main>

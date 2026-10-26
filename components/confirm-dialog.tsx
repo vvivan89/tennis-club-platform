@@ -1,5 +1,6 @@
 'use client';
 import { Button } from '@/components/ui/button';
+import type { ReactNode } from 'react';
 
 export function ConfirmDialog({
   open,
@@ -14,7 +15,7 @@ export function ConfirmDialog({
 }: {
   open: boolean;
   title: string;
-  description: string;
+  description: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
   destructive?: boolean;
@@ -41,12 +42,9 @@ export function ConfirmDialog({
         <h2 id="confirm-dialog-title" className="text-lg font-semibold">
           {title}
         </h2>
-        <p
-          id="confirm-dialog-description"
-          className="mt-2 whitespace-pre-line text-sm text-muted-foreground"
-        >
+        <div id="confirm-dialog-description" className="mt-3 text-sm">
           {description}
-        </p>
+        </div>
         <div className="mt-6 flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={onCancel} disabled={busy}>
             {cancelLabel}

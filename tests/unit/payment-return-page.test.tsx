@@ -39,7 +39,10 @@ describe('payment return page', () => {
     mocks.params = 'canceled=1&return_to=%2F%2Fevil.example&return_label=Return';
     render(<PaymentReturnPage />);
     expect(screen.getByRole('heading', { name: 'Checkout canceled' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Return' })).toHaveAttribute('href', '/member/payments');
+    expect(screen.getByRole('link', { name: 'Return' })).toHaveAttribute(
+      'href',
+      '/member/payments',
+    );
     expect(fetch).not.toHaveBeenCalled();
   });
 

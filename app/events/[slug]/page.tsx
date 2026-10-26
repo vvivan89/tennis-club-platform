@@ -100,6 +100,12 @@ export default async function EventDetailsPage({ params }: { params: { slug: str
     );
     if (!paidMembershipError) hasPaidMembership = paidMembership === true;
   }
+  const { data: paymentMethodSettings } = await db
+    .from('payment_method_settings')
+    .select('interac_enabled')
+    .eq('id', 1)
+    .maybeSingle();
+  const interacEnabled = paymentMethodSettings?.interac_enabled === true;
   const registered = !!registration && registration.status !== 'cancelled';
   const canViewParticipants = isManager || (hasPaidMembership && registered);
   const [{ data: roster }, { data: courts }, { data: scores }] = await Promise.all([
@@ -209,6 +215,7 @@ export default async function EventDetailsPage({ params }: { params: { slug: str
           isManager={isManager}
           canViewParticipants={canViewParticipants}
           remainingSpots={Math.max(0, event.capacity - (publicCount?.confirmed_count ?? 0))}
+          interacEnabled={interacEnabled}
         />
       </div>
       <SiteFooter

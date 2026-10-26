@@ -98,7 +98,9 @@ beforeEach(() => {
     status: 'succeeded',
     reason: 'requested_by_customer',
   });
-  mocks.sessionRetrieve.mockReset().mockResolvedValue({ status: 'open', url: 'https://checkout.test' });
+  mocks.sessionRetrieve
+    .mockReset()
+    .mockResolvedValue({ status: 'open', url: 'https://checkout.test' });
   mocks.sessionExpire.mockReset().mockResolvedValue({});
   mocks.paymentIntentRetrieve.mockReset().mockResolvedValue({ latest_charge: 'ch-1' });
   mocks.chargeRetrieve.mockReset().mockResolvedValue({
@@ -120,21 +122,28 @@ beforeEach(() => {
 describe('payment status endpoint', () => {
   it('requires authentication and a valid reference', async () => {
     mocks.user = null;
-    expect((await statusGet(request('https://club.test/api/payments/status?payment_id=bad'))).status)
-      .toBe(401);
+    expect(
+      (await statusGet(request('https://club.test/api/payments/status?payment_id=bad'))).status,
+    ).toBe(401);
     mocks.user = { id: 'member-1' };
-    const invalid = await statusGet(request('https://club.test/api/payments/status?payment_id=bad'));
+    const invalid = await statusGet(
+      request('https://club.test/api/payments/status?payment_id=bad'),
+    );
     expect(invalid.status).toBe(400);
     expect(mocks.createPaymentServiceClient).not.toHaveBeenCalled();
   });
 
   it('returns not-found for a missing payment and an empty result for a missing registration payment', async () => {
     const missing = await statusGet(
-      request('https://club.test/api/payments/status?payment_id=11111111-1111-4111-8111-111111111111'),
+      request(
+        'https://club.test/api/payments/status?payment_id=11111111-1111-4111-8111-111111111111',
+      ),
     );
     expect(missing.status).toBe(404);
     const registration = await statusGet(
-      request('https://club.test/api/payments/status?registration_id=11111111-1111-4111-8111-111111111111'),
+      request(
+        'https://club.test/api/payments/status?registration_id=11111111-1111-4111-8111-111111111111',
+      ),
     );
     expect(registration.status).toBe(200);
     expect(await registration.json()).toEqual({ payment: null, fulfilled: false });
@@ -144,7 +153,9 @@ describe('payment status endpoint', () => {
     mocks.rows.payments = payment;
     mocks.rows.registrations = { status: 'confirmed', payment_status: 'paid' };
     const response = await statusGet(
-      request('https://club.test/api/payments/status?registration_id=11111111-1111-4111-8111-111111111111'),
+      request(
+        'https://club.test/api/payments/status?registration_id=11111111-1111-4111-8111-111111111111',
+      ),
     );
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
@@ -162,7 +173,9 @@ describe('payment status endpoint', () => {
     };
     mocks.rows.memberships = { status: 'active', payment_status: 'paid' };
     const individual = await statusGet(
-      request('https://club.test/api/payments/status?payment_id=11111111-1111-4111-8111-111111111111'),
+      request(
+        'https://club.test/api/payments/status?payment_id=11111111-1111-4111-8111-111111111111',
+      ),
     );
     expect(await individual.json()).toMatchObject({ fulfilled: true });
 
@@ -173,7 +186,9 @@ describe('payment status endpoint', () => {
     };
     mocks.rows.membership_families = { paid_at: '2026-04-01', payment_id: 'payment-1' };
     const family = await statusGet(
-      request('https://club.test/api/payments/status?payment_id=11111111-1111-4111-8111-111111111111'),
+      request(
+        'https://club.test/api/payments/status?payment_id=11111111-1111-4111-8111-111111111111',
+      ),
     );
     expect(await family.json()).toMatchObject({ fulfilled: true });
   });
@@ -186,7 +201,9 @@ describe('payment status endpoint', () => {
     };
     mocks.sessionRetrieve.mockResolvedValue({ status: 'open', url: 'https://checkout.test/pay' });
     const response = await statusGet(
-      request('https://club.test/api/payments/status?registration_id=11111111-1111-4111-8111-111111111111'),
+      request(
+        'https://club.test/api/payments/status?registration_id=11111111-1111-4111-8111-111111111111',
+      ),
     );
     expect(await response.json()).toMatchObject({ checkoutUrl: 'https://checkout.test/pay' });
   });
@@ -228,11 +245,18 @@ describe('payment status endpoint', () => {
     });
     mocks.rows.registrations = { status: 'confirmed', payment_status: 'paid' };
     const response = await statusGet(
-      request('https://club.test/api/payments/status?registration_id=11111111-1111-4111-8111-111111111111'),
+      request(
+        'https://club.test/api/payments/status?registration_id=11111111-1111-4111-8111-111111111111',
+      ),
     );
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ payment: { status: 'succeeded' }, fulfilled: true });
-    expect(mocks.rpc).toHaveBeenCalledWith('fulfill_successful_payment', { p_payment_id: 'payment-1' });
+    expect(await response.json()).toMatchObject({
+      payment: { status: 'succeeded' },
+      fulfilled: true,
+    });
+    expect(mocks.rpc).toHaveBeenCalledWith('fulfill_successful_payment', {
+      p_payment_id: 'payment-1',
+    });
   });
 
   it('leaves incomplete checkout sessions unchanged and rejects mismatched paid sessions', async () => {
@@ -241,7 +265,10 @@ describe('payment status endpoint', () => {
     const pending = await statusGet(
       request('https://club.test/api/payments/status?session_id=cs_open'),
     );
-    expect(await pending.json()).toMatchObject({ payment: { status: 'pending' }, fulfilled: false });
+    expect(await pending.json()).toMatchObject({
+      payment: { status: 'pending' },
+      fulfilled: false,
+    });
 
     mocks.rows.payments = { ...payment, stripe_checkout_session_id: 'cs_wrong' };
     mocks.sessionRetrieve.mockResolvedValue({
@@ -265,7 +292,9 @@ describe('payment status endpoint', () => {
   it('returns a safe server error when the payment query fails', async () => {
     mocks.errors['payments.select'] = { message: 'database detail' };
     const response = await statusGet(
-      request('https://club.test/api/payments/status?payment_id=11111111-1111-4111-8111-111111111111'),
+      request(
+        'https://club.test/api/payments/status?payment_id=11111111-1111-4111-8111-111111111111',
+      ),
     );
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ error: 'Could not retrieve payment status.' });
@@ -275,7 +304,9 @@ describe('payment status endpoint', () => {
 describe('cancel payment endpoint', () => {
   it('requires authentication and a registration ID', async () => {
     mocks.user = null;
-    expect((await cancelPost(request('https://club.test/api/payments/cancel', {}))).status).toBe(401);
+    expect((await cancelPost(request('https://club.test/api/payments/cancel', {}))).status).toBe(
+      401,
+    );
     mocks.user = { id: 'member-1' };
     const invalid = await cancelPost(request('https://club.test/api/payments/cancel', {}));
     expect(invalid.status).toBe(400);
@@ -314,22 +345,27 @@ describe('cancel payment endpoint', () => {
       request('https://club.test/api/payments/cancel', { registrationId: 'registration-1' }),
     );
     expect(response.status).toBe(500);
-    expect(await response.json()).toMatchObject({ error: expect.stringContaining('Could not cancel') });
+    expect(await response.json()).toMatchObject({
+      error: expect.stringContaining('Could not cancel'),
+    });
   });
 });
 
 describe('admin refund endpoint', () => {
   it('requires approved admin access and a payment ID', async () => {
     mocks.user = null;
-    expect((await refundPost(request('https://club.test/api/admin/payments/refund', {}))).status)
-      .toBe(401);
+    expect(
+      (await refundPost(request('https://club.test/api/admin/payments/refund', {}))).status,
+    ).toBe(401);
     mocks.user = { id: 'member-1' };
     mocks.profile = { role: 'member', application_status: 'approved' };
-    expect((await refundPost(request('https://club.test/api/admin/payments/refund', {}))).status)
-      .toBe(403);
+    expect(
+      (await refundPost(request('https://club.test/api/admin/payments/refund', {}))).status,
+    ).toBe(403);
     mocks.profile = { role: 'admin', application_status: 'approved' };
-    expect((await refundPost(request('https://club.test/api/admin/payments/refund', {}))).status)
-      .toBe(400);
+    expect(
+      (await refundPost(request('https://club.test/api/admin/payments/refund', {}))).status,
+    ).toBe(400);
   });
 
   it('validates payment state, amount, and idempotency key before calling Stripe', async () => {

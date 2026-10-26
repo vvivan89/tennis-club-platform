@@ -13,7 +13,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 function nextResult(table: string, operation: string, terminal: string) {
-  const keys = [`${table}.${operation}.${terminal}`, `${table}.${operation}`, `${table}.${terminal}`, table];
+  const keys = [
+    `${table}.${operation}.${terminal}`,
+    `${table}.${operation}`,
+    `${table}.${terminal}`,
+    table,
+  ];
   for (const key of keys) {
     const queue = mocks.responses[key];
     if (queue?.length) {
@@ -161,9 +166,7 @@ describe('checkout route branch coverage', () => {
   it('validates membership settings, waiver acceptance, and waiver version', async () => {
     mocks.responses['profiles.maybeSingle'] = [profile];
     mocks.responses['membership_plan_settings.maybeSingle'] = [null];
-    expect(
-      (await POST(request({ purpose: 'membership', waiverAccepted: true }))).status,
-    ).toBe(503);
+    expect((await POST(request({ purpose: 'membership', waiverAccepted: true }))).status).toBe(503);
 
     mocks.responses['profiles.maybeSingle'] = [profile];
     mocks.responses['membership_plan_settings.maybeSingle'] = [settings];
@@ -173,11 +176,8 @@ describe('checkout route branch coverage', () => {
     mocks.responses['membership_plan_settings.maybeSingle'] = [settings];
     mocks.responses['legal_document_versions.maybeSingle'] = [{ version: 3 }];
     expect(
-      (
-        await POST(
-          request({ purpose: 'membership', waiverAccepted: true, waiverVersion: 2 }),
-        )
-      ).status,
+      (await POST(request({ purpose: 'membership', waiverAccepted: true, waiverVersion: 2 })))
+        .status,
     ).toBe(409);
 
     mocks.responses['profiles.maybeSingle'] = [profile];
@@ -264,7 +264,12 @@ describe('checkout route branch coverage', () => {
   it('validates event-registration ownership, state, dates, and price', async () => {
     configureCommon();
     mocks.responses['profiles.maybeSingle'] = [profile, profile, profile, profile];
-    mocks.responses['membership_plan_settings.maybeSingle'] = [settings, settings, settings, settings];
+    mocks.responses['membership_plan_settings.maybeSingle'] = [
+      settings,
+      settings,
+      settings,
+      settings,
+    ];
     const base = {
       id: 'registration-1',
       event_id: 'event-1',
@@ -358,7 +363,13 @@ describe('checkout route branch coverage', () => {
     expect(mocks.sessionCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         customer_email: 'fallback@example.test',
-        line_items: [expect.objectContaining({ price_data: expect.objectContaining({ product_data: { name: 'PCTC event registration — Summer Social' } }) })],
+        line_items: [
+          expect.objectContaining({
+            price_data: expect.objectContaining({
+              product_data: { name: 'PCTC event registration — Summer Social' },
+            }),
+          }),
+        ],
       }),
       expect.any(Object),
     );
@@ -413,7 +424,9 @@ describe('checkout route branch coverage', () => {
         pctc_user_id: 'member-1',
       },
     });
-    const open = await POST(request({ purpose: 'membership', waiverAccepted: true, waiverVersion: 3 }));
+    const open = await POST(
+      request({ purpose: 'membership', waiverAccepted: true, waiverVersion: 3 }),
+    );
     expect(await open.json()).toMatchObject({ checkoutUrl: 'https://checkout.example/existing' });
     expect(mocks.sessionCreate).not.toHaveBeenCalled();
   });

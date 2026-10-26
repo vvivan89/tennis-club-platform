@@ -8,6 +8,7 @@ import { SiteFooter } from '@/components/site-footer';
 import { Button } from '@/components/ui/button';
 import { MemberNav } from '@/components/member-nav';
 import { SearchableMemberSelect } from '@/components/searchable-member-select';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 type Profile = {
   id: string;
@@ -147,7 +148,15 @@ export default function MembershipPortal() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [waiverAccepted, setWaiverAccepted] = useState(false);
+  const [interacEnabled, setInteracEnabled] = useState(false);
   const [message, setMessage] = useState('');
+  const [interacNotice, setInteracNotice] = useState<{
+    amount: string;
+    recipientEmail: string;
+    paymentId: string;
+    instructions: string;
+    message: string;
+  } | null>(null);
   const [club, setClub] = useState<{
     club_name: string;
     short_name: string;
@@ -159,7 +168,7 @@ export default function MembershipPortal() {
     const {
       data: { user },
     } = await db.auth.getUser();
-    const [{ data: profile }, { data: cs }] = await Promise.all([
+    const [{ data: profile }, { data: cs }, { data: methodSettings }] = await Promise.all([
       user
         ? db
             .from('profiles')
@@ -172,9 +181,11 @@ export default function MembershipPortal() {
         .select('club_name,short_name,social_links')
         .eq('id', 1)
         .maybeSingle(),
+      db.from('payment_method_settings').select('interac_enabled').eq('id', 1).maybeSingle(),
     ]);
     setMe(profile);
     if (cs) setClub(cs);
+    setInteracEnabled(methodSettings?.interac_enabled === true);
     if (user) {
       const r = await fetch('/api/membership/family');
       const j = await r.json();
@@ -227,7 +238,10 @@ export default function MembershipPortal() {
       setBusy(false);
     }
   }
-  async function startCheckout(kind: 'individual' | 'family') {
+  async function startCheckout(
+    kind: 'individual' | 'family',
+    provider: 'stripe' | 'interac' = 'stripe',
+  ) {
     if (!waiverAccepted) {
       setMessage('Accept the current membership waiver before continuing to checkout.');
       return;
@@ -237,6 +251,7 @@ export default function MembershipPortal() {
     try {
       const body: Record<string, unknown> = {
         purpose: 'membership',
+        provider,
         returnTo: '/member/membership',
         returnLabel: 'Back to membership',
         membershipKind: kind,
@@ -262,8 +277,23 @@ export default function MembershipPortal() {
         body: JSON.stringify(body),
       });
       const result = await response.json();
-      if (!response.ok || !result.checkoutUrl)
-        throw new Error(result.error || 'Could not start checkout.');
+      if (!response.ok) throw new Error(result.error || 'Could not start checkout.');
+      if (provider === 'interac') {
+        setInteracNotice({
+          amount: money(result.amountMinor),
+          recipientEmail: result.recipientEmail,
+          paymentId: result.paymentId,
+          instructions: result.instructions || '',
+          message: result.message || '',
+        });
+        setMessage(
+          'Interac payment request submitted. Your membership remains unpaid until the club confirms receipt.',
+        );
+        await load();
+        setBusy(false);
+        return;
+      }
+      if (!result.checkoutUrl) throw new Error('Could not start checkout.');
       window.location.assign(result.checkoutUrl);
     } catch (error) {
       console.error('[Member membership] Checkout start failed', {
@@ -529,8 +559,20 @@ export default function MembershipPortal() {
                           `Pay ${money(state.settings?.single_price_cents ?? 15000)} for membership`
                         )}
                       </Button>
+                      {interacEnabled && !busy && (
+                        <Button
+                          variant="outline"
+                          disabled={
+                            busy || !waiverAccepted || !state.currentWaiver || !state.settings
+                          }
+                          onClick={() => void startCheckout('individual', 'interac')}
+                        >
+                          Pay by Interac
+                        </Button>
+                      )}
                       <p className="mt-2 text-xs text-muted-foreground">
-                        Payment is confirmed by Stripe before your membership is activated.
+                        Stripe payments are confirmed automatically. Interac payments remain pending
+                        until the club confirms receipt.
                       </p>
                     </div>
                   )}
@@ -645,10 +687,21 @@ export default function MembershipPortal() {
                             `Pay ${money(state.settings?.family_price_cents ?? 22000)} for family membership`
                           )}
                         </Button>
+                        {interacEnabled && !busy && (
+                          <Button
+                            className="mt-2"
+                            variant="outline"
+                            disabled={
+                              busy || !waiverAccepted || !state.settings || !familyWaiversComplete
+                            }
+                            onClick={() => void startCheckout('family', 'interac')}
+                          >
+                            Pay family membership by Interac
+                          </Button>
+                        )}
                         <p className="mt-2 text-xs text-muted-foreground">
-                          Every confirmed family member must accept the current waiver before
-                          checkout. Family membership is marked paid only after Stripe confirms
-                          payment.
+                          Every confirmed family member must accept the current waiver. Interac
+                          membership is activated only after club confirmation.
                         </p>
                       </div>
                     )}
@@ -768,6 +821,49 @@ export default function MembershipPortal() {
         clubName={club.club_name}
         shortName={club.short_name}
         socialLinks={Array.isArray(club.social_links) ? club.social_links : []}
+      />
+      <ConfirmDialog
+        open={!!interacNotice}
+        title="Interac e-Transfer instructions"
+        description={
+          interacNotice ? (
+            <div className="space-y-4">
+              <p className="text-muted-foreground">
+                Your payment request has been created. Send the amount below by e-Transfer.
+              </p>
+              <div className="rounded-lg border border-border bg-muted/40 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Amount to send
+                </p>
+                <p className="mt-1 text-xl font-semibold">{interacNotice.amount}</p>
+                <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Send to
+                </p>
+                <p className="mt-1 break-all font-medium">{interacNotice.recipientEmail}</p>
+                <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Payment reference
+                </p>
+                <p className="mt-1 break-all font-mono text-xs">{interacNotice.paymentId}</p>
+              </div>
+              {interacNotice.instructions.trim() && (
+                <div className="rounded-lg border-2 border-primary/40 bg-primary/5 p-4">
+                  <p className="mb-2 text-sm font-semibold text-primary">
+                    Payment instructions from the club
+                  </p>
+                  <p className="whitespace-pre-line leading-relaxed">
+                    {interacNotice.instructions}
+                  </p>
+                </div>
+              )}
+              {interacNotice.message && (
+                <p className="text-sm text-muted-foreground">{interacNotice.message}</p>
+              )}
+            </div>
+          ) : null
+        }
+        confirmLabel="Got it"
+        onConfirm={() => setInteracNotice(null)}
+        onCancel={() => setInteracNotice(null)}
       />
     </main>
   );

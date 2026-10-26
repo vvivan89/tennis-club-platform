@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import { Button } from '@/components/ui/button';
 import { EventWeather } from '@/components/event-weather';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 
 type Roster = {
   registration_id: string;
@@ -69,6 +70,7 @@ export function EventDetailClient({
   isManager,
   canViewParticipants,
   remainingSpots,
+  interacEnabled = false,
 }: {
   event: EventInfo;
   roster: Roster[];
@@ -82,6 +84,7 @@ export function EventDetailClient({
   isManager: boolean;
   canViewParticipants: boolean;
   remainingSpots: number;
+  interacEnabled?: boolean;
 }) {
   const db = createSupabaseBrowserClient();
   const router = useRouter();
@@ -98,6 +101,13 @@ export function EventDetailClient({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [interacNotice, setInteracNotice] = useState<{
+    amount: string;
+    recipientEmail: string;
+    paymentId: string;
+    instructions: string;
+    message: string;
+  } | null>(null);
   const [confirmWithdraw, setConfirmWithdraw] = useState(false);
   const [scoreCourt, setScoreCourt] = useState('');
   const [partner, setPartner] = useState('');
@@ -109,6 +119,46 @@ export function EventDetailClient({
   const [sessionHasStarted, setSessionHasStarted] = useState(
     () => Date.now() >= new Date(event.starts_at).getTime(),
   );
+  useEffect(() => {
+    setLivePaymentStatus(currentPaymentStatus);
+  }, [currentPaymentStatus]);
+  useEffect(() => {
+    setLiveStatus(currentStatus);
+  }, [currentStatus]);
+  useEffect(() => {
+    setLiveRegistrationId(currentRegistrationId);
+  }, [currentRegistrationId]);
+  useEffect(() => {
+    if (!currentUserId || !liveRegistrationId) return;
+    const channel = db
+      .channel(`event-payment-status-${event.id}-${currentUserId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'registrations',
+          filter: `user_id=eq.${currentUserId}`,
+        },
+        (payload) => {
+          const registration = payload.new as {
+            id?: string;
+            status?: string;
+            payment_status?: string | null;
+          };
+          if (registration.id !== liveRegistrationId) return;
+          if (registration.status) setLiveStatus(registration.status);
+          if (registration.payment_status)
+            setLivePaymentStatus(
+              registration.payment_status === 'paid' ? 'paid' : registration.payment_status,
+            );
+        },
+      )
+      .subscribe();
+    return () => {
+      void db.removeChannel(channel);
+    };
+  }, [db, currentUserId, event.id, liveRegistrationId]);
   useEffect(() => {
     if (sessionHasStarted) return;
     const delay = Math.max(0, new Date(event.starts_at).getTime() - Date.now());
@@ -261,7 +311,10 @@ export function EventDetailClient({
       void db.removeChannel(channel);
     };
   }, [event.id]);
-  async function startEventCheckout(registrationId: string) {
+  async function startEventCheckout(
+    registrationId: string,
+    provider: 'stripe' | 'interac' = 'stripe',
+  ) {
     setBusy(true);
     setError('');
     setMessage('');
@@ -271,6 +324,7 @@ export function EventDetailClient({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           purpose: 'event_registration',
+          provider,
           businessRecordId: registrationId,
           idempotencyKey: crypto.randomUUID(),
           returnTo: `/events/${event.slug || event.id}`,
@@ -278,8 +332,26 @@ export function EventDetailClient({
         }),
       });
       const result = await response.json();
-      if (!response.ok || !result.checkoutUrl)
-        throw new Error(result.error || 'Could not start checkout.');
+      if (!response.ok) throw new Error(result.error || 'Could not start checkout.');
+      if (provider === 'interac') {
+        setInteracNotice({
+          amount: (Number(result.amountMinor) / 100).toLocaleString('en-CA', {
+            style: 'currency',
+            currency: 'CAD',
+          }),
+          recipientEmail: result.recipientEmail,
+          paymentId: result.paymentId,
+          instructions: result.instructions || '',
+          message: result.message || '',
+        });
+        setMessage(
+          'Interac payment request submitted. Your registration remains unpaid until the club confirms receipt.',
+        );
+        setLivePaymentStatus('pending');
+        router.refresh();
+        return;
+      }
+      if (!result.checkoutUrl) throw new Error('Could not start checkout.');
       window.location.assign(result.checkoutUrl);
     } catch (e) {
       console.error('[Event detail] Checkout creation failed', {
@@ -656,6 +728,21 @@ export function EventDetailClient({
                       ) : (
                         'Pay the fee'
                       )}
+                    </Button>
+                  )}
+                {interacEnabled &&
+                  !busy &&
+                  event.price_cents > 0 &&
+                  liveStatus === 'confirmed' &&
+                  livePaymentStatus !== 'paid' &&
+                  livePaymentStatus !== 'not_required' &&
+                  liveRegistrationId && (
+                    <Button
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => void startEventCheckout(liveRegistrationId, 'interac')}
+                    >
+                      Pay by Interac
                     </Button>
                   )}
                 {event.price_cents > 0 &&
@@ -1157,6 +1244,49 @@ export function EventDetailClient({
           </section>
         </>
       )}
+      <ConfirmDialog
+        open={!!interacNotice}
+        title="Interac e-Transfer instructions"
+        description={
+          interacNotice ? (
+            <div className="space-y-4">
+              <p className="text-muted-foreground">
+                Your payment request has been created. Send the amount below by e-Transfer.
+              </p>
+              <div className="rounded-lg border border-border bg-muted/40 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Amount to send
+                </p>
+                <p className="mt-1 text-xl font-semibold">{interacNotice.amount}</p>
+                <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Send to
+                </p>
+                <p className="mt-1 break-all font-medium">{interacNotice.recipientEmail}</p>
+                <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Payment reference
+                </p>
+                <p className="mt-1 break-all font-mono text-xs">{interacNotice.paymentId}</p>
+              </div>
+              {interacNotice.instructions.trim() && (
+                <div className="rounded-lg border-2 border-primary/40 bg-primary/5 p-4">
+                  <p className="mb-2 text-sm font-semibold text-primary">
+                    Payment instructions from the club
+                  </p>
+                  <p className="whitespace-pre-line leading-relaxed">
+                    {interacNotice.instructions}
+                  </p>
+                </div>
+              )}
+              {interacNotice.message && (
+                <p className="text-sm text-muted-foreground">{interacNotice.message}</p>
+              )}
+            </div>
+          ) : null
+        }
+        confirmLabel="Got it"
+        onConfirm={() => setInteracNotice(null)}
+        onCancel={() => setInteracNotice(null)}
+      />
     </div>
   );
 }

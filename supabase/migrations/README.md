@@ -12,6 +12,9 @@ For an existing database, apply only migrations it has not yet applied, in numer
 - `0042_payment_ui_and_webhook_reconciliation.sql` exposes registration payment status in the event roster so pending paid registrations can be labeled correctly. The application webhook and status endpoints also reconcile verified completed Checkout Sessions.
 - `0043_payment_proceeds_and_reuse.sql`: records Stripe fees/net proceeds and safely reuses an eligible non-refunded tournament payment when a member re-registers.
 - `0044_unpaid_event_registration_reminders.sql`: records 24-hour and 1-hour unpaid event-registration payment reminders per registration. The minutely `/api/notifications/pending-event-payments` cron sends reminders and cancels unpaid confirmed registrations at/after their cutoff after checking Stripe for late-arriving successful payments.
+- `0045_manual_interac_payment_review.sql`: adds Interac review metadata and notes, administrator-only authenticated review RPC with row locking, stricter payment fulfillment validation, rejection-state updates, and provider-preserving paid-registration reuse. Application UI, payment initiation APIs, and notification delivery remain separate implementation work.
 
 Chat notification preferences are stored as `all`, `mentions`, or `none`. Mention recipient IDs are validated against approved profiles by the database trigger. Chat messages remain excluded from audit logging.
 
+
+- `0046_interac_configuration.sql` — configurable Interac e-Transfer instructions and admin RLS.

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 const mocks = vi.hoisted(() => ({
   user: null as null | { id: string },
@@ -10,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   redirect: vi.fn((path: string) => {
     throw new Error(`redirect:${path}`);
   }),
+  routerReplace: vi.fn(),
   syncPaymentProceeds: vi.fn(),
 }));
 
@@ -20,8 +22,9 @@ function queryFor(table: string, source: 'auth' | 'payments') {
     in: () => query,
     order: () => query,
     limit: () => query,
+    range: () => query,
     maybeSingle: async () => ({
-      data: table === 'profiles' ? mocks.profile : mocks.singles[table] ?? null,
+      data: table === 'profiles' ? mocks.profile : (mocks.singles[table] ?? null),
       error: mocks.errors[`${table}.single`] ?? null,
     }),
     then: (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) =>
@@ -32,10 +35,17 @@ function queryFor(table: string, source: 'auth' | 'payments') {
   };
   return query;
 }
-
 vi.mock('next/navigation', () => ({
   redirect: mocks.redirect,
-  useRouter: () => ({ refresh: vi.fn() }),
+  useRouter: () => ({ refresh: vi.fn(), replace: mocks.routerReplace }),
+  usePathname: () => '/admin/payments',
+  useSearchParams: () => new URLSearchParams(),
+}));
+vi.mock('@/lib/supabase-browser', () => ({
+  createSupabaseBrowserClient: () => ({
+    channel: () => ({ on: () => ({ subscribe: vi.fn() }) }),
+    removeChannel: vi.fn(),
+  }),
 }));
 vi.mock('@/lib/supabase-server', () => ({
   createSupabaseServerClient: async () => ({
@@ -105,7 +115,9 @@ describe('member payment history page', () => {
 
     mocks.errors['payments.rows'] = { message: 'database detail' };
     rerender(await MemberPaymentsPage());
-    expect(screen.getByRole('alert')).toHaveTextContent('Payment history is temporarily unavailable.');
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Payment history is temporarily unavailable.',
+    );
   });
 
   it('shows the empty state when no payment rows exist', async () => {
@@ -128,6 +140,7 @@ describe('admin payment history page', () => {
       {
         id: 'payment-1',
         user_id: 'member-1',
+        provider: 'stripe',
         purpose: 'event_registration',
         business_record_id: 'registration-1',
         amount_minor: 2500,
@@ -141,13 +154,17 @@ describe('admin payment history page', () => {
         proceeds_minor: null,
       },
     ];
-    mocks.rows.profiles = [{ id: 'member-1', full_name: 'Alex Member', email: 'alex@example.test' }];
+    mocks.rows.profiles = [
+      { id: 'member-1', full_name: 'Alex Member', email: 'alex@example.test' },
+    ];
     mocks.rows.registrations = [{ id: 'registration-1', event_id: 'event-1' }];
     mocks.rows.events = [{ id: 'event-1', title: 'Summer Social' }];
     mocks.syncPaymentProceeds.mockResolvedValue({ feeMinor: 100, proceedsMinor: 2400 });
     const { container } = render(await AdminPaymentsPage());
+    await userEvent.setup().click(screen.getByRole('tab', { name: 'Stripe' }));
     expect(container).toHaveTextContent('Alex Member');
     expect(container).toHaveTextContent('Summer Social');
+    await userEvent.setup().click(screen.getByRole('tab', { name: 'Report' }));
     expect(container).toHaveTextContent('$24.00');
     expect(mocks.syncPaymentProceeds).toHaveBeenCalledWith(expect.any(Object), 'payment-1', 'pi-1');
   });

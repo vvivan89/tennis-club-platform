@@ -97,7 +97,8 @@ function queryFor(table: string) {
 const channel = {
   on: (...args: unknown[]) => {
     const handler = args.at(-1);
-    if (typeof handler === 'function') mocks.channelHandlers.push(handler as (...args: unknown[]) => void);
+    if (typeof handler === 'function')
+      mocks.channelHandlers.push(handler as (...args: unknown[]) => void);
     return channel;
   },
   subscribe: () => channel,
@@ -249,7 +250,9 @@ describe('MemberChat', () => {
     fireEvent.change(fileInput, {
       target: { files: [new File(['x'], 'bad.svg', { type: 'image/svg+xml' })] },
     });
-    expect(await screen.findByRole('alert')).toHaveTextContent('Choose a JPEG, PNG, GIF, or WebP image');
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Choose a JPEG, PNG, GIF, or WebP image',
+    );
 
     const large = new File([new Uint8Array(1024 * 1024 + 1)], 'large.png', { type: 'image/png' });
     fireEvent.change(fileInput, { target: { files: [large] } });

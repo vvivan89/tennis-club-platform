@@ -4,6 +4,12 @@ import userEvent from '@testing-library/user-event';
 
 const routerRefresh = vi.hoisted(() => vi.fn());
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: routerRefresh }) }));
+vi.mock('@/lib/supabase-browser', () => ({
+  createSupabaseBrowserClient: () => ({
+    channel: () => ({ on: () => ({ subscribe: vi.fn() }) }),
+    removeChannel: vi.fn(),
+  }),
+}));
 
 import { PaymentHistoryTable } from '@/components/payment-history-table';
 import { AdminPaymentRefundForm } from '@/components/admin-payment-refund-form';
@@ -84,7 +90,10 @@ describe('PaymentHistoryTable', () => {
     expect(screen.getByText('Showing 1 of 2 payments')).toBeInTheDocument();
     expect(screen.getByText('Jordan Member')).toBeInTheDocument();
     await user.clear(screen.getByRole('searchbox', { name: 'Search user or event' }));
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Status' }), 'succeeded');
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Payment status' }),
+      'succeeded',
+    );
     expect(screen.getByText('Alex Member')).toBeInTheDocument();
     expect(screen.queryByText('Jordan Member')).not.toBeInTheDocument();
     await user.clear(screen.getByLabelText('From date'));
@@ -102,8 +111,9 @@ describe('AdminPaymentRefundForm', () => {
     );
     render(<AdminPaymentRefundForm paymentId="payment-1" remainingMinor={2500} />);
     const amount = screen.getByRole('spinbutton', { name: 'Refund amount for payment-1' });
-    const submit = screen.getByRole('button', { name: 'Request refund' });
+    const submit = screen.getByRole('button', { name: 'Request refund for payment-1' });
     expect(submit).not.toBeDisabled();
+    await user.clear(amount);
     await user.type(amount, '30');
     expect(submit).toBeDisabled();
     await user.clear(amount);
@@ -117,7 +127,7 @@ describe('AdminPaymentRefundForm', () => {
     });
     expect(await screen.findByRole('status')).toHaveTextContent('Refund requested (succeeded)');
     expect(routerRefresh).toHaveBeenCalledOnce();
-    expect(amount).toHaveValue(null);
+    expect(amount).toHaveValue(25);
   });
 
   it('submits the full remainder when blank and shows server errors', async () => {
@@ -126,19 +136,23 @@ describe('AdminPaymentRefundForm', () => {
       new Response(JSON.stringify({ status: 'refunded' }), { status: 200 }),
     );
     const user = userEvent.setup();
-    const { rerender } = render(<AdminPaymentRefundForm paymentId="payment-2" remainingMinor={1000} />);
-    await user.click(screen.getByRole('button', { name: 'Request refund' }));
+    const { rerender } = render(
+      <AdminPaymentRefundForm paymentId="payment-2" remainingMinor={1000} />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Request refund for payment-2' }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
     expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual(
       expect.objectContaining({ paymentId: 'payment-2' }),
     );
-    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).not.toHaveProperty('amountMinor');
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({
+      amountMinor: 1000,
+    });
 
     fetchMock.mockResolvedValueOnce(
       new Response(JSON.stringify({ error: 'Refund unavailable' }), { status: 409 }),
     );
     rerender(<AdminPaymentRefundForm paymentId="payment-3" remainingMinor={1000} />);
-    await user.click(screen.getByRole('button', { name: 'Request refund' }));
+    await user.click(screen.getByRole('button', { name: 'Request refund for payment-3' }));
     expect(await screen.findByRole('status')).toHaveTextContent('Refund unavailable');
   });
 });

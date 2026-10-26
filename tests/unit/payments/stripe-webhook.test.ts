@@ -69,6 +69,7 @@ describe('Stripe webhook endpoint', () => {
   });
 
   it('fulfills the linked business record after a validated successful payment', async () => {
+    mocks.retrievePaymentIntent.mockResolvedValue({ latest_charge: null });
     const payment = {
       id: 'payment-1',
       status: 'pending',
@@ -97,13 +98,6 @@ describe('Stripe webhook endpoint', () => {
             pctc_user_id: payment.user_id,
           },
         },
-      },
-    });
-    mocks.retrievePaymentIntent.mockResolvedValue({
-      id: 'pi_success',
-      latest_charge: {
-        id: 'ch_success',
-        balance_transaction: { fee: 45, net: 1205 },
       },
     });
     mocks.rpc.mockImplementation(async (name: string) => ({

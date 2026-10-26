@@ -1,8 +1,9 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
+import { RotateCcw } from 'lucide-react';
 
 export function AdminPaymentRefundForm({
   paymentId,
@@ -12,9 +13,12 @@ export function AdminPaymentRefundForm({
   remainingMinor: number;
 }) {
   const router = useRouter();
-  const [amount, setAmount] = useState('');
+  const [amount, setAmount] = useState((remainingMinor / 100).toFixed(2));
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  useEffect(() => {
+    setAmount((remainingMinor / 100).toFixed(2));
+  }, [remainingMinor]);
   const idempotencyKey = useRef(crypto.randomUUID());
   async function submit() {
     setBusy(true);
@@ -33,7 +37,7 @@ export function AdminPaymentRefundForm({
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Refund request failed.');
       setMessage(`Refund requested (${result.status}). Payment history has been refreshed.`);
-      setAmount('');
+      setAmount((remainingMinor / 100).toFixed(2));
       router.refresh();
       idempotencyKey.current = crypto.randomUUID();
     } catch (error) {
@@ -43,37 +47,41 @@ export function AdminPaymentRefundForm({
     }
   }
   return (
-    <div className="min-w-56 space-y-2">
-      <label className="block text-xs text-muted-foreground">
-        Partial amount in currency units (blank = full remaining balance)
-      </label>
-      <input
-        aria-label={`Refund amount for ${paymentId}`}
-        className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
-        type="number"
-        min="0.01"
-        step="0.01"
-        max={(remainingMinor / 100).toFixed(2)}
-        value={amount}
-        onChange={(event) => setAmount(event.target.value)}
-      />
-      <Button
-        size="sm"
-        variant="outline"
-        disabled={
-          busy ||
-          remainingMinor <= 0 ||
-          (amount.trim() !== '' &&
-            (!Number.isFinite(Number(amount)) ||
-              Number(amount) <= 0 ||
-              Math.round(Number(amount) * 100) > remainingMinor))
-        }
-        onClick={() => void submit()}
-      >
-        {busy ? 'Requesting…' : 'Request refund'}
-      </Button>
+    <div className="min-w-0 space-y-1">
+      <div className="flex min-w-0 items-center gap-1.5 whitespace-nowrap">
+        <label className="sr-only" htmlFor={`refund-amount-${paymentId}`}>
+          Refund amount
+        </label>
+        <input
+          id={`refund-amount-${paymentId}`}
+          aria-label={`Refund amount for ${paymentId}`}
+          className="w-24 rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+          type="number"
+          min="0.01"
+          step="0.01"
+          max={(remainingMinor / 100).toFixed(2)}
+          value={amount}
+          onChange={(event) => setAmount(event.target.value)}
+        />
+        <Button
+          size="icon"
+          variant="outline"
+          title="Request refund"
+          aria-label={`Request refund for ${paymentId}`}
+          disabled={
+            busy ||
+            remainingMinor <= 0 ||
+            !Number.isFinite(Number(amount)) ||
+            Number(amount) <= 0 ||
+            Math.round(Number(amount) * 100) > remainingMinor
+          }
+          onClick={() => void submit()}
+        >
+          <RotateCcw size={16} aria-hidden="true" />
+        </Button>
+      </div>
       {message && (
-        <p role="status" className="max-w-72 text-xs text-muted-foreground">
+        <p role="status" className="max-w-64 text-xs text-muted-foreground">
           {message}
         </p>
       )}

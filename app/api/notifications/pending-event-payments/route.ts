@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import type Stripe from 'stripe';
-import { getStripeClient } from '@/lib/payments/stripe';
 import { createPaymentServiceClient } from '@/lib/payments/server';
+import { getStripeClient } from '@/lib/payments/stripe';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;

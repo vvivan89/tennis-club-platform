@@ -151,7 +151,9 @@ describe('pending event payment reminders', () => {
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', '');
     const unavailable = await GET(request());
     expect(unavailable.status).toBe(503);
-    expect(await unavailable.json()).toMatchObject({ error: 'Supabase service configuration is missing.' });
+    expect(await unavailable.json()).toMatchObject({
+      error: 'Supabase service configuration is missing.',
+    });
   });
 
   it('reports event lookup errors and succeeds when no cutoffs are approaching', async () => {
@@ -170,9 +172,16 @@ describe('pending event payment reminders', () => {
     mocks.queues['events.select'] = [[event(Date.now() + 24 * 60 * 60 * 1000)]];
     mocks.queues['registrations.select'] = [[registration()]];
     mocks.queues['payments.select'] = [[]];
-    mocks.queues['profiles.select'] = [[
-      { id: 'member-1', email: 'member@example.test', full_name: '<Alex>', email_registration_reminders: true },
-    ]];
+    mocks.queues['profiles.select'] = [
+      [
+        {
+          id: 'member-1',
+          email: 'member@example.test',
+          full_name: '<Alex>',
+          email_registration_reminders: true,
+        },
+      ],
+    ];
     mocks.queues['event_registration_payment_reminders.insert.maybeSingle'] = [
       { id: 'reminder-1' },
     ];
@@ -186,10 +195,16 @@ describe('pending event payment reminders', () => {
     expect(email.html).toContain('&lt;Alex&gt;');
     expect(email.html).toContain('&lt;Summer Social&gt;');
     expect(mocks.calls).toContainEqual(
-      expect.objectContaining({ table: 'event_registration_payment_reminders', operation: 'insert' }),
+      expect.objectContaining({
+        table: 'event_registration_payment_reminders',
+        operation: 'insert',
+      }),
     );
     expect(mocks.calls).toContainEqual(
-      expect.objectContaining({ table: 'event_registration_payment_reminders', operation: 'update' }),
+      expect.objectContaining({
+        table: 'event_registration_payment_reminders',
+        operation: 'update',
+      }),
     );
   });
 
@@ -197,9 +212,16 @@ describe('pending event payment reminders', () => {
     mocks.queues['events.select'] = [[event(Date.now() + 24 * 60 * 60 * 1000)]];
     mocks.queues['registrations.select'] = [[registration()]];
     mocks.queues['payments.select'] = [[]];
-    mocks.queues['profiles.select'] = [[
-      { id: 'member-1', email: 'member@example.test', full_name: 'Alex', email_registration_reminders: true },
-    ]];
+    mocks.queues['profiles.select'] = [
+      [
+        {
+          id: 'member-1',
+          email: 'member@example.test',
+          full_name: 'Alex',
+          email_registration_reminders: true,
+        },
+      ],
+    ];
     mocks.queues['event_registration_payment_reminders.insert.maybeSingle'] = [
       { data: null, error: { code: '23505' } },
     ];
@@ -213,9 +235,16 @@ describe('pending event payment reminders', () => {
     mocks.queues['events.select'] = [[event(Date.now() + 24 * 60 * 60 * 1000)]];
     mocks.queues['registrations.select'] = [[registration()]];
     mocks.queues['payments.select'] = [[]];
-    mocks.queues['profiles.select'] = [[
-      { id: 'member-1', email: 'member@example.test', full_name: 'Alex', email_registration_reminders: false },
-    ]];
+    mocks.queues['profiles.select'] = [
+      [
+        {
+          id: 'member-1',
+          email: 'member@example.test',
+          full_name: 'Alex',
+          email_registration_reminders: false,
+        },
+      ],
+    ];
     const optedOut = await GET(request());
     expect(await optedOut.json()).toMatchObject({ remindersSent: 0 });
     expect(mocks.fetch).not.toHaveBeenCalled();
@@ -228,7 +257,9 @@ describe('pending event payment reminders', () => {
     mocks.rpc.mockResolvedValue({ data: true, error: null });
     const fulfilled = await GET(request());
     expect(await fulfilled.json()).toMatchObject({ registrationsRemoved: 0, errors: 0 });
-    expect(mocks.rpc).toHaveBeenCalledWith('fulfill_successful_payment', { p_payment_id: 'payment-1' });
+    expect(mocks.rpc).toHaveBeenCalledWith('fulfill_successful_payment', {
+      p_payment_id: 'payment-1',
+    });
 
     mocks.queues['events.select'] = [[event(Date.now() - 1000)]];
     mocks.queues['registrations.select'] = [[registration()]];
@@ -267,20 +298,34 @@ describe('pending event payment reminders', () => {
     mocks.queues['payments.update'] = [{ error: null }];
     const reconciled = await GET(request());
     expect(await reconciled.json()).toMatchObject({ remindersSent: 0, errors: 0 });
-    expect(mocks.rpc).toHaveBeenCalledWith('fulfill_successful_payment', { p_payment_id: 'payment-1' });
+    expect(mocks.rpc).toHaveBeenCalledWith('fulfill_successful_payment', {
+      p_payment_id: 'payment-1',
+    });
 
     mocks.queues['events.select'] = [[event(Date.now() + 24 * 60 * 60 * 1000)]];
     mocks.queues['registrations.select'] = [[registration()]];
     mocks.queues['payments.select'] = [[]];
-    mocks.queues['profiles.select'] = [[
-      { id: 'member-1', email: 'member@example.test', full_name: 'Alex', email_registration_reminders: true },
-    ]];
-    mocks.queues['event_registration_payment_reminders.insert.maybeSingle'] = [{ id: 'reminder-2' }];
+    mocks.queues['profiles.select'] = [
+      [
+        {
+          id: 'member-1',
+          email: 'member@example.test',
+          full_name: 'Alex',
+          email_registration_reminders: true,
+        },
+      ],
+    ];
+    mocks.queues['event_registration_payment_reminders.insert.maybeSingle'] = [
+      { id: 'reminder-2' },
+    ];
     mocks.fetch.mockResolvedValue({ ok: false });
     const failedDelivery = await GET(request());
     expect(await failedDelivery.json()).toMatchObject({ remindersFailed: 1, success: false });
     expect(mocks.calls).toContainEqual(
-      expect.objectContaining({ table: 'event_registration_payment_reminders', operation: 'delete' }),
+      expect.objectContaining({
+        table: 'event_registration_payment_reminders',
+        operation: 'delete',
+      }),
     );
   });
 });
