@@ -224,4 +224,106 @@ describe('audit formatting', () => {
       changes: { field_changes: { phone: { old: null, new: '123' } } },
     });
   });
+
+  it('formats waitlist/payment deltas and resolves field identifiers to known names', () => {
+    expect(
+      auditChangeLines(
+        {
+          changes: {
+            affected_players: [
+              {
+                change: 'updated',
+                player_id: 'player-1',
+                old_queue_position: 3,
+                new_queue_position: 1,
+                old_payment_status: 'pending',
+                new_payment_status: 'paid',
+              },
+            ],
+          },
+        },
+        { 'player-1': 'Alex Chen' },
+      ),
+    ).toEqual(['Alex Chen: waitlist position 3 → 1; payment pending → paid in the event.']);
+
+    expect(
+      auditChangeLines(
+        {
+          target_table: 'profiles',
+          changes: {
+            entities: [
+              {
+                type: 'profile',
+                name: 'Alex Chen',
+                field_changes: {
+                  user_id: { old: 'user-old', new: 'user-new' },
+                  event_id: { old_value: 'event-old', new_value: 'event-new' },
+                },
+              },
+            ],
+          },
+        },
+        {
+          'user-old': 'Former member',
+          'user-new': 'Current member',
+          'event-old': 'Old event',
+          'event-new': 'New event',
+        },
+      ),
+    ).toEqual([
+      'Alex Chen: User Id changed from Former member to Current member.',
+      'Alex Chen: Event Id changed from Old event to New event.',
+    ]);
+  });
+
+  it('formats entity-specific changes and safely falls back for malformed snapshots', () => {
+    expect(
+      auditChangeLines({
+        target_table: 'events',
+        changes: {
+          entities: [
+            {
+              type: 'court_assignment',
+              player_name: 'Alex Chen',
+              segment_order: 2,
+              previous_courts: [],
+              new_courts: [3, 4],
+            },
+            {
+              type: 'registration',
+              event_name: 'Summer Open',
+              change: 'removed',
+              player_name: 'Jordan Lee',
+              old_status: 'confirmed',
+            },
+            {
+              operation: 'updated',
+              name: 'Membership',
+              new_values: { id: 'm1', updated_at: 'ignored', enabled: false, note: '' },
+            },
+            { operation: 'archived', name: 'Legacy row', new_values: null },
+            null,
+          ],
+        },
+      }),
+    ).toEqual([
+      'Alex Chen — Session 2: Unassigned → Courts 3, 4',
+      'Removed Jordan Lee from Summer Open. Previous registration: confirmed. New registration: removed.',
+      'Updated Membership; field values were not captured.',
+      'Archived Legacy row; field values were not captured.',
+    ]);
+
+    expect(actionLabel('custom.integration.created')).toBe('Custom Integration Created');
+    expect(actionLabel('misc.action.completed')).toBe('Misc Action Completed');
+  });
+
+  it('filters credential keys recursively while preserving arrays and primitive values', () => {
+    expect(
+      safeAuditDetails([
+        { authorization: 'hidden', nested: [{ access_token: 'hidden', visible: true }] },
+        null,
+        'plain text',
+      ]),
+    ).toEqual([{ nested: [{ visible: true }] }, null, 'plain text']);
+  });
 });

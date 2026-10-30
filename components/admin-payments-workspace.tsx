@@ -171,7 +171,10 @@ export function AdminPaymentsWorkspace({
   const scopes = [
     ...new Set(
       rows
-        .filter((r) => r.purpose === 'event_registration' && r.eventName)
+        .filter(
+          (r) =>
+            ['event_registration', 'tournament_registration'].includes(r.purpose) && r.eventName,
+        )
         .map((r) => r.eventName as string),
     ),
   ].sort();
@@ -182,7 +185,9 @@ export function AdminPaymentsWorkspace({
         .map((r) =>
           r.purpose === 'event_registration'
             ? r.eventName || 'Event registration'
-            : title(r.purpose),
+            : r.purpose === 'tournament_registration'
+              ? `${r.eventName || 'Tournament'} — Tournament registration`
+              : title(r.purpose),
         ),
     ),
   ].sort();
@@ -209,7 +214,9 @@ export function AdminPaymentsWorkspace({
         paymentPurpose === 'all' ||
         (r.purpose === 'event_registration'
           ? r.eventName || 'Event registration'
-          : title(r.purpose)) === paymentPurpose,
+          : r.purpose === 'tournament_registration'
+            ? `${r.eventName || 'Tournament'} — Tournament registration`
+            : title(r.purpose)) === paymentPurpose,
     )
     .filter(
       (r) =>
@@ -408,7 +415,9 @@ export function AdminPaymentsWorkspace({
                     const k =
                       r.purpose === 'event_registration'
                         ? r.eventName || 'Event registration'
-                        : title(r.purpose);
+                        : r.purpose === 'tournament_registration'
+                          ? `${r.eventName || 'Tournament'} — Tournament registration`
+                          : title(r.purpose);
                     acc[k] = (acc[k] || 0) + netFor(r);
                     return acc;
                   }, {}),
@@ -636,7 +645,9 @@ export function AdminPaymentsWorkspace({
                     <td className="px-3 py-3">
                       {row.purpose === 'event_registration'
                         ? row.eventName || 'Event registration'
-                        : title(row.purpose)}
+                        : row.purpose === 'tournament_registration'
+                          ? `${row.eventName || 'Tournament'} — Tournament registration`
+                          : title(row.purpose)}
                       <span className="mt-1 block max-w-48 break-all font-mono text-[10px] text-muted-foreground">
                         {row.id}
                       </span>

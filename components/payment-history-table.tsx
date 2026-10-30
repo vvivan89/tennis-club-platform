@@ -91,7 +91,9 @@ export function PaymentHistoryTable({
           rows.map((row) =>
             row.purpose === 'event_registration'
               ? row.eventName || 'Event Registration'
-              : formatPurpose(row.purpose),
+              : row.purpose === 'tournament_registration'
+                ? `${row.eventName || 'Tournament'} — Tournament Registration`
+                : formatPurpose(row.purpose),
           ),
         ),
       ].sort((a, b) => a.localeCompare(b)),
@@ -104,7 +106,9 @@ export function PaymentHistoryTable({
       const purposeLabel =
         row.purpose === 'event_registration'
           ? row.eventName || 'Event Registration'
-          : formatPurpose(row.purpose);
+          : row.purpose === 'tournament_registration'
+            ? `${row.eventName || 'Tournament'} — Tournament Registration`
+            : formatPurpose(row.purpose);
       if (purpose !== 'all' && purposeLabel !== purpose) return false;
       if (status !== 'all' && row.status !== status) return false;
       if (minAmount !== '' && row.amountMinor < Number(minAmount) * 100) return false;
@@ -259,7 +263,7 @@ export function PaymentHistoryTable({
                   </td>
                   <td className="px-3 py-3">
                     <span className="capitalize">{formatPurpose(row.purpose)}</span>
-                    {row.purpose === 'event_registration' && (
+                    {['event_registration', 'tournament_registration'].includes(row.purpose) && (
                       <span className="mt-1 block font-medium text-muted-foreground">
                         {row.eventName || 'Event name unavailable'}
                       </span>

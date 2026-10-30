@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const mocks = vi.hoisted(() => ({
@@ -58,8 +58,8 @@ import { EventManagementForm } from '@/components/event-management-form';
 
 async function fillValidEvent(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByLabelText('Event title'), '  Friday Social  ');
-  await user.type(screen.getByLabelText('Session starts'), '2030-01-10T18:00');
-  await user.type(screen.getByLabelText('Session ends'), '2030-01-10T20:00');
+  await user.type(screen.getByLabelText('Event starts'), '2030-01-10T18:00');
+  await user.type(screen.getByLabelText('Event ends'), '2030-01-10T20:00');
   await user.type(screen.getByLabelText('Registration opens'), '2030-01-01T18:00');
   await user.type(screen.getByLabelText('Registration cutoff'), '2030-01-09T18:00');
 }
@@ -87,12 +87,32 @@ describe('EventManagementForm persistence', () => {
     const user = userEvent.setup();
     render(<EventManagementForm currentUserId="admin-1" />);
     await user.type(screen.getByLabelText('Event title'), 'Invalid event');
-    await user.type(screen.getByLabelText('Session starts'), '2030-01-10T20:00');
-    await user.type(screen.getByLabelText('Session ends'), '2030-01-10T18:00');
+    await user.type(screen.getByLabelText('Event starts'), '2030-01-10T20:00');
+    await user.type(screen.getByLabelText('Event ends'), '2030-01-10T18:00');
     await user.type(screen.getByLabelText('Registration opens'), '2030-01-01T18:00');
     await user.type(screen.getByLabelText('Registration cutoff'), '2030-01-09T18:00');
-    await user.click(screen.getByRole('button', { name: 'Create event session(s)' }));
+    await user.click(screen.getByRole('button', { name: /Create (event|events|tournament)/ }));
     expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(mocks.calls).toEqual([]);
+  });
+
+  it('rejects non-positive category capacities before database writes', async () => {
+    const user = userEvent.setup();
+    const { container } = render(<EventManagementForm currentUserId="admin-1" />);
+    await fillValidEvent(user);
+    await user.selectOptions(screen.getByLabelText('Event type'), 'doubles_tournament');
+    const mixedFields = screen.getAllByLabelText('Mixed doubles');
+    const categoryCapacity = mixedFields.find(
+      (field) => field instanceof HTMLInputElement && field.type === 'number',
+    );
+    expect(categoryCapacity).toBeDefined();
+    await user.clear(categoryCapacity as HTMLInputElement);
+    await user.type(categoryCapacity as HTMLInputElement, '0');
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Capacity for mixed must be a positive whole number or left blank.',
+    );
     expect(mocks.calls).toEqual([]);
   });
 
@@ -117,7 +137,7 @@ describe('EventManagementForm persistence', () => {
     await user.selectOptions(screen.getByLabelText('Organizer'), 'organizer-1');
     await user.clear(screen.getByLabelText('Cost per person (CAD)'));
     await user.type(screen.getByLabelText('Cost per person (CAD)'), '12.50');
-    await user.click(screen.getByRole('button', { name: 'Create event session(s)' }));
+    await user.click(screen.getByRole('button', { name: /Create (event|events|tournament)/ }));
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith('/admin/events'));
     const inserted = mocks.calls.find((call) => call.table === 'events')?.values as Array<
       Record<string, unknown>
@@ -141,9 +161,9 @@ describe('EventManagementForm persistence', () => {
     const user = userEvent.setup();
     render(<EventManagementForm currentUserId="admin-1" />);
     await fillValidEvent(user);
-    await user.click(screen.getByLabelText('Repeat this event'));
+    await user.click(screen.getByRole('button', { name: 'Series of events' }));
     await user.type(screen.getByLabelText('Repeat until'), '2030-01-24');
-    await user.click(screen.getByRole('button', { name: 'Create event session(s)' }));
+    await user.click(screen.getByRole('button', { name: /Create (event|events|tournament)/ }));
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith('/admin/events'));
     const series = mocks.calls.find((call) => call.table === 'event_series');
     const sessions = mocks.calls.find((call) => call.table === 'events')?.values as Array<
@@ -165,8 +185,10 @@ describe('EventManagementForm persistence', () => {
     const user = userEvent.setup();
     render(<EventManagementForm currentUserId="admin-1" />);
     await fillValidEvent(user);
-    await user.click(screen.getByRole('button', { name: 'Create event session(s)' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Could not save event');
+    await user.click(screen.getByRole('button', { name: /Create (event|events|tournament)/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not save event. Please try again.',
+    );
     expect(mocks.push).not.toHaveBeenCalled();
   });
 
@@ -175,8 +197,8 @@ describe('EventManagementForm persistence', () => {
     mocks.user = null;
     const signedOut = render(<EventManagementForm currentUserId="admin-1" />);
     await fillValidEvent(user);
-    await user.click(screen.getByRole('button', { name: 'Create event session(s)' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Could not save event');
+    await user.click(screen.getByRole('button', { name: /Create (event|events|tournament)/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Sign in again to continue.');
     expect(mocks.calls).toEqual([]);
     signedOut.unmount();
 
@@ -185,8 +207,10 @@ describe('EventManagementForm persistence', () => {
     await fillValidEvent(user);
     await user.clear(screen.getByLabelText('Registration opens'));
     await user.type(screen.getByLabelText('Registration opens'), '2030-01-11T18:00');
-    await user.click(screen.getByRole('button', { name: 'Create event session(s)' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Could not save event.');
+    await user.click(screen.getByRole('button', { name: /Create (event|events|tournament)/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Registration must open before the event starts.',
+    );
     expect(mocks.calls).toEqual([]);
     invalidOpen.unmount();
 
@@ -194,8 +218,10 @@ describe('EventManagementForm persistence', () => {
     await fillValidEvent(user);
     await user.clear(screen.getByLabelText('Registration cutoff'));
     await user.type(screen.getByLabelText('Registration cutoff'), '2030-01-10T19:00');
-    await user.click(screen.getByRole('button', { name: 'Create event session(s)' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Could not save event.');
+    await user.click(screen.getByRole('button', { name: /Create (event|events|tournament)/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Registration cutoff must be on or before the event start.',
+    );
     expect(mocks.calls).toEqual([]);
   });
 
@@ -203,12 +229,12 @@ describe('EventManagementForm persistence', () => {
     const user = userEvent.setup();
     const monthly = render(<EventManagementForm currentUserId="admin-1" />);
     await user.type(screen.getByLabelText('Event title'), 'Month-end ladder');
-    await user.type(screen.getByLabelText('Session starts'), '2030-01-31T18:00');
-    await user.type(screen.getByLabelText('Session ends'), '2030-01-31T20:00');
-    await user.click(screen.getByLabelText('Repeat this event'));
+    await user.type(screen.getByLabelText('Event starts'), '2030-01-31T18:00');
+    await user.type(screen.getByLabelText('Event ends'), '2030-01-31T20:00');
+    await user.click(screen.getByRole('button', { name: 'Series of events' }));
     await user.selectOptions(screen.getByLabelText('Repeat'), 'monthly');
     await user.type(screen.getByLabelText('Repeat until'), '2030-03-31');
-    await user.click(screen.getByRole('button', { name: 'Create event session(s)' }));
+    await user.click(screen.getByRole('button', { name: /Create (event|events|tournament)/ }));
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith('/admin/events'));
     const sessions = mocks.calls.find((call) => call.table === 'events')?.values as Array<
       Record<string, unknown>
@@ -230,9 +256,9 @@ describe('EventManagementForm persistence', () => {
     };
     const rejected = render(<EventManagementForm currentUserId="admin-1" />);
     await fillValidEvent(user);
-    await user.click(screen.getByLabelText('Repeat this event'));
+    await user.click(screen.getByRole('button', { name: 'Series of events' }));
     await user.type(screen.getByLabelText('Repeat until'), '2030-01-24');
-    await user.click(screen.getByRole('button', { name: 'Create event session(s)' }));
+    await user.click(screen.getByRole('button', { name: /Create (event|events|tournament)/ }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not save event');
     expect(mocks.calls.some((call) => call.table === 'events' && call.operation === 'insert')).toBe(
       false,
@@ -245,22 +271,26 @@ describe('EventManagementForm persistence', () => {
     const user = userEvent.setup();
     render(<EventManagementForm currentUserId="admin-1" />);
     await fillValidEvent(user);
-    await user.click(screen.getByLabelText('Repeat this event'));
+    await user.click(screen.getByRole('button', { name: 'Series of events' }));
     await user.type(screen.getByLabelText('Repeat until'), '2030-01-17');
     await user.clear(screen.getByLabelText('Open registration days before'));
     await user.type(screen.getByLabelText('Open registration days before'), '0');
-    await user.click(screen.getByRole('button', { name: 'Create event session(s)' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Could not save event.');
+    await user.click(screen.getByRole('button', { name: /Create (event|events|tournament)/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Recurring registration must open before each event.',
+    );
     expect(mocks.calls).toEqual([]);
 
     await user.clear(screen.getByLabelText('Open registration days before'));
     await user.type(screen.getByLabelText('Open registration days before'), '3');
-    await user.clear(screen.getByLabelText('Close registration days before'));
-    await user.type(screen.getByLabelText('Close registration days before'), '0');
+    await user.clear(screen.getByLabelText('Registration cutoff days before'));
+    await user.type(screen.getByLabelText('Registration cutoff days before'), '0');
     await user.clear(screen.getByLabelText('Registration cutoff time'));
     await user.type(screen.getByLabelText('Registration cutoff time'), '19:00');
-    await user.click(screen.getByRole('button', { name: 'Create event session(s)' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Could not save event.');
+    await user.click(screen.getByRole('button', { name: /Create (event|events|tournament)/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Recurring registration cutoff must be on or before each event.',
+    );
     expect(mocks.calls).toEqual([]);
   });
 
@@ -268,10 +298,10 @@ describe('EventManagementForm persistence', () => {
     const user = userEvent.setup();
     const longRange = render(<EventManagementForm currentUserId="admin-1" />);
     await fillValidEvent(user);
-    await user.click(screen.getByLabelText('Repeat this event'));
+    await user.click(screen.getByRole('button', { name: 'Series of events' }));
     await user.type(screen.getByLabelText('Repeat until'), '2040-01-10');
-    await user.click(screen.getByRole('button', { name: 'Create event session(s)' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Could not save event.');
+    await user.click(screen.getByRole('button', { name: /Create (event|events|tournament)/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('The recurrence range is too long.');
     expect(mocks.calls).toEqual([]);
     longRange.unmount();
 
@@ -279,7 +309,9 @@ describe('EventManagementForm persistence', () => {
     const single = render(<EventManagementForm currentUserId="admin-1" />);
     mocks.fetch.mockRejectedValue(new Error('network unavailable'));
     await fillValidEvent(userForSingle);
-    await userForSingle.click(screen.getByRole('button', { name: 'Create event session(s)' }));
+    await userForSingle.click(
+      screen.getByRole('button', { name: /Create (event|events|tournament)/ }),
+    );
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith('/admin/events'));
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     single.unmount();

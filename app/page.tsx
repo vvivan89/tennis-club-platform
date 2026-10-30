@@ -311,6 +311,7 @@ export default function Home() {
                 >
                   <EventCardWeather
                     startsAt={event.starts_at}
+                    endsAt={event.ends_at}
                     location={club.location_query.trim() || event.location?.trim() || ''}
                     status={event.status}
                     index={i}

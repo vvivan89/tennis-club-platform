@@ -51,7 +51,7 @@ export async function getHourlyForecastForStart(
   const now = Date.now();
   // Open-Meteo's 16-day range is inclusive of today, so keep a small safety
   // margin rather than requesting an hour that the API cannot return.
-  if (target.getTime() < now - 60 * 60 * 1000 || target.getTime() - now > 7 * 24 * 60 * 60 * 1000)
+  if (target.getTime() < now - 60 * 60 * 1000 || target.getTime() - now > 15 * 24 * 60 * 60 * 1000)
     return null;
 
   async function geocode(query: string) {

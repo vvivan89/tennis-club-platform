@@ -27,17 +27,33 @@ export function EventCardWeather({
   location,
   status,
   index,
+  endsAt,
 }: {
   startsAt: string;
   location: string;
   status: string;
   index: number;
+  endsAt?: string | null;
 }) {
   const [forecast, setForecast] = useState<HourlyForecast | null>(null);
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setClock(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const startTime = new Date(startsAt).getTime();
+  const endTime = endsAt ? new Date(endsAt).getTime() : startTime + 2 * 60 * 60 * 1000;
+  const hasStarted = clock >= startTime;
+  const hasEnded = clock > endTime;
+  const forecastTarget = hasStarted ? new Date(clock + 60 * 60 * 1000).toISOString() : startsAt;
   useEffect(() => {
     let active = true;
     setForecast(null);
-    getHourlyForecastForStart(startsAt, location)
+    if (hasEnded)
+      return () => {
+        active = false;
+      };
+    getHourlyForecastForStart(forecastTarget, location)
       .then((result) => {
         if (active) setForecast(result);
       })
@@ -47,7 +63,8 @@ export function EventCardWeather({
     return () => {
       active = false;
     };
-  }, [startsAt, location]);
+  }, [forecastTarget, location, hasEnded]);
+  if (hasEnded) return null;
   const Icon = forecast ? iconFor(forecast.code) : null;
   const palettes = [
     'from-emerald-100 via-teal-50 to-sky-100 text-emerald-950',
@@ -68,7 +85,7 @@ export function EventCardWeather({
         {forecast ? (
           <>
             <p className="text-xs font-semibold uppercase tracking-[0.16em] opacity-70">
-              Session forecast
+              {hasStarted ? 'Current forecast' : 'Event forecast'}
             </p>
             <p className="mt-1 text-lg font-semibold">{labelFor(forecast.code)}</p>
             <div className="mt-2 flex items-center gap-2 text-sm">

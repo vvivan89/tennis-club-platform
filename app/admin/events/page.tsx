@@ -4,7 +4,7 @@ import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { AdminNav } from '@/components/admin-nav';
 import { SiteFooter } from '@/components/site-footer';
 import { Button } from '@/components/ui/button';
-import { eventEditPath } from '@/lib/event-slug';
+import { AdminEventsTable } from '@/components/admin-events-table';
 export default async function EventsAdminPage() {
   const db = await createSupabaseServerClient();
   const {
@@ -16,7 +16,7 @@ export default async function EventsAdminPage() {
   let eventQuery = db
     .from('events')
     .select(
-      'id,slug,title,starts_at,ends_at,status,capacity,price_cents,series_id,created_by,organizer_id',
+      'id,slug,title,starts_at,ends_at,status,capacity,price_cents,series_id,created_by,organizer_id,event_type,tournament_format',
     );
   if (me?.role === 'organizer')
     eventQuery = eventQuery.or(`created_by.eq.${user.id},organizer_id.eq.${user.id}`);
@@ -44,62 +44,25 @@ export default async function EventsAdminPage() {
             {error.message}
           </p>
         ) : (
-          <div className="mt-7 overflow-x-auto rounded-lg border border-border">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-muted">
-                <tr>
-                  {[
-                    'Event',
-                    'Starts',
-                    'Ends',
-                    'Capacity',
-                    'Price',
-                    'Status',
-                    'Series',
-                    'Actions',
-                  ].map((x) => (
-                    <th key={x} className="whitespace-nowrap px-4 py-3 font-medium">
-                      {x}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {(events ?? []).map((e) => (
-                  <tr key={e.id} className="border-t border-border">
-                    <td className="px-4 py-3 font-medium">{e.title}</td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      {new Date(e.starts_at).toLocaleString('en-CA')}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      {e.ends_at ? new Date(e.ends_at).toLocaleString('en-CA') : '—'}
-                    </td>
-                    <td className="px-4 py-3">{e.capacity}</td>
-                    <td className="px-4 py-3">
-                      {e.price_cents === 0
-                        ? 'Free'
-                        : new Intl.NumberFormat('en-CA', {
-                            style: 'currency',
-                            currency: 'CAD',
-                          }).format(e.price_cents / 100)}
-                    </td>
-                    <td className="px-4 py-3 capitalize">{e.status}</td>
-                    <td className="px-4 py-3">{e.series_id ? 'Recurring' : 'One-off'}</td>
-                    <td className="px-4 py-3">
-                      <Button asChild size="sm" variant="outline">
-                        <Link href={eventEditPath(e)}>Edit</Link>
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {!events?.length && (
-              <p className="p-4 text-sm text-muted-foreground">
-                No events found. Create your first event to get started.
-              </p>
-            )}
-          </div>
+          <AdminEventsTable
+            events={
+              (events ?? []) as Array<{
+                id: string;
+                slug: string | null;
+                title: string;
+                starts_at: string;
+                ends_at: string | null;
+                status: string;
+                capacity: number;
+                price_cents: number;
+                series_id: string | null;
+                created_by: string | null;
+                organizer_id: string | null;
+                event_type: string | null;
+                tournament_format: string | null;
+              }>
+            }
+          />
         )}
         <p className="mt-4 text-xs text-muted-foreground">
           Each recurring occurrence is managed as an individual session. Waitlist promotion is

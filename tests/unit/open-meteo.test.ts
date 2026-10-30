@@ -27,6 +27,71 @@ describe('getHourlyForecastForStart', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('uses fallback coordinates and legacy weather fields when geocoding is unavailable', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-22T12:00:00.000Z'));
+    const fetchMock = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('geocoding-api.open-meteo.com'))
+        return new Response(JSON.stringify({ results: [] }), { status: 200 });
+      return new Response(
+        JSON.stringify({
+          timezone: 'UTC',
+          hourly: {
+            time: ['2026-10-25T18:00'],
+            weathercode: [61],
+            temperature_2m: [11],
+          },
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(getHourlyForecastForStart('2026-10-25T18:30:00.000Z', '')).resolves.toEqual({
+      code: 61,
+      temperature: 11,
+      precipitation: null,
+      windSpeed: null,
+      windDirection: null,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1][0])).toContain('latitude=49.2625&longitude=-122.7811');
+  });
+
+  it('returns null when the forecast request fails or has no matching hour', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-22T12:00:00.000Z'));
+    const fetchMock = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('geocoding-api.open-meteo.com'))
+        return new Response(JSON.stringify({ results: [{ latitude: 49, longitude: -123 }] }), {
+          status: 200,
+        });
+      return new Response(JSON.stringify({ hourly: { time: [] } }), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(
+      getHourlyForecastForStart('2026-10-25T18:00:00.000Z', 'Langley no-hour'),
+    ).resolves.toBeNull();
+
+    const failingFetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('geocoding-api.open-meteo.com'))
+        return new Response(
+          JSON.stringify({
+            results: [{ latitude: 37.123, longitude: -121.987, timezone: 'UTC', country: 'US' }],
+          }),
+          { status: 200 },
+        );
+      return new Response('unavailable', { status: 503 });
+    });
+    vi.stubGlobal('fetch', failingFetch);
+    await expect(
+      getHourlyForecastForStart('2026-10-25T18:00:00.000Z', 'No geocoder result'),
+    ).resolves.toBeNull();
+  });
+
   it('selects the forecast for the event local start hour', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-10-22T12:00:00.000Z'));

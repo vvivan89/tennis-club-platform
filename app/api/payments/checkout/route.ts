@@ -8,7 +8,7 @@ import { getStripeClient } from '@/lib/payments/stripe';
 export const runtime = 'nodejs';
 
 type CheckoutBody = {
-  purpose?: 'membership' | 'event_registration';
+  purpose?: 'membership' | 'event_registration' | 'tournament_registration';
   provider?: 'stripe' | 'interac';
   businessRecordId?: string;
   membershipKind?: 'individual' | 'family';
@@ -68,10 +68,14 @@ export async function POST(request: Request) {
     const {
       data: { user },
     } = await auth.auth.getUser();
-    if (!user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
-
     const body = (await request.json()) as CheckoutBody;
-    if (!body.purpose || !['membership', 'event_registration'].includes(body.purpose)) {
+    if (!user && (body.purpose !== 'tournament_registration' || body.provider === 'interac')) {
+      return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
+    }
+    if (
+      !body.purpose ||
+      !['membership', 'event_registration', 'tournament_registration'].includes(body.purpose)
+    ) {
       return NextResponse.json({ error: 'Unsupported payment purpose.' }, { status: 400 });
     }
     const idempotencyKey = body.idempotencyKey?.trim() || randomUUID();
@@ -80,14 +84,16 @@ export async function POST(request: Request) {
 
     const db = getServiceClient();
     const [{ data: profile }, { data: settings, error: settingsError }] = await Promise.all([
-      db
-        .from('profiles')
-        .select('id,email,full_name,application_status')
-        .eq('id', user.id)
-        .maybeSingle(),
+      user
+        ? db
+            .from('profiles')
+            .select('id,email,full_name,application_status')
+            .eq('id', user!.id)
+            .maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
       db.from('membership_plan_settings').select('*').eq('id', 1).maybeSingle(),
     ]);
-    if (!profile || profile.application_status !== 'approved') {
+    if (user && (!profile || profile.application_status !== 'approved')) {
       return NextResponse.json(
         { error: 'An approved member profile is required to make a payment.' },
         { status: 403 },
@@ -99,7 +105,7 @@ export async function POST(request: Request) {
     let amountMinor = 0;
     const currency = 'cad';
     let description = '';
-    const customerEmail = profile.email || user.email || undefined;
+    let customerEmail = profile?.email || user?.email || undefined;
 
     if (body.purpose === 'membership') {
       if (!settings)
@@ -144,7 +150,7 @@ export async function POST(request: Request) {
           .from('membership_family_members')
           .select('id,status')
           .eq('family_id', businessRecordId)
-          .eq('user_id', user.id)
+          .eq('user_id', user!.id)
           .eq('status', 'confirmed')
           .maybeSingle();
         if (!originalFamily || !familyLink)
@@ -201,7 +207,7 @@ export async function POST(request: Request) {
             waiver_accepted_at: new Date().toISOString(),
           })
           .eq('family_id', businessRecordId)
-          .eq('user_id', user.id)
+          .eq('user_id', user!.id)
           .eq('status', 'confirmed');
         if (ownWaiverError) throw new Error('Could not save family waiver acceptance.');
         const { data: members, error: membersError } = await db
@@ -245,7 +251,7 @@ export async function POST(request: Request) {
               'id,user_id,status,payment_status,membership_type,starts_on,ends_on,waiver_version,waiver_accepted_at',
             )
             .eq('id', businessRecordId)
-            .eq('user_id', user.id)
+            .eq('user_id', user!.id)
             .maybeSingle();
           if (!existing)
             return NextResponse.json({ error: 'Membership record not found.' }, { status: 404 });
@@ -275,13 +281,13 @@ export async function POST(request: Request) {
               waiver_accepted_at: new Date().toISOString(),
             })
             .eq('id', existing.id)
-            .eq('user_id', user.id);
+            .eq('user_id', user!.id);
           if (waiverUpdateError) throw new Error('Could not save membership waiver acceptance.');
         } else {
           const { data: pendingMembership, error: pendingMembershipError } = await db
             .from('memberships')
             .select('id')
-            .eq('user_id', user.id)
+            .eq('user_id', user!.id)
             .eq('status', 'pending')
             .eq('payment_status', 'unpaid')
             .order('created_at', { ascending: false })
@@ -297,7 +303,7 @@ export async function POST(request: Request) {
                 waiver_accepted_at: new Date().toISOString(),
               })
               .eq('id', pendingMembership.id)
-              .eq('user_id', user.id);
+              .eq('user_id', user!.id);
             if (waiverUpdateError) throw new Error('Could not save membership waiver acceptance.');
             businessRecordId = pendingMembership.id;
           } else {
@@ -305,7 +311,7 @@ export async function POST(request: Request) {
             const { data: membership, error: membershipError } = await db
               .from('memberships')
               .insert({
-                user_id: user.id,
+                user_id: user!.id,
                 membership_type: 'individual',
                 status: 'pending',
                 payment_status: 'unpaid',
@@ -329,7 +335,7 @@ export async function POST(request: Request) {
           { error: 'Membership price must be configured to a positive amount.' },
           { status: 503 },
         );
-    } else {
+    } else if (body.purpose === 'event_registration') {
       if (!businessRecordId)
         return NextResponse.json({ error: 'An event registration is required.' }, { status: 400 });
       const { data: registration } = await db
@@ -338,7 +344,7 @@ export async function POST(request: Request) {
           'id,event_id,user_id,status,payment_status,amount_cents,created_at,event:events(id,title,price_cents,status,starts_at,registration_opens_at,registration_closes_at,members_only)',
         )
         .eq('id', businessRecordId)
-        .eq('user_id', user.id)
+        .eq('user_id', user!.id)
         .maybeSingle();
       const event = Array.isArray(registration?.event)
         ? registration.event[0]
@@ -390,6 +396,144 @@ export async function POST(request: Request) {
           { status: 409 },
         );
       description = `PCTC event registration — ${event.title}`;
+    } else {
+      const participantIds = [
+        ...new Set(
+          businessRecordId
+            .split(',')
+            .map((id) => id.trim())
+            .filter(Boolean),
+        ),
+      ];
+      if (
+        !participantIds.length ||
+        participantIds.length > 2 ||
+        participantIds.some(
+          (id) =>
+            !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id),
+        )
+      ) {
+        return NextResponse.json(
+          { error: 'Select one or two valid tournament entries to pay.' },
+          { status: 400 },
+        );
+      }
+      participantIds.sort();
+      businessRecordId = participantIds.join(',');
+      const { data: entries, error: entriesError } = await db
+        .from('tournament_participants')
+        .select('id,event_id,user_id,amount_cents,payment_status,status,display_name')
+        .in('id', participantIds);
+      if (entriesError) throw new Error('Could not verify tournament entries.');
+      if (
+        !entries ||
+        entries.length !== participantIds.length ||
+        entries.some(
+          (entry) =>
+            entry.status !== 'registered' &&
+            !(entry.status === 'provisional' && !user && entry.user_id === null),
+        )
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              'One or more tournament entries are not eligible for payment. Check their payment status and try again.',
+          },
+          { status: 409 },
+        );
+      }
+      if (
+        user
+          ? !entries.some((entry) => entry.user_id === user!.id)
+          : entries.every((entry) => entry.user_id !== null)
+      ) {
+        return NextResponse.json(
+          { error: 'The payer must be a registered participant in the selected entries.' },
+          { status: 403 },
+        );
+      }
+      const unpaidEntries = entries.filter((entry) =>
+        ['pending', 'failed'].includes(entry.payment_status),
+      );
+      if (!unpaidEntries.length)
+        return NextResponse.json(
+          { error: 'The selected tournament entries are already paid.' },
+          { status: 409 },
+        );
+      if (!user) {
+        const guestRecord = entries.find((entry) => !entry.user_id);
+        if (!guestRecord)
+          return NextResponse.json(
+            { error: 'Guest registration payment is unavailable.' },
+            { status: 409 },
+          );
+        const { data: guestContact } = await db
+          .from('tournament_participants')
+          .select('email')
+          .eq('id', guestRecord.id)
+          .maybeSingle();
+        customerEmail = guestContact?.email || undefined;
+      }
+      businessRecordId = unpaidEntries
+        .map((entry) => entry.id)
+        .sort()
+        .join(',');
+      const eventId = entries[0].event_id;
+      if (entries.some((entry) => entry.event_id !== eventId))
+        return NextResponse.json(
+          { error: 'Entries must belong to the same tournament.' },
+          { status: 400 },
+        );
+      const { data: tournamentEvent } = await db
+        .from('events')
+        .select('id,title,event_type,status,starts_at,price_cents')
+        .eq('id', eventId)
+        .maybeSingle();
+      if (
+        !tournamentEvent ||
+        tournamentEvent.event_type !== 'tournament' ||
+        tournamentEvent.status !== 'published' ||
+        new Date(tournamentEvent.starts_at).getTime() <= Date.now()
+      ) {
+        return NextResponse.json(
+          { error: 'This tournament is not accepting payment.' },
+          { status: 409 },
+        );
+      }
+      amountMinor = unpaidEntries.reduce((sum, entry) => sum + Number(entry.amount_cents || 0), 0);
+      if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0)
+        return NextResponse.json(
+          { error: 'The selected tournament entries do not require payment.' },
+          { status: 409 },
+        );
+      description = `PCTC tournament entries — ${tournamentEvent.title} (${unpaidEntries.length} participant${unpaidEntries.length === 1 ? '' : 's'})`;
+    }
+
+    if (body.purpose === 'tournament_registration') {
+      const selectedIds = businessRecordId.split(',').filter(Boolean);
+      const { data: activeTournamentPayments, error: activeTournamentPaymentsError } = await db
+        .from('payments')
+        .select('id,user_id,business_record_id,status')
+        .eq('purpose', 'tournament_registration')
+        .in('status', ['pending', 'processing', 'succeeded']);
+      if (activeTournamentPaymentsError)
+        throw new Error('Could not check overlapping tournament payment attempts.');
+      const overlap = (activeTournamentPayments ?? []).find((candidate) => {
+        const candidateIds = (candidate.business_record_id || '').split(',').filter(Boolean);
+        const sharesEntry = selectedIds.some((id) => candidateIds.includes(id));
+        const samePaymentScope =
+          candidate.business_record_id === businessRecordId &&
+          candidate.user_id === (user?.id ?? null);
+        return sharesEntry && !samePaymentScope;
+      });
+      if (overlap)
+        return NextResponse.json(
+          {
+            error:
+              'A payment attempt is already active for one of these entries. Refresh and check payment status before starting another payment.',
+          },
+          { status: 409 },
+        );
     }
 
     if (body.provider === 'interac') {
@@ -423,7 +567,7 @@ export async function POST(request: Request) {
       let paymentId: string | undefined;
       let shouldSendInstructions = false;
       if (prior) {
-        if (prior.user_id !== user.id) {
+        if (prior.user_id !== user!.id) {
           return NextResponse.json(
             {
               error:
@@ -574,7 +718,7 @@ export async function POST(request: Request) {
         const { data: created, error: createError } = await db
           .from('payments')
           .insert({
-            user_id: user.id,
+            user_id: user!.id,
             purpose: body.purpose,
             business_record_id: businessRecordId,
             amount_minor: amountMinor,
@@ -583,7 +727,7 @@ export async function POST(request: Request) {
             provider: 'interac',
             manual_review_status: 'submitted',
             manual_submitted_at: new Date().toISOString(),
-            idempotency_key: `interac:${user.id}:${body.purpose}:${businessRecordId}:${randomUUID()}`,
+            idempotency_key: `interac:${user!.id}:${body.purpose}:${businessRecordId}:${randomUUID()}`,
           })
           .select('id')
           .single();
@@ -595,7 +739,7 @@ export async function POST(request: Request) {
             message: createError?.message ?? (created ? null : 'Insert returned no row'),
             details: createError?.details ?? null,
             hint: createError?.hint ?? null,
-            userId: user.id,
+            userId: user!.id,
             purpose: body.purpose,
             businessRecordId,
             amountMinor,
@@ -614,8 +758,8 @@ export async function POST(request: Request) {
         }
         paymentId = created.id;
         const { error: auditError } = await db.from('audit_logs').insert({
-          actor_user_id: user.id,
-          actor_label: profile.full_name || 'member',
+          actor_user_id: user!.id,
+          actor_label: profile?.full_name || 'member',
           action: 'payment.interac_submitted',
           outcome: 'success',
           target_table: 'payments',
@@ -633,7 +777,7 @@ export async function POST(request: Request) {
       }
       if (
         shouldSendInstructions &&
-        profile.email &&
+        profile?.email &&
         process.env.RESEND_API_KEY &&
         (process.env.RESEND_FROM_EMAIL || process.env.RESEND_FROM || process.env.EMAIL_FROM)
       ) {
@@ -648,7 +792,7 @@ export async function POST(request: Request) {
             },
             body: JSON.stringify({
               from,
-              to: [profile.email],
+              to: [profile!.email],
               subject: 'PCTC Interac payment instructions',
               text: `Your PCTC Interac payment request is pending.\n\nAmount: ${(amountMinor / 100).toFixed(2)} CAD\nSend to: ${methodSettings.interac_recipient_email}\nPayment reference: ${paymentId}\n\n${methodSettings.interac_instructions}\n\nYour membership or event registration will be finalized after the club confirms receipt.`,
             }),
@@ -709,15 +853,17 @@ export async function POST(request: Request) {
       status: string;
       stripe_checkout_session_id?: string | null;
     };
-    const { data: existingPayment, error: existingPaymentError } = await db
+    let existingPaymentQuery = db
       .from('payments')
       .select(
         'id,user_id,purpose,business_record_id,amount_minor,currency,status,stripe_checkout_session_id',
       )
-      .eq('user_id', user.id)
       .eq('purpose', body.purpose)
       .eq('business_record_id', businessRecordId)
-      .in('status', ['pending', 'processing', 'failed', 'succeeded'])
+      .in('status', ['pending', 'processing', 'failed', 'succeeded']);
+    if (user) existingPaymentQuery = existingPaymentQuery.eq('user_id', user!.id);
+    else existingPaymentQuery = existingPaymentQuery.is('user_id', null);
+    const { data: existingPayment, error: existingPaymentError } = await existingPaymentQuery
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -754,7 +900,7 @@ export async function POST(request: Request) {
           existingSession.metadata?.pctc_payment_id !== existingPayment.id ||
           existingSession.metadata?.pctc_purpose !== body.purpose ||
           existingSession.metadata?.pctc_business_record_id !== businessRecordId ||
-          existingSession.metadata?.pctc_user_id !== user.id ||
+          (existingSession.metadata?.pctc_user_id ?? '') !== (user?.id ?? '') ||
           (existingSession.amount_total !== null && existingSession.amount_total !== amountMinor) ||
           (existingSession.currency && existingSession.currency.toLowerCase() !== currency)
         ) {
@@ -810,7 +956,7 @@ export async function POST(request: Request) {
             );
           }
           payment = await createPendingPayment({
-            userId: user.id,
+            userId: user?.id ?? null,
             purpose: body.purpose,
             businessRecordId,
             amountMinor,
@@ -821,7 +967,7 @@ export async function POST(request: Request) {
       }
     } else {
       payment = await createPendingPayment({
-        userId: user.id,
+        userId: user?.id ?? null,
         purpose: body.purpose,
         businessRecordId,
         amountMinor,
@@ -847,14 +993,14 @@ export async function POST(request: Request) {
           pctc_payment_id: payment.id,
           pctc_purpose: body.purpose,
           pctc_business_record_id: businessRecordId,
-          pctc_user_id: user.id,
+          pctc_user_id: user?.id ?? '',
         },
         payment_intent_data: {
           metadata: {
             pctc_payment_id: payment.id,
             pctc_purpose: body.purpose,
             pctc_business_record_id: businessRecordId,
-            pctc_user_id: user.id,
+            pctc_user_id: user?.id ?? '',
           },
         },
         success_url: `${origin}/payments/return?session_id={CHECKOUT_SESSION_ID}&return_to=${encodeURIComponent(returnTo)}&return_label=${encodeURIComponent(returnLabel)}`,

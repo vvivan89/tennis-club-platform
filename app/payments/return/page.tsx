@@ -21,24 +21,66 @@ function PaymentReturnContent() {
   const paymentId = params.get('payment_id');
   const canceled = params.get('canceled') === '1';
   const requestedReturnTo = params.get('return_to') || '/member/payments';
-  const returnTo =
+  const validatedReturnTo =
     requestedReturnTo.startsWith('/') &&
     !requestedReturnTo.startsWith('//') &&
     !requestedReturnTo.includes('\\')
       ? requestedReturnTo
       : '/member/payments';
+  const returnTo = (() => {
+    if (!canceled) return validatedReturnTo;
+    const parsed = new URL(validatedReturnTo, 'https://pctc.invalid');
+    parsed.searchParams.delete('guest_payment_ids');
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  })();
   const returnLabel = (params.get('return_label') || 'Back').slice(0, 120);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [payment, setPayment] = useState<PaymentStatus | null>(null);
   const [fulfilled, setFulfilled] = useState(false);
   const [error, setError] = useState('');
+  const [cancellationNotice, setCancellationNotice] = useState('');
   const [loading, setLoading] = useState(Boolean((sessionId || paymentId) && !canceled));
 
   useEffect(() => {
-    if ((!sessionId && !paymentId) || canceled) return;
     let active = true;
-    let attempts = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    if (canceled && paymentId) {
+      void fetch('/api/payments/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paymentId, explicitCancel: true }),
+      })
+        .then(async (response) => {
+          const result = await response.json().catch(() => ({}));
+          if (!active) return;
+          if (!response.ok)
+            setCancellationNotice(
+              'The payment state could not be verified. Any provisional tournament entry was kept until its status can be confirmed.',
+            );
+          else if (result.provisionalRegistrationRemoved)
+            setCancellationNotice(
+              'Cancellation was confirmed and the provisional tournament registration was removed.',
+            );
+          else
+            setCancellationNotice(
+              'Checkout cancellation was received. No provisional guest tournament registration needed to be removed.',
+            );
+        })
+        .catch(() => {
+          if (active)
+            setCancellationNotice(
+              'The payment state could not be verified. Any provisional tournament entry was kept until its status can be confirmed.',
+            );
+        });
+      return () => {
+        active = false;
+      };
+    }
+    if ((!sessionId && !paymentId) || canceled)
+      return () => {
+        active = false;
+      };
+    let attempts = 0;
     const load = async () => {
       try {
         const reference = sessionId
@@ -101,10 +143,10 @@ function PaymentReturnContent() {
   if (canceled) {
     title = 'Checkout canceled';
     description =
-      'No payment confirmation was received. You can return to the relevant page and try again.';
+      'No payment confirmation was received. For non-member tournament entries, the provisional registration is removed only after Stripe confirms cancellation or expiry; if the payment state is uncertain, the entry is kept until it can be verified. You can return to the relevant page and try again.';
   } else if (payment?.status === 'succeeded' && fulfilled) {
     title = 'Payment successful';
-    description = `Your payment of ${money(payment.amount_minor, payment.currency)} was confirmed by Stripe and applied to your account.`;
+    description = `Your payment of ${money(payment.amount_minor, payment.currency)} was confirmed by Stripe and applied to your ${payment.purpose === 'tournament_registration' ? 'tournament registration' : 'account'}.`;
   } else if (payment?.status === 'succeeded') {
     title = 'Payment confirmed — finalizing';
     description =
@@ -134,6 +176,11 @@ function PaymentReturnContent() {
         <p className="mt-4 text-sm text-muted-foreground" role="status">
           {description}
         </p>
+        {cancellationNotice && (
+          <p className="mt-2 text-sm" role="status">
+            {cancellationNotice}
+          </p>
+        )}
         {payment && (
           <dl className="mt-5 grid grid-cols-2 gap-3 text-sm">
             <dt className="text-muted-foreground">Amount</dt>

@@ -25,7 +25,7 @@ describe('EventCardWeather', () => {
   it('shows the cancelled status and resolved forecast', async () => {
     render(
       <EventCardWeather
-        startsAt="2026-10-25T18:00:00.000Z"
+        startsAt="2030-10-25T18:00:00.000Z"
         location="Port Coquitlam"
         status="cancelled"
         index={0}
@@ -42,7 +42,7 @@ describe('EventCardWeather', () => {
     mockedForecast.mockReturnValue(new Promise<null>(() => undefined));
     render(
       <EventCardWeather
-        startsAt="2026-10-25T18:00:00.000Z"
+        startsAt="2030-10-25T18:00:00.000Z"
         location="Port Coquitlam"
         status="published"
         index={1}
@@ -51,4 +51,19 @@ describe('EventCardWeather', () => {
 
     expect(screen.getByText('Port Coquitlam Tennis Club')).toBeInTheDocument();
   });
+});
+
+it('does not render weather for a past event', () => {
+  mockedForecast.mockReset();
+  const { container } = render(
+    <EventCardWeather
+      startsAt="2020-10-25T18:00:00.000Z"
+      endsAt="2020-10-25T20:00:00.000Z"
+      location="Port Coquitlam"
+      status="published"
+      index={0}
+    />,
+  );
+  expect(container.firstChild).toBeNull();
+  expect(mockedForecast).not.toHaveBeenCalled();
 });

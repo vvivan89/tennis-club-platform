@@ -436,6 +436,78 @@ describe('Stripe webhook endpoint', () => {
     });
   });
 
+  it('accepts a completed but unpaid Checkout Session while waiting for asynchronous settlement', async () => {
+    const payment = {
+      id: 'payment-async',
+      status: 'pending',
+      amount_minor: 2500,
+      currency: 'cad',
+      stripe_payment_intent_id: null,
+      purpose: 'event_registration',
+      business_record_id: 'registration-async',
+      user_id: 'user-1',
+      stripe_checkout_session_id: 'cs-async',
+    };
+    configureEvent('checkout.session.completed', {
+      id: 'cs-async',
+      mode: 'payment',
+      status: 'complete',
+      payment_status: 'unpaid',
+      amount_total: 2500,
+      currency: 'cad',
+      client_reference_id: payment.id,
+      payment_intent: null,
+      metadata: {
+        pctc_payment_id: payment.id,
+        pctc_purpose: payment.purpose,
+        pctc_business_record_id: payment.business_record_id,
+        pctc_user_id: payment.user_id,
+      },
+    });
+    configureStorage(payment);
+
+    const response = await POST(request('valid-signature'));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ received: true });
+    expect(mocks.retrievePaymentIntent).not.toHaveBeenCalled();
+    expect(mocks.writes).toEqual([]);
+  });
+
+  it('replays a succeeded intent idempotently and writes an audit only for its last event', async () => {
+    const eventId = 'evt_payment_intent_processing';
+    const payment = {
+      id: 'payment-already-succeeded',
+      status: 'succeeded',
+      amount_minor: 1250,
+      currency: 'cad',
+      stripe_payment_intent_id: 'pi-already-succeeded',
+      last_stripe_event_id: eventId,
+      purpose: 'membership',
+      business_record_id: 'membership-1',
+      user_id: 'user-1',
+    };
+    configureEvent('payment_intent.processing', {
+      id: 'pi-already-succeeded',
+      amount: 1250,
+      currency: 'cad',
+      metadata: {
+        pctc_payment_id: payment.id,
+        pctc_purpose: payment.purpose,
+        pctc_business_record_id: payment.business_record_id,
+        pctc_user_id: payment.user_id,
+      },
+    });
+    configureStorage(payment);
+    mocks.retrievePaymentIntent.mockResolvedValue({ latest_charge: null });
+
+    const response = await POST(request('valid-signature'));
+    expect(response.status).toBe(200);
+    expect(mocks.rpc).toHaveBeenCalledWith('fulfill_successful_payment', {
+      p_payment_id: payment.id,
+    });
+    expect(mocks.writes).toEqual([]);
+  });
+
   it('marks processing failures for retry and records a deduplicated audit action', async () => {
     mocks.constructEvent.mockReturnValue({
       id: 'evt_retry',

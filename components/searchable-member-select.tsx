@@ -10,6 +10,7 @@ export type MemberOption = {
   available?: boolean;
   unavailableReason?: string;
   statusText?: string;
+  sortPriority?: number;
 };
 export function SearchableMemberSelect({
   options,
@@ -31,11 +32,17 @@ export function SearchableMemberSelect({
   const selected = options.find((x) => x.id === value);
   const filtered = useMemo(
     () =>
-      options.filter((x) =>
-        `${x.full_name || ''} ${x.email || ''} ${x.phone || ''}`
-          .toLowerCase()
-          .includes(query.toLowerCase()),
-      ),
+      options
+        .filter((x) =>
+          `${x.full_name || ''} ${x.email || ''} ${x.phone || ''}`
+            .toLowerCase()
+            .includes(query.toLowerCase()),
+        )
+        .sort(
+          (a, b) =>
+            (a.sortPriority ?? 0) - (b.sortPriority ?? 0) ||
+            Number(a.available === false) - Number(b.available === false),
+        ),
     [options, query],
   );
   return (
@@ -96,11 +103,13 @@ export function SearchableMemberSelect({
               {option.statusText && (
                 <span className="block text-xs text-muted-foreground">{option.statusText}</span>
               )}
-              {option.available === false && (option.unavailableReason || !option.statusText) && (
-                <span className="block text-xs text-muted-foreground">
-                  {option.unavailableReason || 'Already in a family or has a pending invitation'}
-                </span>
-              )}
+              {option.available === false &&
+                (option.unavailableReason || !option.statusText) &&
+                option.unavailableReason !== option.statusText && (
+                  <span className="block text-xs text-muted-foreground">
+                    {option.unavailableReason || 'Already in a family or has a pending invitation'}
+                  </span>
+                )}
             </button>
           ))}
           {!filtered.length && (

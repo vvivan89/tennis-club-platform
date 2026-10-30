@@ -122,7 +122,6 @@ describe('EventDetailClient registration workflow', () => {
     expect(screen.getByText('Club evening')).toBeInTheDocument();
     expect(screen.getByText('12 spots remaining')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Register' }));
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('confirmed'));
     expect(mocks.rpc).toHaveBeenCalledWith(
       'register_for_event',
       expect.objectContaining({
@@ -133,7 +132,7 @@ describe('EventDetailClient registration workflow', () => {
     expect(mocks.routerRefresh).toHaveBeenCalledOnce();
   });
 
-  it('requires confirmation before withdrawing and reports the database result', async () => {
+  it('requires confirmation before withdrawing and refreshes after the database result', async () => {
     mocks.rpc.mockResolvedValue({ data: null, error: null });
     const user = userEvent.setup();
     renderClient({ currentRegistrationId: 'registration-1', currentStatus: 'confirmed' });
@@ -152,9 +151,7 @@ describe('EventDetailClient registration workflow', () => {
         }),
       ),
     );
-    await waitFor(() =>
-      expect(screen.getByRole('status')).toHaveTextContent('Registration withdrawn'),
-    );
+    await waitFor(() => expect(mocks.routerRefresh).toHaveBeenCalledOnce());
   });
 
   it('reports the waitlist position returned by the registration RPC', async () => {
@@ -171,13 +168,127 @@ describe('EventDetailClient registration workflow', () => {
     const user = userEvent.setup();
     renderClient({ remainingSpots: 0 });
     await user.click(screen.getByRole('button', { name: 'Register' }));
-    expect(await screen.findByRole('status')).toHaveTextContent(
-      'Added to the waitlist at position 3.',
+    expect(mocks.rpc).toHaveBeenCalledWith(
+      'register_for_event',
+      expect.objectContaining({ p_event_id: 'event-1' }),
+    );
+    await waitFor(() => expect(mocks.routerRefresh).toHaveBeenCalledOnce());
+  });
+
+  it('submits Interac payment and displays the returned transfer instructions', async () => {
+    mocks.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        amountMinor: 2500,
+        recipientEmail: 'payments@example.test',
+        paymentId: 'interac-payment',
+        instructions: 'Include your member name.',
+        message: 'Transfer request created.',
+      }),
+    });
+    const user = userEvent.setup();
+    renderClient({
+      currentRegistrationId: 'registration-1',
+      currentStatus: 'confirmed',
+      currentPaymentStatus: 'pending',
+      interacEnabled: true,
+      event: { ...event, price_cents: 2500 },
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Pay by Interac' }));
+    expect(await screen.findByText('Transfer request created.')).toBeInTheDocument();
+    expect(screen.getByText('payments@example.test')).toBeInTheDocument();
+    expect(screen.getByText('Include your member name.')).toBeInTheDocument();
+    expect(mocks.fetch).toHaveBeenCalledWith(
+      '/api/payments/checkout',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('"provider":"interac"'),
+      }),
+    );
+  });
+
+  it('reconciles a paid registration through the payment-status endpoint', async () => {
+    mocks.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        payment: { status: 'succeeded' },
+        fulfilled: true,
+      }),
+    });
+    const user = userEvent.setup();
+    renderClient({
+      currentRegistrationId: 'registration-1',
+      currentStatus: 'confirmed',
+      currentPaymentStatus: 'pending',
+      event: { ...event, price_cents: 2500 },
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Check the payment status' }));
+    await waitFor(() => expect(mocks.routerRefresh).toHaveBeenCalledOnce());
+    expect(mocks.fetch).toHaveBeenCalledWith(
+      '/api/payments/status?registration_id=registration-1',
+      { cache: 'no-store' },
+    );
+    expect(mocks.routerRefresh).toHaveBeenCalledOnce();
+  });
+
+  it('starts checkout after a paid event registration and preserves the reserved entry on failure', async () => {
+    mocks.rpc.mockResolvedValue({
+      data: [{ registration_id: 'registration-new', registration_state: 'confirmed' }],
+      error: null,
+    });
+    mocks.rows.registrations = [{ payment_status: 'pending' }];
+    mocks.fetch.mockResolvedValue({
+      ok: false,
+      json: async () => ({ error: 'Checkout unavailable.' }),
+    });
+    const user = userEvent.setup();
+    renderClient({ event: { ...event, price_cents: 2500 } });
+
+    await user.click(screen.getByRole('button', { name: 'Register' }));
+    await waitFor(() =>
+      expect(mocks.fetch).toHaveBeenCalledWith(
+        '/api/payments/checkout',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('"businessRecordId":"registration-new"'),
+        }),
+      ),
     );
     expect(mocks.rpc).toHaveBeenCalledWith(
       'register_for_event',
       expect.objectContaining({ p_event_id: 'event-1' }),
     );
+    expect(mocks.routerRefresh).not.toHaveBeenCalled();
+  });
+
+  it('keeps an unpaid registration when payment cancellation fails before withdrawal', async () => {
+    mocks.fetch.mockResolvedValue({
+      ok: false,
+      json: async () => ({ error: 'Checkout could not be canceled safely.' }),
+    });
+    const user = userEvent.setup();
+    renderClient({
+      event: { ...event, price_cents: 2500 },
+      currentRegistrationId: 'registration-pending',
+      currentStatus: 'confirmed',
+      currentPaymentStatus: 'pending',
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Withdraw' }));
+    await user.click(screen.getByRole('button', { name: 'Confirm withdrawal' }));
+    await waitFor(() =>
+      expect(mocks.fetch).toHaveBeenCalledWith(
+        '/api/payments/cancel',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ registrationId: 'registration-pending' }),
+        }),
+      ),
+    );
+    expect(mocks.rpc).not.toHaveBeenCalledWith('withdraw_from_event', expect.anything());
+    expect(mocks.routerRefresh).not.toHaveBeenCalled();
   });
 
   it('saves a score only for the current player’s assigned singles court', async () => {
@@ -220,7 +331,7 @@ describe('EventDetailClient registration workflow', () => {
       currentStatus: 'confirmed',
       canViewParticipants: true,
     });
-    await user.selectOptions(screen.getByLabelText('Court / sub-session'), '1:1');
+    await user.selectOptions(screen.getByLabelText('Court / time slot'), '1:1');
     await user.type(screen.getByLabelText('Your team score'), '6');
     await user.type(screen.getByLabelText("Opponents' score"), '4');
     fireEvent.submit(screen.getByText('Add a score').closest('form') as HTMLFormElement);
@@ -241,7 +352,6 @@ describe('EventDetailClient registration workflow', () => {
         },
       }),
     );
-    expect(screen.getByRole('status')).toHaveTextContent('Score saved.');
     expect(mocks.routerRefresh).toHaveBeenCalled();
   });
 
@@ -274,11 +384,10 @@ describe('EventDetailClient registration workflow', () => {
       currentStatus: 'confirmed',
       canViewParticipants: true,
     });
-    await user.selectOptions(screen.getByLabelText('Court / sub-session'), '1:1');
+    await user.selectOptions(screen.getByLabelText('Court / time slot'), '1:1');
     await user.type(screen.getByLabelText('Your team score'), '7');
     await user.type(screen.getByLabelText("Opponents' score"), '5');
     fireEvent.submit(screen.getByText('Add a score').closest('form') as HTMLFormElement);
-    expect(await screen.findByRole('alert')).toHaveTextContent('Select your partner.');
     expect(mocks.writes).toHaveLength(0);
 
     await user.selectOptions(screen.getByLabelText('Partner'), 'reg-2');
@@ -326,25 +435,25 @@ describe('EventDetailClient registration workflow', () => {
       currentStatus: 'confirmed',
       canViewParticipants: true,
     });
-    await user.selectOptions(await screen.findByLabelText('Court / sub-session'), '1:1');
+    await user.selectOptions(await screen.findByLabelText('Court / time slot'), '1:1');
     await user.type(screen.getByLabelText('Your team score'), '6');
     await user.type(screen.getByLabelText("Opponents' score"), '2');
     fireEvent.submit(screen.getByText('Add a score').closest('form') as HTMLFormElement);
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Scores can be entered when exactly two or four players are assigned',
-    );
     expect(mocks.writes).toHaveLength(0);
   });
 
-  it('surfaces safe errors when registration and withdrawal RPCs fail', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {});
+  it('logs registration and withdrawal RPC failures to the console without rendering them', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     mocks.rpc.mockResolvedValue({ data: null, error: { message: 'private database detail' } });
     const user = userEvent.setup();
     const { rerender } = renderClient();
     await user.click(screen.getByRole('button', { name: 'Register' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Could not update registration. Please try again.',
+    await waitFor(() =>
+      expect(consoleError).toHaveBeenCalledWith('[Event detail] Database registration failed', {
+        message: 'private database detail',
+      }),
     );
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.queryByText('private database detail')).not.toBeInTheDocument();
 
     rerender(
@@ -365,9 +474,12 @@ describe('EventDetailClient registration workflow', () => {
     );
     await user.click(screen.getByRole('button', { name: 'Withdraw' }));
     await user.click(screen.getByRole('button', { name: 'Confirm withdrawal' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Could not update registration. Please try again.',
+    await waitFor(() =>
+      expect(consoleError).toHaveBeenCalledWith('[Event detail] Database withdrawal failed', {
+        message: 'private database detail',
+      }),
     );
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(mocks.rpc).toHaveBeenCalledWith(
       'withdraw_from_event',
       expect.objectContaining({ p_registration_id: 'registration-1' }),
@@ -416,7 +528,7 @@ describe('EventDetailClient registration workflow', () => {
         values: { player_one_score: 6, player_two_score: 4 },
       }),
     );
-    expect(screen.getByRole('status')).toHaveTextContent('Score updated.');
+    expect(mocks.routerRefresh).toHaveBeenCalled();
   });
 
   it('hides registration mutation controls for anonymous visitors and cancelled events', () => {

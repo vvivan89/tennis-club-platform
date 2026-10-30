@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 const mocks = vi.hoisted(() => ({ forecast: vi.fn() }));
 vi.mock('@/lib/open-meteo', () => ({ getHourlyForecastForStart: mocks.forecast }));
@@ -7,6 +8,7 @@ import { EventWeather } from '@/components/event-weather';
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.clearAllMocks();
 });
 
@@ -29,13 +31,42 @@ describe('EventWeather', () => {
     expect(mocks.forecast).toHaveBeenCalledWith('2030-06-01T18:30:00Z', 'Club courts');
   });
 
-  it('hides the forecast section when no forecast is available', async () => {
+  it('keeps the forecast section visible and explains when no forecast is available', async () => {
     mocks.forecast.mockResolvedValue(null);
     const { container } = render(
       <EventWeather startsAt="2030-06-01T18:30:00Z" location="Nowhere" />,
     );
     await waitFor(() => expect(mocks.forecast).toHaveBeenCalledOnce());
-    expect(container.querySelector('section')).not.toBeInTheDocument();
+    expect(container.querySelector('section')).toBeInTheDocument();
+    expect(screen.getByText(/forecast is not available for this time/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Details' })).toBeInTheDocument();
+  });
+
+  it('opens a modal with hourly forecast rows for the event duration', async () => {
+    mocks.forecast.mockResolvedValue({
+      code: 0,
+      temperature: 18,
+      precipitation: 0,
+      windSpeed: 4,
+      windDirection: 180,
+    });
+    render(
+      <EventWeather
+        startsAt="2030-06-01T18:00:00Z"
+        endsAt="2030-06-01T20:00:00Z"
+        location="Club courts"
+        eventLabel="tournament"
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Details' })).toBeInTheDocument(),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Details' }));
+    expect(
+      await screen.findByRole('dialog', { name: 'Hourly forecast for tournament' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Conditions' })).toBeInTheDocument();
+    await waitFor(() => expect(mocks.forecast).toHaveBeenCalledTimes(4));
   });
 
   it('handles missing measurements without fabricating values', async () => {
@@ -50,5 +81,37 @@ describe('EventWeather', () => {
     await waitFor(() => expect(screen.getByText('Clear skies')).toBeInTheDocument());
     expect(screen.getAllByText('—')).toHaveLength(2);
     expect(screen.queryByText(/direction/)).not.toBeInTheDocument();
+  });
+});
+
+describe('EventWeather time-aware display', () => {
+  it('hides weather after an event has ended', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(new Date('2026-10-27T12:00:00Z').getTime());
+    const { container } = render(
+      <EventWeather
+        startsAt="2026-10-27T08:00:00Z"
+        endsAt="2026-10-27T10:00:00Z"
+        location="Club courts"
+      />,
+    );
+    expect(container.querySelector('section')).not.toBeInTheDocument();
+    expect(mocks.forecast).not.toHaveBeenCalled();
+  });
+
+  it('requests the next-hour forecast while the event is in progress', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(new Date('2026-10-27T09:15:00Z').getTime());
+    mocks.forecast.mockResolvedValue(null);
+    render(
+      <EventWeather
+        startsAt="2026-10-27T08:00:00Z"
+        endsAt="2026-10-27T12:00:00Z"
+        location="Club courts"
+        eventLabel="tournament"
+      />,
+    );
+    await waitFor(() =>
+      expect(mocks.forecast).toHaveBeenCalledWith('2026-10-27T10:15:00.000Z', 'Club courts'),
+    );
+    expect(screen.getByText('Forecast for the next hour')).toBeInTheDocument();
   });
 });

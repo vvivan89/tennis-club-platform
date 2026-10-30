@@ -549,4 +549,135 @@ describe('checkout route branch coverage', () => {
       expect.objectContaining({ table: 'payments', operation: 'insert' }),
     );
   });
+
+  it('creates an anonymous Stripe checkout for an eligible provisional tournament entry', async () => {
+    configureCommon();
+    mocks.user = null;
+    const participantId = '11111111-1111-4111-8111-111111111111';
+    mocks.responses['tournament_participants.then'] = [
+      [
+        {
+          id: participantId,
+          event_id: 'event-tournament',
+          user_id: null,
+          amount_cents: 2500,
+          payment_status: 'pending',
+          status: 'provisional',
+          display_name: 'Guest Player',
+        },
+      ],
+    ];
+    mocks.responses['tournament_participants.maybeSingle'] = [{ email: 'guest@example.test' }];
+    mocks.responses['events.maybeSingle'] = [
+      {
+        id: 'event-tournament',
+        title: 'Summer Open',
+        event_type: 'tournament',
+        status: 'published',
+        starts_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      },
+    ];
+    mocks.responses['payments.then'] = [[]];
+    mocks.responses['payments.maybeSingle'] = [null];
+    mocks.createPendingPayment.mockResolvedValue({
+      id: 'guest-payment',
+      user_id: null,
+      purpose: 'tournament_registration',
+      business_record_id: participantId,
+      amount_minor: 2500,
+      currency: 'cad',
+      status: 'pending',
+    });
+
+    const response = await POST(
+      request({
+        purpose: 'tournament_registration',
+        businessRecordId: participantId,
+        returnTo: '/?guest_payment_ids=entry%2Cpartner',
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      checkoutUrl: 'https://checkout.example/session',
+      paymentId: 'guest-payment',
+    });
+    expect(mocks.createPendingPayment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: null,
+        purpose: 'tournament_registration',
+        businessRecordId: participantId,
+        amountMinor: 2500,
+        currency: 'cad',
+      }),
+    );
+    expect(mocks.sessionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customer_email: 'guest@example.test',
+        metadata: expect.objectContaining({
+          pctc_purpose: 'tournament_registration',
+          pctc_business_record_id: participantId,
+          pctc_user_id: '',
+        }),
+        success_url: expect.stringContaining(
+          encodeURIComponent('/?guest_payment_ids=entry%2Cpartner'),
+        ),
+      }),
+      { idempotencyKey: 'pctc-checkout:guest-payment' },
+    );
+  });
+
+  it('rejects invalid tournament entry references and overlapping active payments', async () => {
+    configureCommon();
+    const invalid = await POST(
+      request({ purpose: 'tournament_registration', businessRecordId: 'not-a-uuid' }),
+    );
+    expect(invalid.status).toBe(400);
+    expect(await invalid.json()).toEqual({
+      error: 'Select one or two valid tournament entries to pay.',
+    });
+
+    configureCommon();
+    const participantId = '22222222-2222-4222-8222-222222222222';
+    mocks.responses['tournament_participants.then'] = [
+      [
+        {
+          id: participantId,
+          event_id: 'event-tournament',
+          user_id: 'member-1',
+          amount_cents: 2500,
+          payment_status: 'pending',
+          status: 'registered',
+          display_name: 'Member Player',
+        },
+      ],
+    ];
+    mocks.responses['events.maybeSingle'] = [
+      {
+        id: 'event-tournament',
+        title: 'Summer Open',
+        event_type: 'tournament',
+        status: 'published',
+        starts_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      },
+    ];
+    mocks.responses['payments.then'] = [
+      [
+        {
+          business_record_id: participantId,
+          user_id: 'another-member',
+          status: 'pending',
+        },
+      ],
+    ];
+
+    const overlap = await POST(
+      request({ purpose: 'tournament_registration', businessRecordId: participantId }),
+    );
+    expect(overlap.status).toBe(409);
+    expect(await overlap.json()).toMatchObject({
+      error: expect.stringContaining('A payment attempt is already active'),
+    });
+    expect(mocks.createPendingPayment).not.toHaveBeenCalled();
+  });
 });

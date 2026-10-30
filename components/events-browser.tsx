@@ -1,4 +1,5 @@
 'use client';
+import { formatTime } from '@/lib/time-format';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { CalendarDays, Clock3, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -144,7 +145,7 @@ export function EventsBrowser({
     calendarMode === 'month'
       ? new Intl.DateTimeFormat('en-CA', { month: 'long', year: 'numeric' }).format(calendarDate)
       : `${new Intl.DateTimeFormat('en-CA', { month: 'short', day: 'numeric' }).format(weekCells[0])} – ${new Intl.DateTimeFormat('en-CA', { month: 'short', day: 'numeric', year: 'numeric' }).format(weekCells[6])}`;
-  const calendarEvents = [...events, ...pastEvents];
+  const calendarEvents = useMemo(() => [...events, ...pastEvents], [events, pastEvents]);
   const byDay = useMemo(() => {
     const map = new Map<string, EventRow[]>();
     for (const e of calendarEvents) {
@@ -156,7 +157,7 @@ export function EventsBrowser({
       );
     }
     return map;
-  }, [events, pastEvents]);
+  }, [calendarEvents]);
   const renderCards = (items: EventRow[]) =>
     items.length ? (
       <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
@@ -178,6 +179,7 @@ export function EventsBrowser({
               >
                 <EventCardWeather
                   startsAt={event.starts_at}
+                  endsAt={event.ends_at}
                   location={defaultLocation.trim() || event.location?.trim() || ''}
                   status={event.status}
                   index={i}
@@ -417,14 +419,16 @@ export function EventsBrowser({
               You’re waitlisted
             </span>
           </div>
-          <div className="grid grid-cols-7 border-b border-border bg-muted/60">
-            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
-              <div key={d} className="p-2 text-center text-xs font-medium text-muted-foreground">
-                {d}
-              </div>
-            ))}
-          </div>
-          <div className="grid grid-cols-7">
+          {calendarMode === 'month' && (
+            <div className="grid grid-cols-7 border-b border-border bg-muted/60">
+              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
+                <div key={d} className="p-2 text-center text-xs font-medium text-muted-foreground">
+                  {d}
+                </div>
+              ))}
+            </div>
+          )}
+          <div className={calendarMode === 'week' ? 'divide-y divide-border' : 'grid grid-cols-7'}>
             {calendarCells.map((date, i) => {
               if (!date)
                 return (
@@ -438,20 +442,23 @@ export function EventsBrowser({
               return (
                 <div
                   key={key}
-                  className={`${calendarMode === 'week' ? 'min-h-36 sm:min-h-56' : 'min-h-24 sm:min-h-32'} border-b border-r border-border/70 p-1.5 sm:p-2 ${date.getFullYear() === new Date().getFullYear() && date.getMonth() === new Date().getMonth() && date.getDate() === new Date().getDate() ? 'bg-primary/5 ring-2 ring-inset ring-primary/70' : ''}`}
+                  className={`${calendarMode === 'week' ? 'grid gap-3 px-4 py-4 sm:grid-cols-[12rem_minmax(0,1fr)] sm:items-start' : 'min-h-24 border-b border-r border-border/70 p-1.5 sm:min-h-32 sm:p-2'} ${date.getFullYear() === new Date().getFullYear() && date.getMonth() === new Date().getMonth() && date.getDate() === new Date().getDate() ? 'bg-primary/5 ring-2 ring-inset ring-primary/70' : ''}`}
                 >
                   <span
-                    className={`inline-flex min-w-5 items-center justify-center rounded-full text-xs ${date.getFullYear() === new Date().getFullYear() && date.getMonth() === new Date().getMonth() && date.getDate() === new Date().getDate() ? 'bg-primary px-1.5 py-0.5 font-semibold text-primary-foreground' : 'text-muted-foreground'}`}
+                    className={`${calendarMode === 'week' ? 'inline-flex w-fit items-center rounded-md px-2 py-1 text-sm font-semibold' : 'inline-flex min-w-5 items-center justify-center rounded-full text-xs'} ${date.getFullYear() === new Date().getFullYear() && date.getMonth() === new Date().getMonth() && date.getDate() === new Date().getDate() ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
                   >
                     {calendarMode === 'week'
                       ? new Intl.DateTimeFormat('en-CA', {
-                          weekday: 'short',
-                          month: 'short',
+                          weekday: 'long',
+                          month: 'long',
                           day: 'numeric',
                         }).format(date)
                       : date.getDate()}
                   </span>
-                  <div className="mt-1 space-y-1">
+                  <div className={calendarMode === 'week' ? 'grid gap-2' : 'mt-1 space-y-1'}>
+                    {calendarMode === 'week' && !dayEvents.length && (
+                      <p className="py-2 text-sm text-muted-foreground">No events scheduled</p>
+                    )}
                     {dayEvents.map((e) => {
                       const registration = myRegistrations[e.id];
                       const now = Date.now();
@@ -475,18 +482,60 @@ export function EventsBrowser({
                                 : isOpen
                                   ? 'bg-green-600/15 text-green-700 dark:text-green-300'
                                   : 'bg-slate-300/45 text-slate-700 dark:bg-slate-700/50 dark:text-slate-300';
+                      const registrationLabel = registration
+                        ? registration === 'confirmed'
+                          ? 'You are confirmed'
+                          : 'You are waitlisted'
+                        : e.status === 'cancelled'
+                          ? 'Cancelled'
+                          : isPast
+                            ? 'Past event'
+                            : isOpen
+                              ? isFull
+                                ? 'Full · waitlist available'
+                                : 'Registration open'
+                              : 'Registration closed';
                       return (
                         <Link
                           key={e.id}
                           href={eventPath(e)}
                           title={`${dateLabel(e.starts_at)} · ${e.title}`}
-                          className={`block truncate rounded px-1.5 py-1 text-[10px] leading-4 hover:underline sm:text-xs ${color}`}
+                          className={
+                            calendarMode === 'week'
+                              ? `block rounded-md border border-current/15 p-3 transition-colors hover:border-current/40 ${color}`
+                              : `block truncate rounded px-1.5 py-1 text-[10px] leading-4 hover:underline sm:text-xs ${color}`
+                          }
                         >
-                          {new Date(e.starts_at).toLocaleTimeString('en-CA', {
-                            hour: 'numeric',
-                            minute: '2-digit',
-                          })}{' '}
-                          {e.title}
+                          {calendarMode === 'week' ? (
+                            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold">{e.title}</p>
+                                <p className="mt-1 text-xs">
+                                  {formatTime(e.starts_at)}
+                                  {e.ends_at ? ` – ${formatTime(e.ends_at)}` : ''}
+                                  {e.location?.trim() ? ` · ${e.location.trim()}` : ''}
+                                </p>
+                                {e.description?.trim() && (
+                                  <p className="mt-1 text-xs leading-5 text-foreground/80">
+                                    {e.description.trim()}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2 text-xs sm:justify-end">
+                                <span className="rounded-full border border-current/20 px-2 py-1 font-medium">
+                                  {registrationLabel}
+                                </span>
+                                <span>
+                                  {countFor(e.id)} / {e.capacity} registered
+                                </span>
+                                <span className="font-semibold">
+                                  {money(e.price_cents, e.members_only)}
+                                </span>
+                              </div>
+                            </div>
+                          ) : (
+                            `${formatTime(e.starts_at)} ${e.title}`
+                          )}
                         </Link>
                       );
                     })}

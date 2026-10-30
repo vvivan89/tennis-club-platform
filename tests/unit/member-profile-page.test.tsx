@@ -26,6 +26,8 @@ const mocks = vi.hoisted(() => ({
   updates: [] as Array<{ table: string; values: Record<string, unknown> }>,
   upload: vi.fn(),
   getPublicUrl: vi.fn(),
+  profileError: null as null | { message: string },
+  updateError: null as null | { message: string },
 }));
 vi.mock('next/navigation', () => {
   const router = { replace: mocks.routerReplace, refresh: mocks.routerRefresh };
@@ -44,18 +46,18 @@ vi.mock('@/lib/supabase-browser', () => ({
         eq: () => query,
         maybeSingle: async () => ({
           data: table === 'club_settings' ? null : mocks.profile,
-          error: null,
+          error: table === 'profiles' ? mocks.profileError : null,
         }),
         update: (values: Record<string, unknown>) => {
           updateValues = values;
           return query;
         },
         then: (
-          resolve: (value: { error: null }) => unknown,
+          resolve: (value: { error: typeof mocks.updateError }) => unknown,
           reject: (reason: unknown) => unknown,
         ) => {
           if (updateValues) mocks.updates.push({ table, values: updateValues });
-          return Promise.resolve({ error: null }).then(resolve, reject);
+          return Promise.resolve({ error: mocks.updateError }).then(resolve, reject);
         },
       };
       return query;
@@ -92,6 +94,8 @@ beforeEach(() => {
   mocks.updates = [];
   mocks.upload.mockReset().mockResolvedValue({ error: null });
   mocks.getPublicUrl.mockReturnValue({ data: { publicUrl: 'https://storage.example/avatar.jpg' } });
+  mocks.profileError = null;
+  mocks.updateError = null;
 });
 afterEach(() => {
   cleanup();
@@ -155,5 +159,75 @@ describe('Member profile page', () => {
     await user.upload(input, new File(['not an image'], 'notes.txt', { type: 'text/plain' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Choose an image file.');
     expect(mocks.upload).not.toHaveBeenCalled();
+  });
+
+  it('validates required profile fields and reports update failures safely', async () => {
+    const { container } = render(<ProfilePage />);
+    await screen.findByDisplayValue('Member One');
+    fireEvent.change(screen.getByLabelText(/Phone number/), { target: { value: '   ' } });
+    fireEvent.submit(container.querySelectorAll('form')[0]);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not save profile changes.');
+    expect(mocks.updates).toHaveLength(0);
+
+    fireEvent.change(screen.getByLabelText(/Phone number/), { target: { value: '6045550199' } });
+    fireEvent.change(screen.getByLabelText(/Tennis skill rating/), { target: { value: '' } });
+    fireEvent.submit(container.querySelectorAll('form')[0]);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not save profile changes.');
+
+    mocks.updateError = { message: 'database details' };
+    fireEvent.change(screen.getByLabelText(/Tennis skill rating/), { target: { value: '4.0' } });
+    fireEvent.submit(container.querySelectorAll('form')[0]);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not save profile changes.');
+  });
+
+  it('saves chat preferences, dispatches the update event, and reports write failures', async () => {
+    const { container } = render(<ProfilePage />);
+    await screen.findByDisplayValue('Member One');
+    const dispatch = vi.spyOn(window, 'dispatchEvent');
+    await userEvent.click(screen.getByLabelText('Show only when someone mentions you'));
+    fireEvent.submit(container.querySelectorAll('form')[2]);
+    expect(await screen.findByText('Chat notification preferences saved.')).toBeInTheDocument();
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'pctc-chat-notification-preference-updated' }),
+    );
+    expect(mocks.updates).toContainEqual(
+      expect.objectContaining({
+        values: expect.objectContaining({ chat_notification_preference: 'mentions' }),
+      }),
+    );
+
+    mocks.updateError = { message: 'database details' };
+    fireEvent.submit(container.querySelectorAll('form')[2]);
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not save chat notification preferences.',
+    );
+  });
+
+  it('uploads a valid avatar, displays the new image, and handles size and storage failures', async () => {
+    const user = userEvent.setup({ applyAccept: false });
+    render(<ProfilePage />);
+    await screen.findByDisplayValue('Member One');
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    await user.upload(input, new File(['image'], 'avatar.png', { type: 'image/png' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Avatar updated.');
+    expect(screen.getByRole('img', { name: 'Your avatar' })).toHaveAttribute(
+      'src',
+      'https://storage.example/avatar.jpg',
+    );
+    expect(mocks.upload).toHaveBeenCalledWith(
+      expect.stringMatching(/^member-1\/avatar-\d+\.png$/),
+      expect.any(File),
+      { upsert: true, contentType: 'image/png' },
+    );
+
+    await user.upload(
+      input,
+      new File([new Uint8Array(3 * 1024 * 1024 + 1)], 'large.png', { type: 'image/png' }),
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent('Avatar must be 3 MB or smaller.');
+
+    mocks.upload.mockResolvedValueOnce({ error: { message: 'storage unavailable' } });
+    await user.upload(input, new File(['image'], 'other.png', { type: 'image/png' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not upload avatar.');
   });
 });

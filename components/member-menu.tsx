@@ -13,7 +13,7 @@ export const MemberMenu = memo(function MemberMenu() {
     useSiteHeaderState();
   const [open, setOpen] = useState(false);
   const router = useRouter();
-  if (!signedIn || (authReady && !approved))
+  if (!signedIn)
     return (
       <Button asChild variant="outline" size="sm">
         <Link href="/login" className="inline-flex items-center gap-2">
@@ -72,16 +72,18 @@ export const MemberMenu = memo(function MemberMenu() {
         <ChevronDown className="h-4 w-4" />
       </button>
       {open && (
-        <div className="absolute right-0 z-50 mt-2 w-48 rounded-lg border border-border bg-card p-1 shadow-lg">
-          <Link
-            onClick={() => setOpen(false)}
-            className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
-            href="/member/dashboard"
-          >
-            <User className="h-4 w-4" />
-            Member Portal
-          </Link>
-          {isAdmin && (
+        <div className="absolute right-0 z-50 mt-2 w-48 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-card p-1 shadow-lg">
+          {approved && (
+            <Link
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+              href="/member/dashboard"
+            >
+              <User className="h-4 w-4" />
+              Member Portal
+            </Link>
+          )}
+          {approved && isAdmin && (
             <Link
               onClick={() => setOpen(false)}
               className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
@@ -91,7 +93,7 @@ export const MemberMenu = memo(function MemberMenu() {
               Admin Portal
             </Link>
           )}
-          {isOrganizer && (
+          {approved && isOrganizer && (
             <Link
               onClick={() => setOpen(false)}
               className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium hover:bg-accent"

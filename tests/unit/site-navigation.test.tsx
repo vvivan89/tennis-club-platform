@@ -54,7 +54,7 @@ afterEach(() => {
 });
 
 describe('site navigation authorization and session actions', () => {
-  it('shows a sign-in link while session is pending or user is unapproved', () => {
+  it('shows sign-in while session is pending and hides member links for unapproved users', async () => {
     const { unmount } = render(<MemberMenu />);
     expect(screen.getByRole('link', { name: /Checking session/ })).toHaveAttribute(
       'href',
@@ -63,7 +63,10 @@ describe('site navigation authorization and session actions', () => {
     unmount();
     mocks.state = { ...mocks.state, authReady: true, signedIn: true, approved: false };
     render(<MemberMenu />);
-    expect(screen.getByRole('link', { name: 'Member sign in' })).toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Member menu' }));
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Member Portal' })).not.toBeInTheDocument();
   });
 
   it('shows role-specific menu links and records/signs out in order', async () => {

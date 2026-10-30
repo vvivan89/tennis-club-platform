@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
+import type { ReactNode } from 'react';
 
 const mocks = vi.hoisted(() => ({
   user: null as null | { id: string },
@@ -13,6 +14,8 @@ const mocks = vi.hoisted(() => ({
     throw new Error(`redirect:${path}`);
   }),
   rpcs: [] as string[],
+  tournamentManagementProps: [] as unknown[],
+  tournamentPublicViewProps: [] as unknown[],
 }));
 
 vi.mock('next/navigation', () => ({ notFound: mocks.notFound, redirect: mocks.redirect }));
@@ -46,6 +49,23 @@ vi.mock('@/components/site-header', () => ({ SiteHeader: () => null }));
 vi.mock('@/components/site-footer', () => ({ SiteFooter: () => null }));
 vi.mock('@/components/event-detail-client', () => ({ EventDetailClient: () => null }));
 vi.mock('@/components/event-edit-management', () => ({ EventEditManagement: () => null }));
+vi.mock('@/components/tournament-management', () => ({
+  TournamentManagement: (props: unknown) => {
+    mocks.tournamentManagementProps.push(props);
+    return <div data-testid="tournament-management" />;
+  },
+}));
+vi.mock('@/components/tournament-public-view', () => ({
+  TournamentPublicView: (props: { adminContent?: ReactNode }) => {
+    mocks.tournamentPublicViewProps.push(props);
+    return (
+      <>
+        <div data-testid="tournament-public-view" />
+        {props.adminContent}
+      </>
+    );
+  },
+}));
 
 import EventDetailsPage from '@/app/events/[slug]/page';
 
@@ -91,6 +111,8 @@ function setup(user: null | { id: string }, event = publishedEvent) {
   };
   mocks.contacts = [];
   mocks.rpcs = [];
+  mocks.tournamentManagementProps = [];
+  mocks.tournamentPublicViewProps = [];
 }
 
 afterEach(() => {
@@ -148,5 +170,33 @@ describe('EventDetailsPage', () => {
     await expect(EventDetailsPage({ params: { slug: 'spring-open' } })).rejects.toThrow(
       'not-found',
     );
+  });
+});
+
+describe('tournament event page integration', () => {
+  it('renders the public tournament view for a published tournament and keeps management controls manager-only', async () => {
+    const tournamentEvent = {
+      ...publishedEvent,
+      event_type: 'tournament',
+      tournament_format: 'doubles',
+      tournament_config: { categories: ['mixed'], phases: { round_robin: true } },
+      tournament_rules_html: '<p>Rules</p>',
+      tournament_details_public: true,
+      allow_non_member_registration: false,
+    };
+    setup(null, tournamentEvent);
+    const anonymousPage = await EventDetailsPage({ params: { slug: 'spring-open' } });
+    render(anonymousPage);
+    expect(screen.getByTestId('tournament-public-view')).toBeInTheDocument();
+    expect(screen.queryByTestId('tournament-management')).not.toBeInTheDocument();
+    expect(mocks.tournamentPublicViewProps).toHaveLength(1);
+
+    cleanup();
+    setup({ id: 'organizer-1' }, tournamentEvent);
+    mocks.singles.profiles = { role: 'organizer', application_status: 'approved' };
+    const managerPage = await EventDetailsPage({ params: { slug: 'spring-open' } });
+    render(managerPage);
+    expect(screen.getByTestId('tournament-management')).toBeInTheDocument();
+    expect(screen.getByTestId('tournament-public-view')).toBeInTheDocument();
   });
 });

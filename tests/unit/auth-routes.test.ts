@@ -100,12 +100,29 @@ describe('authentication routes', () => {
   });
 
   it('always redirects signout to the site root and signs out when configured', async () => {
+    mocks.createServerClient.mockImplementationOnce(
+      (
+        _url: unknown,
+        _key: unknown,
+        options: {
+          cookies: {
+            getAll: () => unknown;
+            setAll: (cookies: Array<{ name: string; value: string; options?: unknown }>) => void;
+          };
+        },
+      ) => {
+        expect(options.cookies.getAll()).toEqual([{ name: 'session', value: 'cookie-value' }]);
+        options.cookies.setAll([{ name: 'signed-out', value: 'cleared', options: { path: '/' } }]);
+        return { auth: { signOut: mocks.signOut } };
+      },
+    );
     const response = await signoutPost(
       new Request('https://club.example/auth/signout', { method: 'POST' }),
     );
     expect(response.status).toBe(303);
     expect(response.headers.get('location')).toBe('https://club.example/');
     expect(mocks.signOut).toHaveBeenCalledOnce();
+    expect(mocks.cookieWrites).toEqual([['signed-out', 'cleared', { path: '/' }]]);
 
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', '');
     const noConfig = await signoutPost(

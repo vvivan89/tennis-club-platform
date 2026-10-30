@@ -5,6 +5,9 @@ import { SiteFooter } from '@/components/site-footer';
 import { EventDetailClient } from '@/components/event-detail-client';
 import { EventEditManagement } from '@/components/event-edit-management';
 import { eventPath } from '@/lib/event-slug';
+import { TournamentManagement } from '@/components/tournament-management';
+import { TournamentPublicView } from '@/components/tournament-public-view';
+import { PublicOrganizerContacts } from '@/components/public-organizer-contacts';
 
 export default async function EventDetailsPage({ params }: { params: { slug: string } }) {
   const db = await createSupabaseServerClient();
@@ -67,7 +70,8 @@ export default async function EventDetailsPage({ params }: { params: { slug: str
     { data: registration },
     { data: profile },
     { data: publicCount },
-    { data: organizerContacts },
+    { data: publicOrganizerContacts },
+    { data: memberOrganizerContacts },
   ] = await Promise.all([
     user
       ? db
@@ -84,10 +88,14 @@ export default async function EventDetailsPage({ params }: { params: { slug: str
       ? db.from('profiles').select('role,application_status').eq('id', user.id).maybeSingle()
       : Promise.resolve({ data: null }),
     db.from('event_public_counts').select('confirmed_count').eq('event_id', event.id).maybeSingle(),
+    db.rpc('event_public_organizer_contacts', { p_event_id: event.id }),
     user
       ? db.rpc('event_organizer_contacts', { p_event_id: event.id })
       : Promise.resolve({ data: [] }),
   ]);
+  const organizerContacts = memberOrganizerContacts?.length
+    ? memberOrganizerContacts
+    : publicOrganizerContacts;
   const isManager =
     profile?.application_status === 'approved' &&
     (profile?.role === 'admin' ||
@@ -142,6 +150,9 @@ export default async function EventDetailsPage({ params }: { params: { slug: str
     );
     rosterRows = rosterRows.map((r) => ({ ...r, ...(contactById.get(r.user_id) ?? {}) }));
   }
+  const publicOrganizerRows = (publicOrganizerContacts ?? []) as Array<{
+    organizer_name?: string | null;
+  }>;
   return (
     <main className="flex min-h-screen flex-col bg-background text-foreground">
       <SiteHeader
@@ -151,72 +162,130 @@ export default async function EventDetailsPage({ params }: { params: { slug: str
       <div className="page-container flex-1 py-10">
         <p className="eyebrow">Club event</p>
         <h1 className="section-title">{event.title}</h1>
-        {!!organizerContacts?.length && (
-          <section
-            className="my-6 border-y border-border py-5"
-            aria-labelledby="event-organizer-title"
-          >
-            <h2 id="event-organizer-title" className="text-lg font-semibold">
-              Event organizer
-            </h2>
-            <div className="mt-3 grid gap-4 sm:grid-cols-2">
-              {organizerContacts.map(
-                (contact: {
-                  organizer_id: string;
-                  organizer_name: string;
-                  position: string;
-                  emails: string[];
-                  phones: string[];
-                }) => (
-                  <div key={`${contact.organizer_id}-${contact.position}`}>
-                    <p className="font-medium">{contact.organizer_name}</p>
-                    <p className="text-sm text-muted-foreground">{contact.position}</p>
-                    {!!contact.emails?.length && (
-                      <ul className="mt-2 space-y-1 text-sm">
-                        {contact.emails.map((email) => (
-                          <li key={email}>
-                            <a className="text-primary underline" href={`mailto:${email}`}>
-                              {email}
-                            </a>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    {!!contact.phones?.length && (
-                      <ul className="mt-1 space-y-1 text-sm">
-                        {contact.phones.map((phone) => (
-                          <li key={phone}>
-                            <a className="text-primary underline" href={`tel:${phone}`}>
-                              {phone}
-                            </a>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                ),
-              )}
-            </div>
-          </section>
+        {event.event_type === 'tournament' && !user ? (
+          <PublicOrganizerContacts
+            eventId={event.id}
+            organizerNames={[
+              ...new Set(
+                publicOrganizerRows
+                  .map((contact) => contact.organizer_name)
+                  .filter((name): name is string => Boolean(name)),
+              ),
+            ]}
+          />
+        ) : (
+          !!organizerContacts?.length && (
+            <section
+              className="my-6 border-y border-border py-5"
+              aria-labelledby="event-organizer-title"
+            >
+              <h2 id="event-organizer-title" className="text-lg font-semibold">
+                Event organizer
+              </h2>
+              <div className="mt-3 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {organizerContacts.map(
+                  (contact: {
+                    organizer_id: string;
+                    organizer_name: string;
+                    position: string;
+                    emails: string[];
+                    phones: string[];
+                  }) => (
+                    <div
+                      key={`${contact.organizer_id}-${contact.position}`}
+                      className="flex flex-wrap items-start gap-x-5 gap-y-2"
+                    >
+                      <div className="min-w-36">
+                        <p className="font-medium">{contact.organizer_name}</p>
+                        <p className="text-sm text-muted-foreground">{contact.position}</p>
+                      </div>
+                      <div className="flex min-w-0 flex-1 flex-wrap items-start gap-x-5 gap-y-1">
+                        {!!contact.emails?.length && (
+                          <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                            {contact.emails.map((email) => (
+                              <li key={email}>
+                                <a className="text-primary underline" href={`mailto:${email}`}>
+                                  {email}
+                                </a>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        {!!contact.phones?.length && (
+                          <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                            {contact.phones.map((phone) => (
+                              <li key={phone}>
+                                <a className="text-primary underline" href={`tel:${phone}`}>
+                                  {phone}
+                                </a>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    </div>
+                  ),
+                )}
+              </div>
+            </section>
+          )
         )}
-        {isManager && (
-          <EventEditManagement eventId={event.id} startsAt={event.starts_at} assignmentOnly />
+        {event.event_type === 'tournament' ? (
+          <>
+            <TournamentPublicView
+              adminContent={
+                isManager ? (
+                  <TournamentManagement
+                    eventId={event.id}
+                    eventStartsAt={event.starts_at}
+                    eventEndsAt={event.ends_at}
+                    courtCount={event.court_count ?? 4}
+                    format={event.tournament_format}
+                    config={event.tournament_config ?? {}}
+                    priceCents={event.price_cents ?? 0}
+                  />
+                ) : null
+              }
+              eventTitle={event.title}
+              eventId={event.id}
+              currentUserId={user?.id ?? null}
+              format={event.tournament_format}
+              config={event.tournament_config ?? {}}
+              rulesHtml={event.tournament_rules_html ?? ''}
+              detailsPublic={event.tournament_details_public !== false}
+              allowNonMemberRegistration={event.allow_non_member_registration === true}
+              eventStatus={event.status}
+              startsAt={event.starts_at}
+              endsAt={event.ends_at}
+              locationQuery={club?.location_query || event.location || ''}
+              registrationOpensAt={event.registration_opens_at}
+              registrationClosesAt={event.registration_closes_at}
+              priceCents={event.price_cents ?? 0}
+              interacEnabled={interacEnabled}
+            />
+          </>
+        ) : (
+          <>
+            {isManager && (
+              <EventEditManagement eventId={event.id} startsAt={event.starts_at} assignmentOnly />
+            )}
+            <EventDetailClient
+              event={event}
+              roster={rosterRows}
+              courts={courts ?? []}
+              scores={scores ?? []}
+              currentUserId={user?.id ?? null}
+              currentRegistrationId={registration?.id ?? null}
+              currentStatus={registration?.status ?? null}
+              currentPaymentStatus={registration?.payment_status ?? null}
+              locationQuery={club?.location_query || event.location || ''}
+              isManager={isManager}
+              canViewParticipants={canViewParticipants}
+              remainingSpots={Math.max(0, event.capacity - (publicCount?.confirmed_count ?? 0))}
+              interacEnabled={interacEnabled}
+            />
+          </>
         )}
-        <EventDetailClient
-          event={event}
-          roster={rosterRows}
-          courts={courts ?? []}
-          scores={scores ?? []}
-          currentUserId={user?.id ?? null}
-          currentRegistrationId={registration?.id ?? null}
-          currentStatus={registration?.status ?? null}
-          currentPaymentStatus={registration?.payment_status ?? null}
-          locationQuery={club?.location_query || event.location || ''}
-          isManager={isManager}
-          canViewParticipants={canViewParticipants}
-          remainingSpots={Math.max(0, event.capacity - (publicCount?.confirmed_count ?? 0))}
-          interacEnabled={interacEnabled}
-        />
       </div>
       <SiteFooter
         clubName={club?.club_name}

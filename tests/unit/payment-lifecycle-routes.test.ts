@@ -29,11 +29,16 @@ function queryFor(table: string) {
   const query = {
     select: () => query,
     eq: () => query,
+    is: () => query,
     in: () => query,
     order: () => query,
     limit: () => query,
     update: () => {
       operation = 'update';
+      return query;
+    },
+    delete: () => {
+      operation = 'delete';
       return query;
     },
     upsert: () => {
@@ -120,11 +125,11 @@ beforeEach(() => {
 });
 
 describe('payment status endpoint', () => {
-  it('requires authentication and a valid reference', async () => {
+  it('requires a valid reference before looking up payments', async () => {
     mocks.user = null;
     expect(
       (await statusGet(request('https://club.test/api/payments/status?payment_id=bad'))).status,
-    ).toBe(401);
+    ).toBe(400);
     mocks.user = { id: 'member-1' };
     const invalid = await statusGet(
       request('https://club.test/api/payments/status?payment_id=bad'),
@@ -346,7 +351,109 @@ describe('cancel payment endpoint', () => {
     );
     expect(response.status).toBe(500);
     expect(await response.json()).toMatchObject({
-      error: expect.stringContaining('Could not cancel'),
+      error:
+        'Could not safely cancel the pending checkout. Please refresh and check payment status.',
+    });
+  });
+
+  it('requires an authenticated participant and safely expires their tournament checkout', async () => {
+    mocks.user = null;
+    const unauthorized = await cancelPost(
+      request('https://club.test/api/payments/cancel', { participantId: 'participant-1' }),
+    );
+    expect(unauthorized.status).toBe(401);
+
+    mocks.user = { id: 'member-1' };
+    mocks.rows.payments = [
+      {
+        id: 'payment-1',
+        business_record_id: 'participant-1,participant-2',
+        stripe_checkout_session_id: 'cs-tournament',
+      },
+    ];
+    mocks.sessionRetrieve
+      .mockResolvedValueOnce({ id: 'cs-tournament', status: 'open' })
+      .mockResolvedValueOnce({ id: 'cs-tournament', status: 'expired' });
+
+    const response = await cancelPost(
+      request('https://club.test/api/payments/cancel', { participantId: 'participant-1' }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ success: true });
+    expect(mocks.sessionExpire).toHaveBeenCalledWith('cs-tournament');
+    expect(mocks.sessionRetrieve).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not withdraw when a tournament checkout cannot be verified as expired', async () => {
+    mocks.rows.payments = [
+      {
+        id: 'payment-1',
+        business_record_id: 'participant-1',
+        stripe_checkout_session_id: 'cs-uncertain',
+      },
+    ];
+    mocks.sessionRetrieve
+      .mockResolvedValueOnce({ id: 'cs-uncertain', status: 'open' })
+      .mockResolvedValueOnce({ id: 'cs-uncertain', status: 'open' });
+
+    const response = await cancelPost(
+      request('https://club.test/api/payments/cancel', { participantId: 'participant-1' }),
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: 'Payment status is uncertain; the entry was not withdrawn.',
+    });
+  });
+
+  it('removes only provisional guest entries after a payment reference is verified expired', async () => {
+    mocks.user = null;
+    mocks.rows.payments = {
+      id: 'guest-payment',
+      user_id: null,
+      purpose: 'tournament_registration',
+      business_record_id: 'guest-1,guest-2',
+      status: 'pending',
+      stripe_checkout_session_id: 'cs-guest',
+    };
+    mocks.rows.tournament_participants = [
+      { id: 'guest-1', user_id: null, status: 'provisional' },
+      { id: 'guest-2', user_id: null, status: 'provisional' },
+    ];
+    mocks.rows.tournament_pairs = [{ player_one_id: 'guest-1', player_two_id: 'guest-2' }];
+    mocks.sessionRetrieve
+      .mockResolvedValueOnce({ id: 'cs-guest', status: 'open' })
+      .mockResolvedValueOnce({ id: 'cs-guest', status: 'expired' });
+
+    const response = await cancelPost(
+      request('https://club.test/api/payments/cancel', { paymentId: 'guest-payment' }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      success: true,
+      provisionalRegistrationRemoved: true,
+    });
+  });
+
+  it('keeps registered partner entries when a guest payment reference is not safely cancelable', async () => {
+    mocks.user = null;
+    mocks.rows.payments = {
+      id: 'guest-payment',
+      user_id: null,
+      purpose: 'tournament_registration',
+      business_record_id: 'member-entry',
+      status: 'pending',
+      stripe_checkout_session_id: null,
+    };
+    mocks.rows.tournament_participants = [
+      { id: 'member-entry', user_id: 'member-1', status: 'registered' },
+    ];
+
+    const response = await cancelPost(
+      request('https://club.test/api/payments/cancel', { paymentId: 'guest-payment' }),
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: 'Payment status is uncertain; the registration was kept.',
     });
   });
 });

@@ -1,4 +1,5 @@
 'use client';
+import { formatDateTime } from '@/lib/time-format';
 import { eventEditPath } from '@/lib/event-slug';
 import { TennisLoader } from '@/components/tennis-loader';
 import Link from 'next/link';
@@ -88,6 +89,10 @@ export function EventDetailClient({
 }) {
   const db = createSupabaseBrowserClient();
   const router = useRouter();
+  useEffect(() => {
+    document.title = `PCTC | ${event.title}`;
+  }, [event.title]);
+  const eventNoun = event.event_type === 'tournament' ? 'Tournament' : 'Event';
   const operationKeys = useRef<Record<string, string>>({});
   const [liveRoster, setLiveRoster] = useState<Roster[]>(roster);
   const [liveRegistrationId, setLiveRegistrationId] = useState<string | null>(
@@ -101,6 +106,14 @@ export function EventDetailClient({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  useEffect(() => {
+    if (!error && !message) return;
+    const timer = window.setTimeout(() => {
+      setError('');
+      setMessage('');
+    }, 3000);
+    return () => window.clearTimeout(timer);
+  }, [error, message]);
   const [interacNotice, setInteracNotice] = useState<{
     amount: string;
     recipientEmail: string;
@@ -116,7 +129,7 @@ export function EventDetailClient({
   const [editingScore, setEditingScore] = useState<string | null>(null);
   const [editScoreOne, setEditScoreOne] = useState('');
   const [editScoreTwo, setEditScoreTwo] = useState('');
-  const [sessionHasStarted, setSessionHasStarted] = useState(
+  const [eventHasStarted, setEventHasStarted] = useState(
     () => Date.now() >= new Date(event.starts_at).getTime(),
   );
   useEffect(() => {
@@ -160,11 +173,11 @@ export function EventDetailClient({
     };
   }, [db, currentUserId, event.id, liveRegistrationId]);
   useEffect(() => {
-    if (sessionHasStarted) return;
+    if (eventHasStarted) return;
     const delay = Math.max(0, new Date(event.starts_at).getTime() - Date.now());
-    const timer = window.setTimeout(() => setSessionHasStarted(true), delay + 25);
+    const timer = window.setTimeout(() => setEventHasStarted(true), delay + 25);
     return () => window.clearTimeout(timer);
-  }, [event.starts_at, sessionHasStarted]);
+  }, [event.starts_at, eventHasStarted]);
   const now = Date.now();
   const open =
     now >= new Date(event.registration_opens_at).getTime() &&
@@ -177,9 +190,9 @@ export function EventDetailClient({
     .filter((r) => r.status === 'waitlisted')
     .sort((a, b) => (a.queue_position ?? 0) - (b.queue_position ?? 0));
   const currentCourts = liveCourts.filter((c) => c.registration_id === liveRegistrationId);
-  const [scoreCourtText, scoreSessionText] = scoreCourt.split(':');
+  const [scoreCourtText, scoreEventText] = scoreCourt.split(':');
   const scoreCourtNumber = Number(scoreCourtText);
-  const scoreSessionNumber = Number(scoreSessionText);
+  const scoreEventNumber = Number(scoreEventText);
   const courtPlayers = liveRoster
     .filter(
       (r) =>
@@ -188,7 +201,7 @@ export function EventDetailClient({
           (c) =>
             c.registration_id === r.registration_id &&
             c.court_number === scoreCourtNumber &&
-            c.segment_order === scoreSessionNumber,
+            c.segment_order === scoreEventNumber,
         ),
     )
     .sort((a, b) => a.full_name.localeCompare(b.full_name));
@@ -517,7 +530,7 @@ export function EventDetailClient({
   async function saveEditedScore(scoreId: string) {
     if (!editingScore) return;
     if (Date.now() - new Date(event.starts_at).getTime() > 2 * 24 * 60 * 60 * 1000) {
-      setError('Scores cannot be edited more than two days after the session.');
+      setError('Scores cannot be edited more than two days after the event.');
       return;
     }
     setBusy(true);
@@ -544,7 +557,7 @@ export function EventDetailClient({
     e.preventDefault();
     if (!liveRegistrationId || !scoreCourtNumber) return;
     if (Date.now() < new Date(event.starts_at).getTime()) {
-      setError('Scores cannot be entered before the session start time.');
+      setError('Scores cannot be entered before the event start time.');
       return;
     }
     if (Date.now() - new Date(event.starts_at).getTime() > 2 * 24 * 60 * 60 * 1000) {
@@ -553,7 +566,7 @@ export function EventDetailClient({
     }
     if (courtPlayers.length !== 2 && courtPlayers.length !== 4) {
       setError(
-        'Scores can be entered when exactly two or four players are assigned to the selected court in this sub-session.',
+        'Scores can be entered when exactly two or four players are assigned to the selected court in this time slot.',
       );
       return;
     }
@@ -640,23 +653,20 @@ export function EventDetailClient({
       )}
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="rounded-xl border border-border p-4">
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">Session</p>
-          <p className="mt-2 font-medium">{new Date(event.starts_at).toLocaleString('en-CA')}</p>
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">{eventNoun}</p>
+          <p className="mt-2 font-medium">{formatDateTime(event.starts_at)}</p>
           <p className="text-sm text-muted-foreground">
-            Until{' '}
-            {event.ends_at ? new Date(event.ends_at).toLocaleString('en-CA') : 'To be announced'}
+            Until {event.ends_at ? formatDateTime(event.ends_at) : 'To be announced'}
           </p>
           <p className="mt-2 text-sm text-muted-foreground">{event.location}</p>
         </div>
         <div className="rounded-xl border border-border p-4">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">Registration</p>
-          <p className="mt-2 text-sm">
-            Opens {new Date(event.registration_opens_at).toLocaleString('en-CA')}
-          </p>
+          <p className="mt-2 text-sm">Opens {formatDateTime(event.registration_opens_at)}</p>
           <p className="text-sm">
             Cutoff{' '}
             {event.registration_closes_at
-              ? new Date(event.registration_closes_at).toLocaleString('en-CA')
+              ? formatDateTime(event.registration_closes_at)
               : 'Not set'}
           </p>
           <p className="mt-2 text-sm text-muted-foreground">
@@ -666,7 +676,12 @@ export function EventDetailClient({
           </p>
         </div>
       </div>
-      <EventWeather startsAt={event.starts_at} location={locationQuery || event.location} />
+      <EventWeather
+        startsAt={event.starts_at}
+        endsAt={event.ends_at || undefined}
+        location={locationQuery || event.location}
+        eventLabel={event.event_type === 'tournament' ? 'tournament' : 'event'}
+      />
       <section className="rounded-xl border border-border p-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -679,7 +694,7 @@ export function EventDetailClient({
           </div>
           <div className="flex flex-wrap gap-2">
             {event.status === 'cancelled' ? (
-              <span className="text-sm font-semibold text-destructive">Event cancelled</span>
+              <span className="text-sm font-semibold text-destructive">{eventNoun} cancelled</span>
             ) : !currentUserId ? (
               <Button asChild>
                 <Link
@@ -799,16 +814,6 @@ export function EventDetailClient({
             Registration is not currently open. Check the opening and cutoff times above.
           </p>
         )}
-        {error && (
-          <p role="alert" className="mt-3 text-sm text-destructive">
-            {error}
-          </p>
-        )}
-        {message && (
-          <p role="status" className="mt-3 text-sm">
-            {message}
-          </p>
-        )}
       </section>
       {confirmWithdraw && (
         <div
@@ -868,7 +873,7 @@ export function EventDetailClient({
               <div>
                 <h2 className="text-xl font-semibold">Players and courts</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Court assignments are shown for each sub-session.
+                  Court assignments are shown for each time slot.
                 </p>
               </div>
               <div className="flex gap-1 rounded-lg border border-border p-1">
@@ -895,7 +900,7 @@ export function EventDetailClient({
                 )}
                 {subsessions.map((session) => (
                   <section key={session}>
-                    <h3 className="mb-3 text-lg font-semibold">Sub-session {session}</h3>
+                    <h3 className="mb-3 text-lg font-semibold">Time slot {session}</h3>
                     <div className="grid gap-4 sm:grid-cols-2">
                       {(courtNumbers.length
                         ? courtNumbers
@@ -1141,27 +1146,27 @@ export function EventDetailClient({
               registered &&
               liveStatus === 'confirmed' &&
               event.status === 'published' &&
-              !sessionHasStarted && (
+              !eventHasStarted && (
                 <p className="mt-5 rounded-xl border border-border p-4 text-sm text-muted-foreground">
-                  Score entry will be available when the session starts at{' '}
-                  {new Date(event.starts_at).toLocaleString('en-CA')}.
+                  Score entry will be available when the event starts at{' '}
+                  {formatDateTime(event.starts_at)}.
                 </p>
               )}
             {currentUserId &&
               registered &&
               liveStatus === 'confirmed' &&
               event.status === 'published' &&
-              sessionHasStarted &&
+              eventHasStarted &&
               !scoreEditLocked && (
                 <form onSubmit={addScore} className="mt-5 rounded-xl border border-border p-4">
                   <h3 className="font-semibold">Add a score</h3>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Choose a court and sub-session you are assigned to. On a four-player court,
-                    select your partner; the other two players become your opponents automatically.
+                    Choose a court and time slot you are assigned to. On a four-player court, select
+                    your partner; the other two players become your opponents automatically.
                   </p>
                   <div className="mt-3 grid gap-3 sm:grid-cols-4">
                     <label className="space-y-1 text-sm">
-                      Court / sub-session
+                      Court / time slot
                       <select
                         required
                         value={scoreCourt}
@@ -1177,7 +1182,7 @@ export function EventDetailClient({
                             key={`${c.court_number}-${c.segment_order}`}
                             value={`${c.court_number}:${c.segment_order}`}
                           >
-                            Court {c.court_number} · Sub-session {c.segment_order}
+                            Court {c.court_number} · Time slot {c.segment_order}
                           </option>
                         ))}
                       </select>

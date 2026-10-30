@@ -149,7 +149,7 @@ async function recordCompletedCheckout(
     session.mode !== 'payment' ||
     session.metadata?.pctc_purpose !== payment.purpose ||
     session.metadata?.pctc_business_record_id !== payment.business_record_id ||
-    session.metadata?.pctc_user_id !== payment.user_id ||
+    (session.metadata?.pctc_user_id || null) !== payment.user_id ||
     session.client_reference_id !== payment.id ||
     (session.amount_total !== null && session.amount_total !== payment.amount_minor) ||
     (session.currency && session.currency.toLowerCase() !== payment.currency)
@@ -189,7 +189,7 @@ async function recordFailedCheckout(
     (payment.stripe_checkout_session_id && payment.stripe_checkout_session_id !== session.id) ||
     session.metadata?.pctc_purpose !== payment.purpose ||
     session.metadata?.pctc_business_record_id !== payment.business_record_id ||
-    session.metadata?.pctc_user_id !== payment.user_id
+    (session.metadata?.pctc_user_id || null) !== payment.user_id
   ) {
     throw new Error('Failed Checkout Session does not match the local payment.');
   }
@@ -227,7 +227,7 @@ async function recordPaymentIntent(
   if (
     intent.metadata?.pctc_purpose !== payment.purpose ||
     intent.metadata?.pctc_business_record_id !== payment.business_record_id ||
-    intent.metadata?.pctc_user_id !== payment.user_id
+    (intent.metadata?.pctc_user_id || null) !== payment.user_id
   ) {
     throw new Error(
       'Stripe metadata does not match the internal payment purpose, owner, or business record.',
@@ -315,7 +315,7 @@ async function recordExpiredCheckout(
   if (
     session.metadata?.pctc_purpose !== payment.purpose ||
     session.metadata?.pctc_business_record_id !== payment.business_record_id ||
-    session.metadata?.pctc_user_id !== payment.user_id
+    (session.metadata?.pctc_user_id || null) !== payment.user_id
   ) {
     throw new Error('Expired Checkout Session metadata does not match the internal payment.');
   }
@@ -347,6 +347,70 @@ async function recordExpiredCheckout(
         ['succeeded', 'partially_refunded', 'refunded'].includes(latestPayment.status)
       )
         return;
+    }
+  }
+  if (
+    payment.purpose === 'tournament_registration' &&
+    !payment.user_id &&
+    payment.business_record_id
+  ) {
+    const ids = payment.business_record_id.split(',').filter(Boolean);
+    const { data: guestEntries, error: guestEntriesError } = await db
+      .from('tournament_participants')
+      .select('id,user_id,status')
+      .in('id', ids);
+    if (guestEntriesError)
+      throw new Error('Could not inspect provisional guest entries after checkout expiry.');
+    const provisionalIds = (guestEntries ?? [])
+      .filter((entry) => entry.user_id === null && entry.status === 'provisional')
+      .map((entry) => entry.id);
+    if (provisionalIds.length) {
+      const [{ data: pairsOne, error: pairsOneError }, { data: pairsTwo, error: pairsTwoError }] =
+        await Promise.all([
+          db
+            .from('tournament_pairs')
+            .select('player_one_id,player_two_id')
+            .in('player_one_id', provisionalIds),
+          db
+            .from('tournament_pairs')
+            .select('player_one_id,player_two_id')
+            .in('player_two_id', provisionalIds),
+        ]);
+      if (pairsOneError || pairsTwoError)
+        throw new Error('Could not inspect provisional tournament pairs after checkout expiry.');
+      const relatedIds = [
+        ...new Set([
+          ...provisionalIds,
+          ...(pairsOne ?? []).flatMap((pair) => [pair.player_one_id, pair.player_two_id]),
+          ...(pairsTwo ?? []).flatMap((pair) => [pair.player_one_id, pair.player_two_id]),
+        ]),
+      ];
+      const { data: relatedEntries, error: relatedError } = await db
+        .from('tournament_participants')
+        .select('id,user_id,status')
+        .in('id', relatedIds);
+      if (relatedError)
+        throw new Error('Could not inspect provisional tournament entries after checkout expiry.');
+      const cleanupIds = (relatedEntries ?? [])
+        .filter((entry) => entry.user_id === null && entry.status === 'provisional')
+        .map((entry) => entry.id);
+      const { error: deletePairsOneError } = await db
+        .from('tournament_pairs')
+        .delete()
+        .in('player_one_id', cleanupIds);
+      const { error: deletePairsTwoError } = await db
+        .from('tournament_pairs')
+        .delete()
+        .in('player_two_id', cleanupIds);
+      if (deletePairsOneError || deletePairsTwoError)
+        throw new Error('Could not remove provisional tournament pairs after checkout expiry.');
+      const { error: deleteParticipantsError } = await db
+        .from('tournament_participants')
+        .delete()
+        .in('id', cleanupIds)
+        .eq('status', 'provisional');
+      if (deleteParticipantsError)
+        throw new Error('Could not remove provisional tournament entries after checkout expiry.');
     }
   }
   await writePaymentAudit(db, payment.id, 'payment.canceled', eventId, {

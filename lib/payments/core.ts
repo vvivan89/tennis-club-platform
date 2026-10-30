@@ -9,7 +9,8 @@ export const PAYMENT_STATUSES = [
 ] as const;
 
 export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
-export type PaymentPurpose = 'membership' | 'event_registration' | 'other';
+export type PaymentPurpose =
+  'membership' | 'event_registration' | 'tournament_registration' | 'other';
 
 const transitions: Record<PaymentStatus, readonly PaymentStatus[]> = {
   pending: ['processing', 'succeeded', 'failed', 'canceled'],
@@ -44,7 +45,11 @@ export function validatePaymentInput(input: {
   if (typeof input.currency !== 'string' || !/^[a-zA-Z]{3}$/.test(input.currency)) {
     throw new Error('Currency must be a three-letter ISO currency code.');
   }
-  if (!['membership', 'event_registration', 'other'].includes(String(input.purpose))) {
+  if (
+    !['membership', 'event_registration', 'tournament_registration', 'other'].includes(
+      String(input.purpose),
+    )
+  ) {
     throw new Error('Unsupported payment purpose.');
   }
   if (input.userId !== undefined && input.userId !== null && typeof input.userId !== 'string') {

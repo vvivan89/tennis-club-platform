@@ -12,6 +12,7 @@ import {
   useState,
 } from 'react';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import {
   canEditChatMessage,
   CHAT_PAGE_SIZE,
@@ -62,6 +63,7 @@ export function MemberChat({ userId }: { userId: string }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState('');
   const [openMessageMenuId, setOpenMessageMenuId] = useState<string | null>(null);
+  const [pendingDeleteMessage, setPendingDeleteMessage] = useState<ChatMessage | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const previousScrollHeightRef = useRef<number | null>(null);
   const loadingOlderRef = useRef(false);
@@ -279,7 +281,12 @@ export function MemberChat({ userId }: { userId: string }) {
     }
   }
   async function deleteMessage(message: ChatMessage) {
-    if (!window.confirm('Delete this message?')) return;
+    setPendingDeleteMessage(message);
+  }
+  async function confirmDeleteMessage() {
+    const message = pendingDeleteMessage;
+    if (!message) return;
+    setPendingDeleteMessage(null);
     const { error: deleteError } = await supabase
       .from('member_chat_messages')
       .delete()
@@ -419,7 +426,7 @@ export function MemberChat({ userId }: { userId: string }) {
                         {openMessageMenuId === message.id && (
                           <div
                             role="menu"
-                            className="absolute right-0 top-full z-30 min-w-28 rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+                            className="absolute right-0 top-full z-30 min-w-28 max-w-[calc(100vw-2rem)] rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
                           >
                             <button
                               type="button"
@@ -634,6 +641,16 @@ export function MemberChat({ userId }: { userId: string }) {
           smaller.
         </p>
       </div>
+      <ConfirmDialog
+        open={!!pendingDeleteMessage}
+        title="Delete message?"
+        description="This message will be deleted from the club chat."
+        confirmLabel="Delete message"
+        destructive
+        busy={busy}
+        onCancel={() => setPendingDeleteMessage(null)}
+        onConfirm={() => void confirmDeleteMessage()}
+      />
     </section>
   );
 }

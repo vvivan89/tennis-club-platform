@@ -294,9 +294,10 @@ describe('MemberChat', () => {
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
     mocks.writeErrors['member_chat_messages.update'] = null;
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     await user.click(screen.getByRole('button', { name: /Message actions for/ }));
     await user.click(screen.getByRole('menuitem', { name: 'Delete' }));
+    expect(screen.getByRole('alertdialog')).toHaveTextContent('Delete message?');
+    await user.click(screen.getByRole('button', { name: 'Delete message' }));
     await waitFor(() => expect(mocks.deletes).toContain('own-message'));
   });
 
@@ -305,16 +306,16 @@ describe('MemberChat', () => {
     mocks.messages = [chatRow({ id: 'own-message', user_id: 'member-1' })];
     render(<MemberChat userId="member-1" />);
     await screen.findByText('Hello club');
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     await user.click(screen.getByRole('button', { name: /Message actions for/ }));
     await user.click(screen.getByRole('menuitem', { name: 'Delete' }));
-    expect(confirm).toHaveBeenCalledWith('Delete this message?');
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(mocks.deletes).toHaveLength(0);
 
-    confirm.mockReturnValue(true);
     mocks.writeErrors['member_chat_messages.delete'] = { message: 'five minutes elapsed' };
     await user.click(screen.getByRole('button', { name: /Message actions for/ }));
     await user.click(screen.getByRole('menuitem', { name: 'Delete' }));
+    await user.click(screen.getByRole('button', { name: 'Delete message' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Messages can only be deleted within five minutes.',
     );

@@ -7,7 +7,7 @@ export const runtime = 'nodejs';
 
 type PaymentRow = {
   id: string;
-  user_id: string;
+  user_id: string | null;
   purpose: string;
   business_record_id: string | null;
   amount_minor: number;
@@ -32,7 +32,7 @@ async function reconcileCompletedCheckout(
     session.metadata?.pctc_payment_id !== payment.id ||
     session.metadata?.pctc_purpose !== payment.purpose ||
     session.metadata?.pctc_business_record_id !== payment.business_record_id ||
-    session.metadata?.pctc_user_id !== payment.user_id ||
+    (session.metadata?.pctc_user_id || null) !== payment.user_id ||
     session.client_reference_id !== payment.id ||
     session.mode !== 'payment' ||
     session.amount_total !== payment.amount_minor ||
@@ -53,7 +53,7 @@ async function reconcileCompletedCheckout(
     intent.metadata?.pctc_payment_id !== payment.id ||
     intent.metadata?.pctc_purpose !== payment.purpose ||
     intent.metadata?.pctc_business_record_id !== payment.business_record_id ||
-    intent.metadata?.pctc_user_id !== payment.user_id
+    (intent.metadata?.pctc_user_id || null) !== payment.user_id
   ) {
     throw new Error('Stripe PaymentIntent does not match the local payment.');
   }
@@ -113,7 +113,6 @@ export async function GET(request: Request) {
     const {
       data: { user },
     } = await auth.auth.getUser();
-    if (!user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
     const params = new URL(request.url).searchParams;
     const sessionId = params.get('session_id');
     const paymentId = params.get('payment_id');
@@ -138,8 +137,7 @@ export async function GET(request: Request) {
       .from('payments')
       .select(
         'id,user_id,purpose,business_record_id,amount_minor,currency,status,refunded_amount_minor,created_at,succeeded_at,stripe_checkout_session_id,stripe_payment_intent_id',
-      )
-      .eq('user_id', user.id);
+      );
     if (registrationId) {
       query = query.eq('purpose', 'event_registration').eq('business_record_id', registrationId);
     } else if (sessionId) {
@@ -147,6 +145,8 @@ export async function GET(request: Request) {
     } else {
       query = query.eq('id', paymentId!);
     }
+    if (user) query = query.eq('user_id', user.id);
+    else query = query.is('user_id', null).eq('purpose', 'tournament_registration');
     const { data, error } = await query
       .order('created_at', { ascending: false })
       .limit(1)
@@ -158,6 +158,8 @@ export async function GET(request: Request) {
     }
 
     let payment = data as PaymentRow;
+    if (!user && payment.purpose !== 'tournament_registration')
+      return NextResponse.json({ error: 'Payment not found.' }, { status: 404 });
     if (payment.stripe_checkout_session_id) payment = await reconcileCompletedCheckout(db, payment);
 
     let fulfilled = false;
@@ -176,7 +178,7 @@ export async function GET(request: Request) {
             .from('memberships')
             .select('status,payment_status')
             .eq('id', payment.business_record_id)
-            .eq('user_id', user.id)
+            .eq('user_id', user?.id ?? '')
             .maybeSingle();
           fulfilled = Boolean(
             membership?.status === 'active' && membership.payment_status === 'paid',
@@ -187,11 +189,27 @@ export async function GET(request: Request) {
           .from('registrations')
           .select('status,payment_status')
           .eq('id', payment.business_record_id)
-          .eq('user_id', user.id)
+          .eq('user_id', user?.id ?? '')
           .maybeSingle();
         fulfilled = Boolean(
           registration?.status === 'confirmed' && registration.payment_status === 'paid',
         );
+      } else if (payment.purpose === 'tournament_registration' && payment.business_record_id) {
+        const participantIds = payment.business_record_id.split(',').filter(Boolean);
+        const { data: participants } = await db
+          .from('tournament_participants')
+          .select('id,payment_id,payment_status')
+          .in('id', participantIds);
+        fulfilled =
+          participantIds.length > 0 &&
+          participantIds.every((id) =>
+            (participants ?? []).some(
+              (participant) =>
+                participant.id === id &&
+                participant.payment_id === payment.id &&
+                participant.payment_status === 'paid',
+            ),
+          );
       }
     }
 

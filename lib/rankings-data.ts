@@ -22,6 +22,17 @@ type ScoreRow = {
   player_two_score: number;
 };
 type RegistrationRow = { id: string; user_id: string; event_id: string };
+type TournamentSetRow = {
+  id: string;
+  event_id: string;
+  played_at: string | null;
+  player_one_user_id: string | null;
+  player_two_user_id: string | null;
+  player_three_user_id: string | null;
+  player_four_user_id: string | null;
+  player_one_score: number;
+  player_two_score: number;
+};
 type EventRow = { id: string; title: string; starts_at: string; ends_at: string | null };
 type MembershipRow = { id: string; user_id: string; status: string; payment_status: string | null };
 type PaymentRow = { business_record_id: string | null; user_id: string | null; status: string };
@@ -68,6 +79,7 @@ export async function getRankingsData(): Promise<RankingsData> {
     { data: settingsRow },
     { data: scores },
     { data: events },
+    { data: tournamentSets },
   ] = await Promise.all([
     admin
       .from('profiles')
@@ -96,6 +108,11 @@ export async function getRankingsData(): Promise<RankingsData> {
       )
       .order('played_at', { ascending: false }),
     admin.from('events').select('id,title,starts_at,ends_at'),
+    admin
+      .from('tournament_ranked_sets')
+      .select(
+        'id,event_id,played_at,player_one_user_id,player_two_user_id,player_three_user_id,player_four_user_id,player_one_score,player_two_score',
+      ),
   ]);
   const approved = (profiles ?? []) as ProfileRow[];
   const membershipRows = (memberships ?? []) as MembershipRow[];
@@ -176,6 +193,34 @@ export async function getRankingsData(): Promise<RankingsData> {
       },
     ];
   });
+  const tournamentGames: PlayerGame[] = ((tournamentSets ?? []) as TournamentSetRow[]).flatMap(
+    (row) => {
+      const ev = eventById.get(row.event_id);
+      const playedAt = row.played_at || ev?.starts_at;
+      if (!playedAt || new Date(playedAt).getTime() > Date.now()) return [];
+      const sideOneIds = [row.player_one_user_id, row.player_two_user_id].filter(
+        (id): id is string => !!id,
+      );
+      const sideTwoIds = [row.player_three_user_id, row.player_four_user_id].filter(
+        (id): id is string => !!id,
+      );
+      if (!sideOneIds.length || !sideTwoIds.length) return [];
+      return [
+        {
+          id: row.id,
+          eventId: row.event_id,
+          eventTitle: ev?.title || 'Tournament',
+          playedAt,
+          playerIds: [...sideOneIds, ...sideTwoIds],
+          sideOneIds,
+          sideTwoIds,
+          scoreOne: Number(row.player_one_score) || 0,
+          scoreTwo: Number(row.player_two_score) || 0,
+        },
+      ];
+    },
+  );
+  games.push(...tournamentGames);
   const players: RankingPlayer[] = approved.map((p) => {
     let gamesWon = 0,
       gamesLost = 0,
