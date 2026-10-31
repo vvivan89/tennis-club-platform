@@ -61,6 +61,38 @@ describe('phaseStartAfterPrerequisites', () => {
       }),
     ).toThrow('Schedule the preceding tournament phase before suggesting this phase schedule.');
   });
+
+  it('accepts unscheduled completed, bye, and cancelled prerequisites and clamps short durations and breaks', () => {
+    const start = phaseStartAfterPrerequisites({
+      baseStart,
+      matchMinutes: 1,
+      minimumBreakMinutes: 1,
+      prerequisiteMatches: [
+        { scheduled_at: null, status: 'completed' },
+        { scheduled_at: null, status: 'bye' },
+        { scheduled_at: null, status: 'cancelled' },
+        { scheduled_at: '2026-10-27T09:00:00.000Z', status: 'completed' },
+      ],
+    });
+    expect(start.toISOString()).toBe('2026-10-27T10:30:00.000Z');
+  });
+
+  it('rejects invalid base and prerequisite dates', () => {
+    expect(() =>
+      phaseStartAfterPrerequisites({
+        baseStart: 'invalid',
+        prerequisiteMatches: [],
+        matchMinutes: 60,
+      }),
+    ).toThrow('A valid event start time is required');
+    expect(() =>
+      phaseStartAfterPrerequisites({
+        baseStart,
+        matchMinutes: 60,
+        prerequisiteMatches: [{ scheduled_at: 'invalid', status: 'scheduled' }],
+      }),
+    ).toThrow('A preceding match has an invalid scheduled start time');
+  });
 });
 
 describe('buildKnockoutSchedule', () => {
@@ -134,5 +166,71 @@ describe('buildKnockoutSchedule', () => {
     });
     expect(assignments).toHaveLength(1);
     expect(assignments[0].id).toBe('real');
+  });
+
+  it('skips canceled and bye rounds, clamps court counts and match durations, and normalizes late starts', () => {
+    const assignments = buildKnockoutSchedule({
+      matches: [
+        { id: 'bye', round_number: 1, match_number: 1, status: 'bye' },
+        { id: 'canceled', round_number: 2, match_number: 1, status: 'cancelled' },
+        { id: 'late', round_number: 3, match_number: 1, status: 'scheduled' },
+      ],
+      baseStart: new Date(2026, 9, 24, 22, 30).toISOString(),
+      eventEnd: new Date(2026, 9, 25, 12).toISOString(),
+      matchMinutes: 1,
+      betweenMatchBreakMinutes: -5,
+      courtCount: 0,
+      stageBreakMinutes: 1,
+    });
+    expect(assignments).toHaveLength(1);
+    expect(assignments[0].id).toBe('late');
+    expect(assignments[0].court_number).toBe(1);
+    expect(new Date(assignments[0].scheduled_at).getHours()).toBe(8);
+  });
+
+  it('rejects invalid windows and a schedule that exceeds the event end', () => {
+    const match = [{ id: 'a', round_number: 1, match_number: 1, status: 'scheduled' }];
+    expect(() =>
+      buildKnockoutSchedule({
+        matches: match,
+        baseStart: 'invalid',
+        eventEnd: end,
+        matchMinutes: 60,
+        betweenMatchBreakMinutes: 0,
+        courtCount: 1,
+      }),
+    ).toThrow('A valid tournament start and end time');
+    expect(() =>
+      buildKnockoutSchedule({
+        matches: match,
+        baseStart: base,
+        eventEnd: new Date(2026, 9, 24, 8, 1).toISOString(),
+        matchMinutes: 60,
+        betweenMatchBreakMinutes: 0,
+        courtCount: 1,
+      }),
+    ).toThrow('there is not enough time');
+  });
+
+  it('moves matches after 9 p.m. to the next day and rounds seconds off during daytime', () => {
+    const lateAssignments = buildKnockoutSchedule({
+      matches: [{ id: 'late', round_number: 1, match_number: 1, status: 'scheduled' }],
+      baseStart: new Date(2026, 9, 24, 21, 1, 42).toISOString(),
+      eventEnd: new Date(2026, 9, 25, 12).toISOString(),
+      matchMinutes: 30,
+      betweenMatchBreakMinutes: 0,
+      courtCount: 1,
+    });
+    expect(new Date(lateAssignments[0].scheduled_at).getDate()).toBe(25);
+    expect(new Date(lateAssignments[0].scheduled_at).getHours()).toBe(8);
+    const daytimeAssignments = buildKnockoutSchedule({
+      matches: [{ id: 'day', round_number: 1, match_number: 1, status: 'scheduled' }],
+      baseStart: new Date(2026, 9, 24, 12, 34, 42).toISOString(),
+      eventEnd: end,
+      matchMinutes: 30,
+      betweenMatchBreakMinutes: 0,
+      courtCount: 1,
+    });
+    expect(new Date(daytimeAssignments[0].scheduled_at).getSeconds()).toBe(0);
   });
 });

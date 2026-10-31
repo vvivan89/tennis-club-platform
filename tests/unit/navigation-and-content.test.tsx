@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RankingsTable } from '@/components/rankings-table';
+import { RankingsCompetitionSelector } from '@/components/rankings-competition-selector';
 import { SeasonSelector } from '@/components/season-selector';
 import { PastEventsList } from '@/components/past-events-list';
 import { MemberNav } from '@/components/member-nav';
@@ -105,6 +106,71 @@ describe('navigation and content components', () => {
     await user.click(screen.getByRole('button', { name: 'Female' }));
     expect(within(rankedTable).queryByText('Alex')).not.toBeInTheDocument();
     expect(within(rankedTable).getByText('Blair')).toBeInTheDocument();
+  });
+
+  it('switches ranking period to a ladder and sorts ladder ties through configured metrics', async () => {
+    const user = userEvent.setup();
+    const points = new Map([
+      ['p1', 4],
+      ['p2', 4],
+      ['p3', 1],
+    ]);
+    render(
+      <RankingsTable
+        players={players}
+        currentUserId="p1"
+        ladderPoints={points}
+        ladderRankingPriority={['games_won', 'sets_won']}
+        ladderSeedOrder={
+          new Map([
+            ['p1', 2],
+            ['p2', 1],
+          ])
+        }
+        competitionSelector={
+          <RankingsCompetitionSelector
+            value="2026"
+            options={[
+              { value: '2026', label: 'Full 2026 season' },
+              { value: '2025', label: 'Full 2025 season' },
+              { value: 'ladder:ladder-1', label: "Summer ladder (Women's ladder)" },
+            ]}
+          />
+        }
+      />,
+    );
+
+    const period = screen.getByLabelText('Competition');
+    expect(
+      within(period as HTMLElement).getByRole('option', { name: 'Full 2026 season' }),
+    ).toBeInTheDocument();
+    await user.selectOptions(period, 'ladder:ladder-1');
+    expect(mocks.push).toHaveBeenCalledWith('/rankings?ladder=ladder-1', { scroll: false });
+    expect(
+      screen.getByRole('option', { name: "Summer ladder (Women's ladder)" }),
+    ).toBeInTheDocument();
+
+    const rankedTable = screen.getAllByRole('table')[0];
+    const rankedRows = within(rankedTable).getAllByRole('row').slice(1);
+    expect(rankedRows[0]).toHaveTextContent('Alex');
+    await user.click(within(rankedTable).getByRole('button', { name: /Points/ }));
+    expect(within(rankedTable).getAllByRole('row')[1]).toHaveTextContent('Casey');
+    await user.click(screen.getByRole('button', { name: 'Male' }));
+    expect(within(rankedTable).queryByText('Jordan')).not.toBeInTheDocument();
+  });
+
+  it('sorts ranked players by games, sets, skill, and name in both directions', async () => {
+    const user = userEvent.setup();
+    render(<RankingsTable players={players} currentUserId="missing" />);
+    const rankedTable = screen.getAllByRole('table')[0];
+    await user.click(within(rankedTable).getByRole('button', { name: 'Sort by Games' }));
+    expect(within(rankedTable).getAllByRole('row')[1]).toHaveTextContent('Alex');
+    await user.click(within(rankedTable).getByRole('button', { name: 'Sort by Sets' }));
+    await user.click(within(rankedTable).getByRole('button', { name: 'Sort by Skill rating' }));
+    expect(within(rankedTable).getAllByRole('row')[1]).toHaveTextContent(/Alex|Blair|Casey/);
+    await user.click(within(rankedTable).getByRole('button', { name: 'Sort by Player' }));
+    await user.click(within(rankedTable).getByRole('button', { name: 'Sort by Player' }));
+    expect(within(rankedTable).getAllByRole('row')[1]).toHaveTextContent('Blair');
   });
 
   it('updates the selected season in the current path without scrolling', async () => {

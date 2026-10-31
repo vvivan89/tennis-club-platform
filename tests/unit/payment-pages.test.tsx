@@ -168,6 +168,70 @@ describe('admin payment history page', () => {
     expect(container).toHaveTextContent('$24.00');
     expect(mocks.syncPaymentProceeds).toHaveBeenCalledWith(expect.any(Object), 'payment-1', 'pi-1');
   });
+
+  it('handles empty and failed payment history and joins tournament registrations', async () => {
+    mocks.singles.payment_method_settings = {
+      interac_enabled: true,
+      interac_recipient_email: 'payments@example.test',
+      interac_instructions: 'Include your name.',
+    };
+    const emptyPage = render(await AdminPaymentsPage());
+    expect(emptyPage.container).toHaveTextContent('Payments');
+    expect(emptyPage.container).not.toHaveTextContent('Could not load payments.');
+    emptyPage.unmount();
+
+    mocks.errors['payments.rows'] = { message: 'database detail' };
+    const failedPage = render(await AdminPaymentsPage());
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not load payments.');
+    failedPage.unmount();
+
+    mocks.errors = {};
+    mocks.rows.payments = [
+      {
+        id: 'tournament-payment',
+        user_id: 'member-1',
+        provider: null,
+        purpose: 'tournament_registration',
+        business_record_id: ', participant-a, participant-b, ',
+        amount_minor: 3000,
+        currency: 'cad',
+        status: 'pending',
+        manual_review_status: null,
+        refunded_amount_minor: 500,
+        created_at: '2026-06-01T12:00:00Z',
+        succeeded_at: null,
+        stripe_payment_intent_id: null,
+        stripe_fee_minor: null,
+        proceeds_minor: null,
+      },
+      {
+        id: 'unlinked-payment',
+        user_id: 'missing-user',
+        provider: 'manual',
+        purpose: 'membership',
+        business_record_id: null,
+        amount_minor: 1000,
+        currency: 'cad',
+        status: 'succeeded',
+        manual_review_status: 'approved',
+        refunded_amount_minor: 0,
+        created_at: '2026-05-01T12:00:00Z',
+        succeeded_at: null,
+        stripe_payment_intent_id: null,
+        stripe_fee_minor: null,
+        proceeds_minor: 1000,
+      },
+    ];
+    mocks.rows.profiles = [{ id: 'member-1', full_name: 'Alex Member', email: null }];
+    mocks.rows.tournament_participants = [{ id: 'participant-b', event_id: 'event-tournament' }];
+    mocks.rows.events = [{ id: 'event-tournament', title: 'Summer Cup' }];
+    const { container } = render(await AdminPaymentsPage());
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('tab', { name: 'Stripe' }));
+    expect(container).toHaveTextContent('Alex Member');
+    await user.click(screen.getByRole('tab', { name: 'Interac' }));
+    expect(screen.getByLabelText('Recipient email')).toHaveValue('payments@example.test');
+  });
 });
 
 describe('member chat page', () => {

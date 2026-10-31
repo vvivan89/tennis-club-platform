@@ -1,6 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { AdminEventsTable } from '@/components/admin-events-table';
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
+}));
 
 const events = [
   {
@@ -46,8 +50,12 @@ const events = [
 
 describe('admin event list filters', () => {
   it('shows type and supports name, type, price, status and date filtering', () => {
-    render(<AdminEventsTable events={events} />);
+    render(<AdminEventsTable events={[...events].reverse()} />);
     expect(screen.getByRole('columnheader', { name: 'Type' })).toBeInTheDocument();
+    const futureRows = screen.getAllByRole('row').slice(1);
+    expect(futureRows[0]).toHaveTextContent('Friday Social');
+    expect(futureRows[1]).toHaveTextContent('Doubles Open');
+    expect(futureRows[2]).toHaveTextContent('Team Cup');
     fireEvent.change(screen.getByLabelText('Search events by name'), {
       target: { value: 'Doubles' },
     });

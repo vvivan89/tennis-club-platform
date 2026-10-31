@@ -41,6 +41,11 @@ function queryFor(table: string) {
       mocks.writes.push({ table, operation, values });
       return query;
     },
+    delete: () => {
+      operation = 'delete';
+      mocks.writes.push({ table, operation, values });
+      return query;
+    },
     insert: (payload: Record<string, unknown>) => {
       operation = 'insert';
       values = payload;
@@ -333,7 +338,7 @@ describe('EventDetailClient registration workflow', () => {
     });
     await user.selectOptions(screen.getByLabelText('Court / time slot'), '1:1');
     await user.type(screen.getByLabelText('Your team score'), '6');
-    await user.type(screen.getByLabelText("Opponents' score"), '4');
+    await user.type(screen.getByLabelText('Opponents’ score'), '4');
     fireEvent.submit(screen.getByText('Add a score').closest('form') as HTMLFormElement);
 
     await waitFor(() =>
@@ -386,7 +391,7 @@ describe('EventDetailClient registration workflow', () => {
     });
     await user.selectOptions(screen.getByLabelText('Court / time slot'), '1:1');
     await user.type(screen.getByLabelText('Your team score'), '7');
-    await user.type(screen.getByLabelText("Opponents' score"), '5');
+    await user.type(screen.getByLabelText('Opponents’ score'), '5');
     fireEvent.submit(screen.getByText('Add a score').closest('form') as HTMLFormElement);
     expect(mocks.writes).toHaveLength(0);
 
@@ -437,12 +442,12 @@ describe('EventDetailClient registration workflow', () => {
     });
     await user.selectOptions(await screen.findByLabelText('Court / time slot'), '1:1');
     await user.type(screen.getByLabelText('Your team score'), '6');
-    await user.type(screen.getByLabelText("Opponents' score"), '2');
+    await user.type(screen.getByLabelText('Opponents’ score'), '2');
     fireEvent.submit(screen.getByText('Add a score').closest('form') as HTMLFormElement);
     expect(mocks.writes).toHaveLength(0);
   });
 
-  it('logs registration and withdrawal RPC failures to the console without rendering them', async () => {
+  it('logs and displays registration and withdrawal RPC failure details', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     mocks.rpc.mockResolvedValue({ data: null, error: { message: 'private database detail' } });
     const user = userEvent.setup();
@@ -453,8 +458,7 @@ describe('EventDetailClient registration workflow', () => {
         message: 'private database detail',
       }),
     );
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(screen.queryByText('private database detail')).not.toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('private database detail');
 
     rerender(
       <EventDetailClient
@@ -479,7 +483,7 @@ describe('EventDetailClient registration workflow', () => {
         message: 'private database detail',
       }),
     );
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not update registration.');
     expect(mocks.rpc).toHaveBeenCalledWith(
       'withdraw_from_event',
       expect.objectContaining({ p_registration_id: 'registration-1' }),
@@ -513,6 +517,7 @@ describe('EventDetailClient registration workflow', () => {
       scores: [score],
       currentUserId: 'manager-1',
       isManager: true,
+      isAdmin: true,
       canViewParticipants: true,
     });
     await user.click(screen.getByRole('button', { name: 'Edit score' }));
@@ -527,6 +532,64 @@ describe('EventDetailClient registration workflow', () => {
         operation: 'update',
         values: { player_one_score: 6, player_two_score: 4 },
       }),
+    );
+    expect(mocks.routerRefresh).toHaveBeenCalled();
+  });
+
+  it('limits score edit and delete actions to admins and the score author', async () => {
+    const score = {
+      id: 'score-1',
+      player_one_registration_id: 'reg-1',
+      player_two_registration_id: 'reg-2',
+      player_three_registration_id: null,
+      player_four_registration_id: null,
+      player_one_score: 6,
+      player_two_score: 3,
+      player_one_name: 'Alex Member',
+      player_two_name: 'Jordan Member',
+      player_three_name: null,
+      player_four_name: null,
+      played_at: new Date().toISOString(),
+      entered_by: 'score-author',
+    };
+    const user = userEvent.setup();
+    const { rerender } = renderClient({
+      scores: [score],
+      currentUserId: 'organizer-1',
+      isManager: true,
+      isAdmin: false,
+    });
+    expect(screen.queryByRole('button', { name: 'Edit score' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete score' })).not.toBeInTheDocument();
+
+    rerender(
+      <EventDetailClient
+        event={event}
+        roster={[]}
+        courts={[]}
+        scores={[score]}
+        currentUserId="score-author"
+        currentRegistrationId={null}
+        currentStatus={null}
+        currentPaymentStatus={null}
+        locationQuery="Main courts"
+        isManager={false}
+        canViewParticipants
+        remainingSpots={12}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Delete score' }));
+    expect(screen.getByRole('alertdialog')).toHaveTextContent(
+      'This score will be permanently removed.',
+    );
+    expect(mocks.writes).toHaveLength(0);
+    await user.click(
+      screen.getByRole('alertdialog').querySelector('button:last-child') as HTMLButtonElement,
+    );
+    await waitFor(() =>
+      expect(mocks.writes).toContainEqual(
+        expect.objectContaining({ table: 'event_scores', operation: 'delete' }),
+      ),
     );
     expect(mocks.routerRefresh).toHaveBeenCalled();
   });

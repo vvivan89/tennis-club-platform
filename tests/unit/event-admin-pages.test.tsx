@@ -100,6 +100,16 @@ describe('admin event pages', () => {
     expect(form?.props.organizerOptions).toHaveLength(2);
   });
 
+  it('lets organizers create events without an administrator assignment field', async () => {
+    mocks.responses['profiles.maybeSingle'] = [{ role: 'organizer' }];
+    mocks.responses['club_settings.maybeSingle'] = [club];
+    const page = await CreateEventPage();
+    const form = find(page, 'event-management-form');
+    expect(form?.props.currentUserId).toBe('admin-1');
+    expect(form?.props.organizerOptions).toEqual([]);
+    expect(form?.props.showOrganizerField).toBe(false);
+  });
+
   it('restricts organizer edits to their assigned event and retains creator fallback', async () => {
     mocks.user = { id: 'other-organizer' };
     mocks.responses['profiles.maybeSingle'] = [{ role: 'organizer' }];
@@ -115,5 +125,39 @@ describe('admin event pages', () => {
     mocks.responses['club_settings.maybeSingle'] = [club];
     const page = await EditEventPage({ params: { slug: 'spring-open' } });
     expect(find(page, 'event-management-form')?.props.showOrganizerField).toBe(false);
+  });
+
+  it('hides registration controls only for doubles and team tournament events', async () => {
+    const renderEvent = async (eventOverrides: Record<string, unknown>) => {
+      mocks.responses['profiles.maybeSingle'] = [{ role: 'admin' }, { role: 'admin' }];
+      mocks.responses['events.maybeSingle'] = [{ ...event, ...eventOverrides }];
+      mocks.responses['club_settings.maybeSingle'] = [club];
+      mocks.responses['profiles.then'] = [[]];
+      return EditEventPage({ params: { slug: 'spring-open' } });
+    };
+
+    const doubles = await renderEvent({ event_type: 'tournament', tournament_format: 'doubles' });
+    expect(find(doubles, 'event-edit-management')?.props.hideRegistrationManagement).toBe(true);
+
+    const teams = await renderEvent({ event_type: 'tournament', tournament_format: 'team' });
+    expect(find(teams, 'event-edit-management')?.props.hideRegistrationManagement).toBe(true);
+
+    const singles = await renderEvent({ event_type: 'tournament', tournament_format: 'singles' });
+    expect(find(singles, 'event-edit-management')?.props.hideRegistrationManagement).toBe(false);
+    const social = await renderEvent({
+      event_type: 'social_doubles',
+      tournament_format: 'doubles',
+    });
+    expect(find(social, 'event-edit-management')?.props.hideRegistrationManagement).toBe(false);
+  });
+
+  it('resolves event aliases and redirects to the canonical edit URL', async () => {
+    mocks.responses['profiles.maybeSingle'] = [{ role: 'admin' }];
+    mocks.responses['events.maybeSingle'] = [null, event];
+    mocks.responses['club_settings.maybeSingle'] = [club];
+    mocks.responses['event_slug_aliases.maybeSingle'] = [{ event_id: event.id }];
+    await expect(EditEventPage({ params: { slug: 'old-spring-slug' } })).rejects.toThrow(
+      'redirect:/admin/events/spring-open/edit',
+    );
   });
 });

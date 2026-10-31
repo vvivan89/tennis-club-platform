@@ -451,9 +451,139 @@ describe('server-rendered data pages', () => {
       },
     ];
     const valid = await RankingsPage({ searchParams: { season: 'all' } });
-    expect(findElement(valid, 'season-selector')?.props.season).toBe('all');
+    const validSelector = findElement(valid, 'rankings-table')?.props.competitionSelector;
+    expect(isValidElement(validSelector)).toBe(true);
+    expect((validSelector as React.ReactElement<{ value: string }>).props.value).toBe('all');
     const invalid = await RankingsPage({ searchParams: { season: 'bogus' } });
-    expect(findElement(invalid, 'season-selector')?.props.season).not.toBe('bogus');
+    const invalidSelector = findElement(invalid, 'rankings-table')?.props.competitionSelector;
+    expect(isValidElement(invalidSelector)).toBe(true);
+    expect((invalidSelector as React.ReactElement<{ value: string }>).props.value).not.toBe(
+      'bogus',
+    );
+  });
+
+  it('builds ladder rankings with current results, full carryover, and seeded players', async () => {
+    mocks.singles.profiles = { application_status: 'approved', role: 'admin' };
+    mocks.rows.social_doubles_ladders = [
+      {
+        id: 'previous',
+        name: 'Spring Ladder',
+        gender: 'male',
+        position_points: [4, 2, -1, -2],
+        ranking_priority: ['games_won'],
+        starts_at: '2026-01-01',
+        ends_at: '2026-06-01',
+        carryover_mode: 'none',
+        previous_ladder_id: null,
+      },
+      {
+        id: 'current',
+        name: 'Summer Ladder',
+        gender: 'male',
+        position_points: [3, 1, -1, -3],
+        ranking_priority: ['sets_won', 'games_difference'],
+        starts_at: '2026-06-02',
+        ends_at: null,
+        carryover_mode: 'full',
+        previous_ladder_id: 'previous',
+      },
+    ];
+    mocks.rows.events = [
+      { id: 'previous-event', social_doubles_ladder_id: 'previous' },
+      { id: 'current-event', social_doubles_ladder_id: 'current' },
+    ];
+    const makeGame = (id: string, eventId: string, scoreOne: number, scoreTwo: number) => ({
+      id,
+      eventId,
+      playedAt: '2026-06-10T12:00:00Z',
+      playerIds: ['p1', 'p2', 'p3', 'p4'],
+      sideOneIds: ['p1', 'p2'],
+      sideTwoIds: ['p3', 'p4'],
+      scoreOne,
+      scoreTwo,
+    });
+    const rankingData = mocks.rankingData as {
+      players: unknown[];
+      games: unknown[];
+      events: unknown[];
+      profileById: Map<string, string>;
+    };
+    rankingData.players = ['p1', 'p2', 'p3', 'p4'].map((id) => ({
+      id,
+      fullName: `Player ${id}`,
+      skillLevel: 3,
+      gender: 'male',
+    }));
+    rankingData.profileById = new Map(['p1', 'p2', 'p3', 'p4'].map((id) => [id, `Player ${id}`]));
+    rankingData.games = [
+      makeGame('old-match', 'previous-event', 6, 2),
+      makeGame('new-match', 'current-event', 6, 3),
+    ];
+    rankingData.events = [
+      { id: 'previous-event', social_doubles_ladder_id: 'previous' },
+      { id: 'current-event', social_doubles_ladder_id: 'current' },
+    ];
+    mocks.rows.social_doubles_ladder_seeds = [
+      { user_id: 'p1', initial_position: 1, initial_points: 7 },
+      { user_id: 'p4', initial_position: 4, initial_points: 2 },
+      { user_id: 'p5', initial_position: 5, initial_points: 9 },
+    ];
+
+    const page = await RankingsPage({ searchParams: { ladder: 'current' } });
+    const table = findElement(page, 'rankings-table');
+    const selector = table?.props.competitionSelector;
+    expect(isValidElement(selector)).toBe(true);
+    expect((selector as React.ReactElement<{ value: string }>).props.value).toBe('ladder:current');
+    const ladderPoints = table?.props.ladderPoints as Map<string, number>;
+    expect(ladderPoints.get('p1')).toEqual(expect.any(Number));
+    expect(ladderPoints.get('p4')).toEqual(expect.any(Number));
+    expect(ladderPoints.get('p5')).toBe(9);
+    expect(table?.props.ladderSeedOrder).toBeInstanceOf(Map);
+    expect((table?.props.ladderSeedOrder as Map<string, number>).get('p1')).toBe(1);
+    expect(
+      (selector as React.ReactElement<{ options: { value: string }[] }>).props.options.filter(
+        (option) => option.value.startsWith('ladder:'),
+      ),
+    ).toHaveLength(2);
+  });
+
+  it('offers only doubles tournaments with a completed result in the competition selector', async () => {
+    mocks.singles.profiles = { application_status: 'approved', role: 'admin' };
+    const tournament = (id: string, title: string) => ({
+      id,
+      title,
+      slug: id,
+      starts_at: '2026-06-01T12:00:00Z',
+      ends_at: '2026-06-01T20:00:00Z',
+      status: 'published',
+      event_type: 'tournament',
+      tournament_format: 'doubles',
+      tournament_config: {},
+      tournament_rules_html: '',
+      tournament_details_public: true,
+      allow_non_member_registration: false,
+      registration_opens_at: '2026-05-01T00:00:00Z',
+      registration_closes_at: null,
+      price_cents: 0,
+      location: null,
+      court_count: 2,
+    });
+    mocks.rows.events = [
+      tournament('no-results', 'No Results Open'),
+      tournament('has-results', 'Results Open'),
+    ];
+    mocks.rows.tournament_matches = [
+      { event_id: 'has-results', status: 'completed', score_sets: [], winner_side: 1 },
+    ];
+
+    const page = await RankingsPage({});
+    const table = findElement(page, 'rankings-table');
+    const selector = table?.props.competitionSelector;
+    expect(isValidElement(selector)).toBe(true);
+    const options = (selector as React.ReactElement<{ options: { value: string }[] }>).props
+      .options;
+    expect(options.map((option) => option.value)).toContain('tournament:has-results');
+    expect(options.map((option) => option.value)).not.toContain('tournament:no-results');
   });
 
   it('splits upcoming and past events and exposes event creation only to approved managers', async () => {
@@ -538,6 +668,22 @@ describe('server-rendered data pages', () => {
     const { container } = render(page);
     expect(container).toHaveTextContent('Opening Social');
     expect(container).toHaveTextContent('Opponent One');
+  });
+
+  it('shows an unranked empty state for members without results or a gender profile', async () => {
+    mocks.singles.profiles = {
+      full_name: null,
+      application_status: 'approved',
+      role: 'member',
+    };
+    (mocks.rankingData as { eligibleUserIds: Set<string> }).eligibleUserIds = new Set(['member-1']);
+    const page = await MemberResultsPage({ searchParams: { season: ['nonsense', 'all'] } });
+    expect(findElement(page, 'season-selector')?.props.season).not.toBe('nonsense');
+    const { container } = render(page);
+    expect(container).toHaveTextContent('Not ranked');
+    expect(container).not.toHaveTextContent('Men’s ranking');
+    expect(container).toHaveTextContent('0.0%');
+    expect(container).toHaveTextContent('No recorded scores for this period.');
   });
 
   it('wires login, signup, and reset pages to the correct auth modes', () => {

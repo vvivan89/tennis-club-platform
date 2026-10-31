@@ -44,10 +44,19 @@ vi.mock('@/lib/supabase-browser', () => ({
       const query = {
         select: () => query,
         eq: () => query,
-        maybeSingle: async () => ({
-          data: table === 'club_settings' ? null : mocks.profile,
-          error: table === 'profiles' ? mocks.profileError : null,
-        }),
+        maybeSingle: async () => {
+          if (updateValues) {
+            mocks.updates.push({ table, values: updateValues });
+            return {
+              data: mocks.updateError ? null : { id: 'member-1' },
+              error: mocks.updateError,
+            };
+          }
+          return {
+            data: table === 'club_settings' ? null : mocks.profile,
+            error: table === 'profiles' ? mocks.profileError : null,
+          };
+        },
         update: (values: Record<string, unknown>) => {
           updateValues = values;
           return query;

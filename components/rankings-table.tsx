@@ -2,43 +2,91 @@
 import { useMemo, useState } from 'react';
 import type { RankingPlayer } from '@/lib/player-rankings';
 import { medal } from '@/lib/player-rankings';
-type SortKey = 'gamesPercentage' | 'gamesWon' | 'setsWon' | 'skillRating' | 'name';
+import type { ReactNode } from 'react';
+type SortKey = 'points' | 'gamesPercentage' | 'gamesWon' | 'setsWon' | 'skillRating' | 'name';
 type GenderFilter = 'all' | 'male' | 'female';
+
+const formatPositionPoints = (value: number) => {
+  const signed = `${value > 0 ? '+' : ''}${value}`;
+  return `${signed} ${Math.abs(value) === 1 ? 'point' : 'points'}`;
+};
 
 export function RankingsTable({
   players,
   currentUserId,
+  ladderPoints,
+  ladderRankingPriority,
+  ladderSeedOrder,
+  ladderPositionPoints,
+  competitionSelector,
 }: {
   players: RankingPlayer[];
   currentUserId: string;
+  ladderPoints?: Map<string, number>;
+  ladderRankingPriority?: string[];
+  ladderSeedOrder?: Map<string, number>;
+  ladderPositionPoints?: number[];
+  competitionSelector?: ReactNode;
 }) {
   const [sort, setSort] = useState<{ key: SortKey; asc: boolean }>({
-    key: 'gamesPercentage',
+    key: ladderPoints ? 'points' : 'gamesPercentage',
     asc: false,
   });
+  const compareLadder = (a: RankingPlayer, b: RankingPlayer) => {
+    const points = (ladderPoints?.get(b.id) ?? 0) - (ladderPoints?.get(a.id) ?? 0);
+    if (points) return points;
+    if (a.gamesPlayed === 0 && b.gamesPlayed === 0) {
+      const seedDelta =
+        (ladderSeedOrder?.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+        (ladderSeedOrder?.get(b.id) ?? Number.MAX_SAFE_INTEGER);
+      if (seedDelta) return seedDelta;
+    }
+    for (const metric of ladderRankingPriority ?? []) {
+      const value = (p: RankingPlayer) =>
+        metric === 'sets_won'
+          ? p.setsWon
+          : metric === 'games_won'
+            ? p.gamesWon
+            : metric === 'games_difference'
+              ? p.gamesWon - p.gamesLost
+              : metric === 'sets_difference'
+                ? p.setsWon - p.setsLost
+                : 0;
+      const delta = value(b) - value(a);
+      if (delta) return delta;
+    }
+    return a.name.localeCompare(b.name);
+  };
   const [gender, setGender] = useState<GenderFilter>('all');
   const filteredPlayers = useMemo(
-    () => players.filter((p) => gender === 'all' || p.gender === gender),
-    [players, gender],
+    () =>
+      players.filter(
+        (p) =>
+          (gender === 'all' || p.gender === gender) && (!ladderPoints || ladderPoints.has(p.id)),
+      ),
+    [players, gender, ladderPoints],
   );
   const ranked = useMemo(
     () =>
       [...filteredPlayers]
-        .filter((p) => p.gamesPlayed > 0)
+        .filter((p) => (ladderPoints ? true : p.gamesPlayed > 0))
         .sort(
           (a, b) =>
+            (ladderPoints ? compareLadder(a, b) : 0) ||
             b.gamesPercentage - a.gamesPercentage ||
             b.gamesWon - a.gamesWon ||
             b.gamesPlayed - a.gamesPlayed ||
             a.name.localeCompare(b.name),
         ),
-    [filteredPlayers],
+    [filteredPlayers, ladderPoints, ladderRankingPriority, ladderSeedOrder],
   );
   const unranked = useMemo(
     () =>
-      [...filteredPlayers]
-        .filter((p) => p.gamesPlayed === 0)
-        .sort((a, b) => a.name.localeCompare(b.name)),
+      ladderPoints
+        ? []
+        : [...filteredPlayers]
+            .filter((p) => p.gamesPlayed === 0)
+            .sort((a, b) => a.name.localeCompare(b.name)),
     [filteredPlayers],
   );
   const positions = new Map<string, number>(ranked.map((p, i): [string, number] => [p.id, i + 1]));
@@ -46,7 +94,8 @@ export function RankingsTable({
     () =>
       [...ranked].sort((a, b) => {
         let result = 0;
-        if (sort.key === 'name') result = a.name.localeCompare(b.name);
+        if (sort.key === 'points' && ladderPoints) result = compareLadder(a, b);
+        else if (sort.key === 'name') result = a.name.localeCompare(b.name);
         else if (sort.key === 'skillRating')
           result = (b.skillRating ?? -1) - (a.skillRating ?? -1) || a.name.localeCompare(b.name);
         else if (sort.key === 'setsWon')
@@ -61,7 +110,7 @@ export function RankingsTable({
             a.name.localeCompare(b.name);
         return sort.key === 'name' ? (sort.asc ? result : -result) : sort.asc ? -result : result;
       }),
-    [ranked, sort],
+    [ranked, sort, ladderPoints, ladderRankingPriority, ladderSeedOrder],
   );
   const header = (key: SortKey, label: string, right = false) => (
     <th
@@ -86,6 +135,21 @@ export function RankingsTable({
       <tr>
         <th className="px-4 py-3 text-left font-medium">Rank</th>
         {header('name', 'Player')}
+        {ladderPoints && (
+          <th className="whitespace-nowrap px-4 py-3 text-right font-medium">
+            <button
+              type="button"
+              onClick={() =>
+                setSort((current) => ({
+                  key: 'points',
+                  asc: current.key === 'points' ? !current.asc : false,
+                }))
+              }
+            >
+              Points {sort.key === 'points' ? (sort.asc ? '↑' : '↓') : ''}
+            </button>
+          </th>
+        )}
         {header('gamesPercentage', 'Games won %', true)}
         {header('gamesWon', 'Games', true)}
         {header('setsWon', 'Sets', true)}
@@ -122,6 +186,11 @@ export function RankingsTable({
             </span>
           )}
         </td>
+        {ladderPoints && (
+          <td className="px-4 py-3 text-right">
+            {rank === undefined ? '—' : (ladderPoints.get(player.id) ?? 0)}
+          </td>
+        )}
         <td className="px-4 py-3 text-right">
           {rank === undefined ? '—' : `${player.gamesPercentage.toFixed(1)}%`}
         </td>
@@ -140,29 +209,32 @@ export function RankingsTable({
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">Show rankings for</p>
-        <div
-          role="group"
-          aria-label="Player gender"
-          className="inline-flex rounded-lg border border-border bg-muted/40 p-1"
-        >
-          {(
-            [
-              { value: 'all', label: 'All players' },
-              { value: 'male', label: 'Male' },
-              { value: 'female', label: 'Female' },
-            ] as const
-          ).map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              aria-pressed={gender === option.value}
-              onClick={() => setGender(option.value)}
-              className={`rounded-md px-3 py-1.5 text-sm transition-colors ${gender === option.value ? 'bg-background font-semibold shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-            >
-              {option.label}
-            </button>
-          ))}
+        {competitionSelector}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <p className="text-sm text-muted-foreground">Show rankings for</p>
+          <div
+            role="group"
+            aria-label="Player gender"
+            className="inline-flex rounded-lg border border-border bg-muted/40 p-1"
+          >
+            {(
+              [
+                { value: 'all', label: 'All players' },
+                { value: 'male', label: 'Male' },
+                { value: 'female', label: 'Female' },
+              ] as const
+            ).map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                aria-pressed={gender === option.value}
+                onClick={() => setGender(option.value)}
+                className={`rounded-md px-3 py-1.5 text-sm transition-colors ${gender === option.value ? 'bg-background font-semibold shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
       <div className="overflow-x-auto rounded-lg border border-border">
@@ -172,7 +244,10 @@ export function RankingsTable({
             {rows.map((player) => renderPlayer(player, positions.get(player.id)))}
             {!rows.length && (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                <td
+                  colSpan={ladderPoints ? 7 : 6}
+                  className="px-4 py-8 text-center text-muted-foreground"
+                >
                   No players found for this selection.
                 </td>
               </tr>
@@ -195,9 +270,9 @@ export function RankingsTable({
         </details>
       )}
       <p className="mt-3 text-xs text-muted-foreground">
-        Rank numbers always reflect games-won percentage for the selected season and gender filter,
-        regardless of table sorting. Players without recorded results are collapsed by default and
-        are not ranked.
+        {ladderPoints
+          ? `Ladder ranks use points: 1st ${formatPositionPoints(ladderPositionPoints?.[0] ?? 2)}, 2nd ${formatPositionPoints(ladderPositionPoints?.[1] ?? 1)}, 3rd ${formatPositionPoints(ladderPositionPoints?.[2] ?? -1)}, 4th ${formatPositionPoints(ladderPositionPoints?.[3] ?? -2)}.`
+          : 'Rank numbers reflect games-won percentage. Players without recorded results are not ranked.'}
       </p>
     </div>
   );

@@ -280,6 +280,7 @@ export default async function EventDetailsPage({ params }: { params: { slug: str
               currentPaymentStatus={registration?.payment_status ?? null}
               locationQuery={club?.location_query || event.location || ''}
               isManager={isManager}
+              isAdmin={profile?.application_status === 'approved' && profile.role === 'admin'}
               canViewParticipants={canViewParticipants}
               remainingSpots={Math.max(0, event.capacity - (publicCount?.confirmed_count ?? 0))}
               interacEnabled={interacEnabled}

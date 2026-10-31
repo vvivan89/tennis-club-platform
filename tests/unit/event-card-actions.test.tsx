@@ -123,9 +123,7 @@ describe('EventCardActions', () => {
     const user = userEvent.setup();
     render(<EventCardActions eventId="event-1" />);
     await user.click(await screen.findByRole('button', { name: 'Register' }));
-    expect(
-      await screen.findByText('Could not update registration. Please try again.'),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('registration blocked')).toBeInTheDocument();
     expect(mocks.routerRefresh).not.toHaveBeenCalled();
   });
 

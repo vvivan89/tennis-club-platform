@@ -11,7 +11,10 @@ const mocks = vi.hoisted(() => ({
   }),
 }));
 
-vi.mock('next/navigation', () => ({ redirect: mocks.redirect }));
+vi.mock('next/navigation', () => ({
+  redirect: mocks.redirect,
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
+}));
 vi.mock('@/lib/supabase-server', () => ({
   createSupabaseServerClient: async () => ({
     auth: { getUser: async () => ({ data: { user: mocks.user } }) },

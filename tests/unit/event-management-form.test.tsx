@@ -9,6 +9,15 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/lib/supabase-browser', () => ({
   createSupabaseBrowserClient: () => ({
     auth: { getUser: async () => ({ data: { user: { id: 'admin-1' } } }) },
+    from: () => {
+      const query = {
+        select: () => query,
+        order: () => query,
+        then: (resolve: (value: { data: unknown[]; error: null }) => unknown) =>
+          Promise.resolve({ data: [], error: null }).then(resolve),
+      };
+      return query;
+    },
   }),
 }));
 vi.mock('@/components/tournament-rules-editor', () => ({
@@ -47,6 +56,36 @@ describe('EventManagementForm organizer assignment', () => {
   it('does not render an organizer selector when the caller is an organizer', () => {
     render(<EventManagementForm currentUserId="organizer-1" />);
     expect(screen.queryByLabelText('Organizer')).not.toBeInTheDocument();
+  });
+});
+
+describe('Social Doubles Ladder ranking criteria controls', () => {
+  it('uses selected and available boxes and supports adding, removing, and reordering criteria', async () => {
+    const user = userEvent.setup();
+    render(<EventManagementForm currentUserId="admin-1" />);
+    await user.selectOptions(screen.getByLabelText('Event type'), 'social_doubles_ladder');
+
+    const selected = screen.getByRole('list', { name: 'Ladder ranking priorities' });
+    const initial = Array.from(selected.querySelectorAll('li')).map(
+      (row) => row.dataset.ladderRankingKey,
+    );
+    expect(initial).toEqual(['games_won', 'sets_won', 'games_difference']);
+    expect(screen.getByText('Available options')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Add Sets difference priority' }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Add Sets difference priority' }));
+    expect(
+      selected.querySelector('[data-ladder-ranking-key="sets_difference"]'),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Remove Sets won priority' }));
+    expect(selected.querySelector('[data-ladder-ranking-key="sets_won"]')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Move Games difference up' }));
+    const reordered = Array.from(selected.querySelectorAll('li')).map(
+      (row) => row.dataset.ladderRankingKey,
+    );
+    expect(reordered.indexOf('games_difference')).toBeLessThan(reordered.indexOf('games_won'));
   });
 });
 

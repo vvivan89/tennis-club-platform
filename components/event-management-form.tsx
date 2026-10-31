@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import { reorderRankingPriority, type TournamentConfig } from '@/lib/tournament-config';
+import { calculateLadderSession, type LadderMetric } from '@/lib/social-doubles-ladder';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { TournamentRulesEditor } from '@/components/tournament-rules-editor';
@@ -34,6 +35,13 @@ type EventFormValues = {
   tournament_rules_html: string;
   allow_non_member_registration: boolean;
   tournament_details_public: boolean;
+  ladder_gender: 'male' | 'female';
+  ladder_points: [number, number, number, number];
+  ladder_ranking_priority: string[];
+  ladder_carryover: 'none' | 'position' | 'full';
+  ladder_previous_id: string;
+  ladder_existing_id: string;
+  ladder_name: string;
 };
 const localValue = (value?: string | null) =>
   value
@@ -79,6 +87,13 @@ const initial: EventFormValues = {
   tournament_rules_html: '',
   allow_non_member_registration: false,
   tournament_details_public: true,
+  ladder_gender: 'male',
+  ladder_points: [2, 1, -1, -2],
+  ladder_ranking_priority: ['games_won', 'sets_won', 'games_difference'],
+  ladder_carryover: 'none',
+  ladder_previous_id: '',
+  ladder_existing_id: '',
+  ladder_name: '',
 };
 function generateRulesText(v: EventFormValues): string {
   const format = v.tournament_format === 'team' ? 'Team tournament' : 'Doubles tournament';
@@ -161,7 +176,14 @@ export function EventManagementForm({
   organizerOptions = [],
   showOrganizerField = false,
 }: {
-  event?: Partial<EventFormValues> & { id?: string; created_by?: string | null };
+  event?: Partial<EventFormValues> & {
+    id?: string;
+    created_by?: string | null;
+    social_doubles_ladder_id?: string | null;
+    ladder_gender?: 'male' | 'female' | null;
+    ladder_position_points?: number[] | null;
+    ladder_ranking_priority?: string[] | null;
+  };
   currentUserId?: string;
   organizerOptions?: Array<{ id: string; full_name: string | null; email: string; role: string }>;
   showOrganizerField?: boolean;
@@ -170,6 +192,13 @@ export function EventManagementForm({
   const [v, setV] = useState<EventFormValues>({
     ...initial,
     ...event,
+    ladder_existing_id: event?.ladder_existing_id ?? event?.social_doubles_ladder_id ?? '',
+    ladder_gender:
+      event?.ladder_gender ?? (event?.gender_restriction === 'female' ? 'female' : 'male'),
+    ladder_points: (event?.ladder_points ??
+      event?.ladder_position_points ??
+      initial.ladder_points) as [number, number, number, number],
+    ladder_ranking_priority: event?.ladder_ranking_priority ?? initial.ladder_ranking_priority,
     organizer_id: event?.organizer_id ?? event?.created_by ?? currentUserId,
     members_only: event?.event_type === 'tournament' ? false : (event?.members_only ?? true),
     description: event?.description ?? '',
@@ -190,6 +219,49 @@ export function EventManagementForm({
     tournament_details_public: event?.tournament_details_public ?? true,
   });
   const [applyToSeries, setApplyToSeries] = useState(false);
+  const [availableLadders, setAvailableLadders] = useState<
+    Array<{
+      id: string;
+      name: string;
+      gender: string;
+      ends_at: string | null;
+      position_points: number[];
+      ranking_priority: string[];
+    }>
+  >([]);
+  useEffect(() => {
+    const db = createSupabaseBrowserClient();
+    void db
+      .from('social_doubles_ladders')
+      .select('id,name,gender,ends_at,position_points,ranking_priority')
+      .order('ends_at', { ascending: false, nullsFirst: false })
+      .then(({ data }) =>
+        setAvailableLadders(
+          (data ?? []) as Array<{
+            id: string;
+            name: string;
+            gender: string;
+            ends_at: string | null;
+            position_points: number[];
+            ranking_priority: string[];
+          }>,
+        ),
+      );
+  }, []);
+  useEffect(() => {
+    const selected = availableLadders.find((ladder) => ladder.id === v.ladder_existing_id);
+    if (!selected) return;
+    change('ladder_gender', selected.gender as 'male' | 'female');
+    change('gender_restriction', selected.gender);
+    change(
+      'ladder_points',
+      (selected.position_points ?? [2, 1, -1, -2]) as [number, number, number, number],
+    );
+    change(
+      'ladder_ranking_priority',
+      selected.ranking_priority ?? ['games_won', 'sets_won', 'games_difference'],
+    );
+  }, [v.ladder_existing_id, availableLadders]);
   const [recurring, setRecurring] = useState(false);
   const [frequency, setFrequency] = useState('weekly');
   const [until, setUntil] = useState('');
@@ -293,6 +365,29 @@ export function EventManagementForm({
         if (closeAt && closeAt <= openAt)
           throw new Error('Registration cutoff must be after registration opens.');
       }
+      if (v.event_type === 'social_doubles_ladder') {
+        if (!['male', 'female'].includes(v.ladder_gender))
+          throw new Error("Choose men's or women's ladder.");
+        if (!v.ladder_existing_id) {
+          const ladderName = v.ladder_name.trim();
+          if (!ladderName) throw new Error('Enter a name for this ladder.');
+          if (
+            availableLadders.some(
+              (ladder) => ladder.name.trim().toLocaleLowerCase() === ladderName.toLocaleLowerCase(),
+            )
+          )
+            throw new Error('A ladder with this name already exists. Choose a unique ladder name.');
+        }
+        if (!v.ladder_ranking_priority.length)
+          throw new Error('Choose at least one ranking criterion.');
+        if (v.ladder_carryover !== 'none' && !v.ladder_previous_id && !v.ladder_existing_id)
+          throw new Error('Choose a previous ladder for carryover.');
+        if (v.ladder_existing_id) {
+          const selected = availableLadders.find((ladder) => ladder.id === v.ladder_existing_id);
+          if (selected && selected.gender !== v.ladder_gender)
+            throw new Error('A ladder cannot mix gender categories.');
+        }
+      }
       if (v.event_type !== 'tournament' && v.capacity < 1)
         throw new Error('Maximum attendees must be at least 1.');
       if (v.event_type === 'tournament') {
@@ -322,7 +417,12 @@ export function EventManagementForm({
         notes: v.notes.trim(),
         waitlist_enabled: v.waitlist_enabled,
         court_count: Number(v.court_count),
-        event_type: v.event_type,
+        event_type:
+          v.event_type === 'social_doubles_ladder' ? 'social_doubles_ladder' : v.event_type,
+        ladder_gender: v.event_type === 'social_doubles_ladder' ? v.ladder_gender : null,
+        ladder_position_points: v.event_type === 'social_doubles_ladder' ? v.ladder_points : null,
+        ladder_ranking_priority:
+          v.event_type === 'social_doubles_ladder' ? v.ladder_ranking_priority : null,
         tournament_format: v.event_type === 'tournament' ? v.tournament_format : null,
         tournament_config:
           v.event_type === 'tournament'
@@ -496,6 +596,182 @@ export function EventManagementForm({
       const eventRows = rows.map((row) => ({ ...row, series_id: seriesId ?? null }));
       const { data: created, error } = await db.from('events').insert(eventRows).select('id');
       if (error) throw error;
+      if (v.event_type === 'social_doubles_ladder' && created?.length) {
+        let ladderId = v.ladder_existing_id;
+        if (!ladderId) {
+          const { data: ladder, error: ladderError } = await db
+            .from('social_doubles_ladders')
+            .insert({
+              name: v.ladder_name.trim(),
+              gender: v.ladder_gender,
+              position_points: v.ladder_points,
+              ranking_priority: v.ladder_ranking_priority,
+              carryover_mode: v.ladder_carryover,
+              previous_ladder_id:
+                v.ladder_carryover === 'none' ? null : v.ladder_previous_id || null,
+              starts_at: starts.toISOString(),
+              ends_at: rows[rows.length - 1]?.ends_at ?? ends.toISOString(),
+              created_by: user.id,
+            })
+            .select('id')
+            .single();
+          if (ladderError) throw ladderError;
+          ladderId = ladder.id;
+          if (v.ladder_carryover !== 'none' && v.ladder_previous_id) {
+            const previous = availableLadders.find((item) => item.id === v.ladder_previous_id);
+            const { data: priorEvents, error: priorEventsError } = await db
+              .from('events')
+              .select('id')
+              .eq('social_doubles_ladder_id', v.ladder_previous_id);
+            if (priorEventsError) throw priorEventsError;
+            const priorEventIds = (priorEvents ?? []).map((item) => item.id);
+            const { data: priorScores, error: priorScoresError } = priorEventIds.length
+              ? await db
+                  .from('event_scores')
+                  .select(
+                    'event_id,player_one_registration_id,player_two_registration_id,player_three_registration_id,player_four_registration_id,player_one_score,player_two_score',
+                  )
+                  .in('event_id', priorEventIds)
+              : { data: [], error: null };
+            if (priorScoresError) throw priorScoresError;
+            const priorRegistrationIds = [
+              ...new Set(
+                (priorScores ?? []).flatMap((row) =>
+                  [
+                    row.player_one_registration_id,
+                    row.player_two_registration_id,
+                    row.player_three_registration_id,
+                    row.player_four_registration_id,
+                  ].filter(Boolean),
+                ),
+              ),
+            ];
+            const { data: priorRegistrations, error: priorRegistrationsError } =
+              priorRegistrationIds.length
+                ? await db.from('registrations').select('id,user_id').in('id', priorRegistrationIds)
+                : { data: [], error: null };
+            if (priorRegistrationsError) throw priorRegistrationsError;
+            const priorUserByRegistration = new Map(
+              (priorRegistrations ?? []).map((row) => [row.id, row.user_id]),
+            );
+            const priorGroups = new Map<string, typeof priorScores>();
+            for (const row of priorScores ?? []) {
+              const groupKey = `${row.event_id}:${[row.player_one_registration_id, row.player_two_registration_id, row.player_three_registration_id, row.player_four_registration_id].filter(Boolean).sort().join(',')}`;
+              const group = priorGroups.get(groupKey) ?? [];
+              group.push(row);
+              priorGroups.set(groupKey, group);
+            }
+            const priorPoints = new Map<string, number>();
+            const priorMetrics = new Map<
+              string,
+              { setsWon: number; setsLost: number; gamesWon: number; gamesLost: number }
+            >();
+            const names: Record<string, string> = {};
+            for (const group of priorGroups.values()) {
+              const normalized = (group ?? []).flatMap((row) => {
+                const sideOne = [row.player_one_registration_id, row.player_two_registration_id]
+                  .filter(Boolean)
+                  .map((id) => priorUserByRegistration.get(id!))
+                  .filter(Boolean) as string[];
+                const sideTwo = [row.player_three_registration_id, row.player_four_registration_id]
+                  .filter(Boolean)
+                  .map((id) => priorUserByRegistration.get(id!))
+                  .filter(Boolean) as string[];
+                if (!sideOne.length || !sideTwo.length) return [];
+                return [
+                  {
+                    playerIds: [...sideOne, ...sideTwo],
+                    sideOneIds: sideOne,
+                    sideTwoIds: sideTwo,
+                    scoreOne: Number(row.player_one_score),
+                    scoreTwo: Number(row.player_two_score),
+                  },
+                ];
+              });
+              const results = calculateLadderSession(
+                normalized,
+                names,
+                (previous?.ranking_priority ?? [
+                  'games_won',
+                  'sets_won',
+                  'games_difference',
+                ]) as LadderMetric[],
+                (previous?.position_points ?? [2, 1, -1, -2]) as [number, number, number, number],
+              );
+              for (const result of results) {
+                priorPoints.set(
+                  result.playerId,
+                  (priorPoints.get(result.playerId) ?? 0) + result.points,
+                );
+                const totals = priorMetrics.get(result.playerId) ?? {
+                  setsWon: 0,
+                  setsLost: 0,
+                  gamesWon: 0,
+                  gamesLost: 0,
+                };
+                totals.setsWon += result.setsWon;
+                totals.setsLost += result.setsLost;
+                totals.gamesWon += result.gamesWon;
+                totals.gamesLost += result.gamesLost;
+                priorMetrics.set(result.playerId, totals);
+              }
+            }
+            const seeded = [...priorPoints.keys()].sort((a, b) => {
+              const pointsDelta = (priorPoints.get(b) ?? 0) - (priorPoints.get(a) ?? 0);
+              if (pointsDelta) return pointsDelta;
+              for (const metric of (previous?.ranking_priority ?? [
+                'games_won',
+                'sets_won',
+                'games_difference',
+              ]) as LadderMetric[]) {
+                const value = (id: string) => {
+                  const t = priorMetrics.get(id) ?? {
+                    setsWon: 0,
+                    setsLost: 0,
+                    gamesWon: 0,
+                    gamesLost: 0,
+                  };
+                  return metric === 'sets_won'
+                    ? t.setsWon
+                    : metric === 'games_won'
+                      ? t.gamesWon
+                      : metric === 'games_difference'
+                        ? t.gamesWon - t.gamesLost
+                        : t.setsWon - t.setsLost;
+                };
+                const delta = value(b) - value(a);
+                if (delta) return delta;
+              }
+              return a.localeCompare(b);
+            });
+            if (seeded.length) {
+              const { error: seedError } = await db.from('social_doubles_ladder_seeds').insert(
+                seeded.map((userId, index) => ({
+                  ladder_id: ladderId,
+                  user_id: userId,
+                  initial_position: index + 1,
+                  initial_points:
+                    v.ladder_carryover === 'full' ? (priorPoints.get(userId) ?? 0) : 0,
+                })),
+              );
+              if (seedError) throw seedError;
+            }
+          }
+        }
+        const { error: linkError } = await db
+          .from('events')
+          .update({
+            social_doubles_ladder_id: ladderId,
+            ladder_gender: v.ladder_gender,
+            ladder_position_points: v.ladder_points,
+            ladder_ranking_priority: v.ladder_ranking_priority,
+          })
+          .in(
+            'id',
+            created.map((x) => x.id),
+          );
+        if (linkError) throw linkError;
+      }
       void fetch('/api/notifications/dispatch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -593,12 +869,28 @@ export function EventManagementForm({
                 ? v.tournament_format === 'team'
                   ? 'team_tournament'
                   : 'doubles_tournament'
-                : 'social'
+                : v.event_type === 'social_doubles_ladder'
+                  ? 'social_doubles_ladder'
+                  : 'social'
             }
             onChange={(e) => {
               const value = e.target.value;
-              change('event_type', value === 'social' ? 'social' : 'tournament');
-              if (value !== 'social') {
+              change(
+                'event_type',
+                value === 'social' || value === 'social_doubles_ladder' ? value : 'tournament',
+              );
+              if (value === 'social_doubles_ladder') {
+                change('gender_restriction', v.ladder_gender);
+                change('members_only', true);
+                setRecurring(true);
+                if (v.starts_at) {
+                  setSeriesStartDate(v.starts_at.slice(0, 10));
+                  setDayOfWeek(String(new Date(v.starts_at).getDay()));
+                  setSeriesStartTime(v.starts_at.slice(11, 16));
+                }
+                if (v.ends_at) setSeriesEndTime(v.ends_at.slice(11, 16));
+              }
+              if (value !== 'social' && value !== 'social_doubles_ladder') {
                 change('members_only', false);
                 change('tournament_format', value === 'team_tournament' ? 'team' : 'doubles');
                 if (value === 'team_tournament') {
@@ -624,11 +916,12 @@ export function EventManagementForm({
             className="block h-10 w-full rounded-md border border-input bg-background px-3"
           >
             <option value="social">Social event</option>
+            <option value="social_doubles_ladder">Social Doubles Ladder</option>
             <option value="doubles_tournament">Doubles tournament</option>
             <option value="team_tournament">Team tournament</option>
           </select>
         </label>
-        {v.event_type !== 'tournament' && (
+        {v.event_type !== 'tournament' && v.event_type !== 'social_doubles_ladder' && (
           <label className="space-y-1 text-sm font-medium">
             Participant gender restriction (optional)
             <select
@@ -1294,6 +1587,299 @@ export function EventManagementForm({
           )}
         </section>
       )}
+      {v.event_type === 'social_doubles_ladder' && (
+        <section className="sm:col-span-2 space-y-4 rounded-lg border border-border p-4">
+          <h3 className="font-semibold">Social Doubles Ladder configuration</h3>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="space-y-1 text-sm font-medium">
+              Ladder gender
+              <select
+                value={v.ladder_gender}
+                onChange={(e) => {
+                  const gender = e.target.value as 'male' | 'female';
+                  change('ladder_gender', gender);
+                  change('gender_restriction', gender);
+                }}
+                className="block h-10 w-full rounded-md border border-input bg-background px-3"
+              >
+                <option value="male">Men&apos;s</option>
+                <option value="female">Women&apos;s</option>
+              </select>
+            </label>
+            <label className="space-y-1 text-sm font-medium">
+              Associate with existing ladder (optional)
+              <select
+                value={v.ladder_existing_id}
+                onChange={(e) => change('ladder_existing_id', e.target.value)}
+                className="block h-10 w-full rounded-md border border-input bg-background px-3"
+              >
+                <option value="">Create a new ladder</option>
+                {availableLadders
+                  .filter((ladder) => ladder.gender === v.ladder_gender)
+                  .map((ladder) => (
+                    <option key={ladder.id} value={ladder.id}>
+                      {ladder.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          </div>
+          {!v.ladder_existing_id && (
+            <label className="block space-y-1 text-sm font-medium">
+              Ladder name
+              <Input
+                value={v.ladder_name}
+                onChange={(e) => change('ladder_name', e.target.value)}
+                maxLength={160}
+                required
+              />
+              <span className="text-xs font-normal text-muted-foreground">
+                Must be unique. This identifies the ladder across its events and seasons; it does
+                not change the event title.
+              </span>
+            </label>
+          )}
+          {v.ladder_existing_id && (
+            <p className="text-sm text-muted-foreground">
+              Using existing ladder:{' '}
+              <strong>
+                {availableLadders.find((ladder) => ladder.id === v.ladder_existing_id)?.name}
+              </strong>
+              . The event title remains independent.
+            </p>
+          )}
+          <div>
+            <p className="mb-2 text-sm font-medium">Position-based points (1st through 4th)</p>
+            <div className="grid grid-cols-4 gap-2">
+              {v.ladder_points.map((points, index) => (
+                <label key={index} className="text-xs text-muted-foreground">
+                  {['1st', '2nd', '3rd', '4th'][index]}
+                  <Input
+                    type="number"
+                    value={points}
+                    onChange={(e) => {
+                      const next = [...v.ladder_points] as [number, number, number, number];
+                      next[index] = Number(e.target.value);
+                      change('ladder_points', next);
+                    }}
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+          <fieldset className="space-y-2">
+            <legend className="text-sm font-medium">
+              Ranking criteria (drag to reorder; highest priority first)
+            </legend>
+            <p className="text-xs text-muted-foreground">
+              Drag criteria between the two boxes to choose which metrics are used. Reorder selected
+              criteria to set their priority. You can also use the move buttons.
+            </p>
+            {(() => {
+              const options = [
+                ['sets_won', 'Sets won'],
+                ['games_won', 'Games won'],
+                ['games_difference', 'Games difference'],
+                ['sets_difference', 'Sets difference'],
+              ] as const;
+              const optionKeys: string[] = options.map(([key]) => key);
+              const priority = [
+                ...new Set(
+                  v.ladder_ranking_priority.filter((key) =>
+                    optionKeys.includes(key as (typeof optionKeys)[number]),
+                  ),
+                ),
+              ];
+              const changePriority = (next: string[]) => change('ladder_ranking_priority', next);
+              const reorder = (source: string, targetIndex: number) => {
+                const next = [...priority];
+                const sourceIndex = next.indexOf(source);
+                if (sourceIndex < 0 || targetIndex < 0 || targetIndex >= next.length) return;
+                next.splice(sourceIndex, 1);
+                next.splice(Math.min(targetIndex, next.length), 0, source);
+                changePriority(next);
+              };
+              const moveToAvailable = (key: string) =>
+                changePriority(priority.filter((item) => item !== key));
+              const moveToSelected = (key: string) => {
+                if (!priority.includes(key)) changePriority([...priority, key]);
+              };
+              return (
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div
+                    className="rounded-md border border-border p-3"
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const source = event.dataTransfer.getData('text/plain');
+                      if (source && optionKeys.includes(source) && !priority.includes(source))
+                        moveToSelected(source);
+                    }}
+                  >
+                    <h3 className="mb-2 text-sm font-semibold">Selected priorities</h3>
+                    <ol className="space-y-2" aria-label="Ladder ranking priorities">
+                      {priority.map((key, index) => {
+                        const label = options.find(([option]) => option === key)?.[1] ?? key;
+                        return (
+                          <li
+                            key={key}
+                            draggable
+                            onDragStart={(event) => {
+                              event.dataTransfer.setData('text/plain', key);
+                              event.dataTransfer.effectAllowed = 'move';
+                            }}
+                            onDragOver={(event) => event.preventDefault()}
+                            onDrop={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              const source = event.dataTransfer.getData('text/plain');
+                              if (source && source !== key && priority.includes(source))
+                                reorder(source, index);
+                              else if (source && optionKeys.includes(source))
+                                moveToSelected(source);
+                            }}
+                            className="flex items-center gap-2 rounded-md border border-border bg-background p-2 text-sm"
+                            data-ladder-ranking-key={key}
+                          >
+                            <span
+                              aria-hidden="true"
+                              className="cursor-grab select-none text-muted-foreground"
+                            >
+                              ⠿
+                            </span>
+                            <span className="w-20 shrink-0 text-muted-foreground">
+                              Priority {index + 1}
+                            </span>
+                            <span className="flex-1">{label}</span>
+                            <button
+                              type="button"
+                              aria-label={`Remove ${label} priority`}
+                              onClick={() => moveToAvailable(key)}
+                              className="rounded border border-border px-2 py-1"
+                            >
+                              −
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={`Move ${label} up`}
+                              disabled={index === 0}
+                              onClick={() => reorder(key, index - 1)}
+                              className="rounded border border-border px-2 py-1 disabled:opacity-40"
+                            >
+                              ↑
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={`Move ${label} down`}
+                              disabled={index === priority.length - 1}
+                              onClick={() => reorder(key, index + 1)}
+                              className="rounded border border-border px-2 py-1 disabled:opacity-40"
+                            >
+                              ↓
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                    {priority.length === 0 && (
+                      <p className="text-sm text-muted-foreground">
+                        No criteria selected. Add at least one criterion.
+                      </p>
+                    )}
+                  </div>
+                  <div
+                    className="rounded-md border border-border p-3"
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const source = event.dataTransfer.getData('text/plain');
+                      if (source && priority.includes(source)) moveToAvailable(source);
+                    }}
+                  >
+                    <h3 className="mb-2 text-sm font-semibold">Available options</h3>
+                    <ul className="space-y-2" aria-label="Available ladder ranking criteria">
+                      {options
+                        .filter(([key]) => !priority.includes(key))
+                        .map(([key, label]) => (
+                          <li
+                            key={key}
+                            draggable
+                            onDragStart={(event) => {
+                              event.dataTransfer.setData('text/plain', key);
+                              event.dataTransfer.effectAllowed = 'move';
+                            }}
+                            onDragOver={(event) => event.preventDefault()}
+                            onDrop={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              const source = event.dataTransfer.getData('text/plain');
+                              if (source && priority.includes(source)) moveToAvailable(source);
+                              else if (source && optionKeys.includes(source))
+                                moveToSelected(source);
+                            }}
+                            className="flex items-center justify-between rounded-md bg-secondary/40 p-2 text-sm"
+                            data-ladder-ranking-key={key}
+                          >
+                            <span className="cursor-grab">⠿ {label}</span>
+                            <button
+                              type="button"
+                              aria-label={`Add ${label} priority`}
+                              onClick={() => moveToSelected(key)}
+                              className="rounded border px-2"
+                            >
+                              +
+                            </button>
+                          </li>
+                        ))}
+                      {options.every(([key]) => priority.includes(key)) && (
+                        <li className="text-sm text-muted-foreground">All options selected.</li>
+                      )}
+                    </ul>
+                  </div>
+                </div>
+              );
+            })()}
+            <p className="text-xs text-muted-foreground">
+              Select at least one metric. If all selected metrics are tied, all players receive same
+              points.
+            </p>
+          </fieldset>
+          <label className="block space-y-1 text-sm font-medium">
+            Previous ladder carryover
+            <select
+              value={v.ladder_carryover}
+              onChange={(e) =>
+                change('ladder_carryover', e.target.value as EventFormValues['ladder_carryover'])
+              }
+              className="block h-10 w-full rounded-md border border-input bg-background px-3"
+            >
+              <option value="none">Start from zero</option>
+              <option value="position">Carry over initial positions only</option>
+              <option value="full">Carry over positions and points</option>
+            </select>
+          </label>
+          {v.ladder_carryover !== 'none' && (
+            <label className="block space-y-1 text-sm font-medium">
+              Previous ladder
+              <select
+                value={v.ladder_previous_id}
+                onChange={(e) => change('ladder_previous_id', e.target.value)}
+                required
+                className="block h-10 w-full rounded-md border border-input bg-background px-3"
+              >
+                <option value="">Select previous ladder</option>
+                {availableLadders
+                  .filter((ladder) => ladder.gender === v.ladder_gender)
+                  .map((ladder) => (
+                    <option key={ladder.id} value={ladder.id}>
+                      {ladder.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          )}
+        </section>
+      )}
       <section className="space-y-4 rounded-xl border border-border p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -1302,7 +1888,7 @@ export function EventManagementForm({
               Set event times and registration availability.
             </p>
           </div>
-          {!v.id && v.event_type === 'social' && (
+          {!v.id && ['social', 'social_doubles_ladder'].includes(v.event_type) && (
             <div
               className="inline-flex shrink-0 rounded-md border border-border p-1"
               role="group"

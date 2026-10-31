@@ -145,7 +145,7 @@ export default function ProfilePage() {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) throw new Error('Please sign in again.');
-      const { error: updateError } = await supabase
+      const { data: updatedProfile, error: updateError } = await supabase
         .from('profiles')
         .update({
           full_name: fullName.trim(),
@@ -158,8 +158,11 @@ export default function ProfilePage() {
           playing_hand: playingHand || null,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', user.id);
+        .eq('id', user.id)
+        .select('id')
+        .maybeSingle();
       if (updateError) throw updateError;
+      if (!updatedProfile) throw new Error('Profile was not updated.');
       setMessage('Profile saved.');
       router.refresh();
     } catch (e) {

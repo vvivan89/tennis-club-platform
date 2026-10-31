@@ -33,7 +33,13 @@ type TournamentSetRow = {
   player_one_score: number;
   player_two_score: number;
 };
-type EventRow = { id: string; title: string; starts_at: string; ends_at: string | null };
+type EventRow = {
+  id: string;
+  title: string;
+  starts_at: string;
+  ends_at: string | null;
+  social_doubles_ladder_id?: string | null;
+};
 type MembershipRow = { id: string; user_id: string; status: string; payment_status: string | null };
 type PaymentRow = { business_record_id: string | null; user_id: string | null; status: string };
 type FamilyRow = {
@@ -107,7 +113,7 @@ export async function getRankingsData(): Promise<RankingsData> {
         'id,event_id,played_at,player_one_registration_id,player_two_registration_id,player_three_registration_id,player_four_registration_id,player_one_score,player_two_score',
       )
       .order('played_at', { ascending: false }),
-    admin.from('events').select('id,title,starts_at,ends_at'),
+    admin.from('events').select('id,title,starts_at,ends_at,social_doubles_ladder_id'),
     admin
       .from('tournament_ranked_sets')
       .select(

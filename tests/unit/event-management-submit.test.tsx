@@ -25,6 +25,7 @@ vi.mock('@/lib/supabase-browser', () => ({
       const query = {
         select: () => query,
         eq: () => query,
+        order: () => query,
         insert: (payload: unknown) => {
           operation = 'insert';
           values = payload;

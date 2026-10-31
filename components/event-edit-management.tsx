@@ -7,6 +7,8 @@ import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import { Button } from '@/components/ui/button';
 import { SearchableMemberSelect } from '@/components/searchable-member-select';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { calculateLadderSession, type LadderMetric } from '@/lib/social-doubles-ladder';
+import { registrationErrorMessage } from '@/lib/registration-error-message';
 
 type Person = {
   id: string;
@@ -16,6 +18,7 @@ type Person = {
   phone?: string | null;
   tennis_skill_level?: number | null;
   suspended?: boolean;
+  gender?: string | null;
 };
 type Participant = {
   registration_id: string;
@@ -79,10 +82,12 @@ export function EventEditManagement({
   eventId,
   startsAt,
   assignmentOnly = false,
+  hideRegistrationManagement = false,
 }: {
   eventId: string;
   startsAt?: string;
   assignmentOnly?: boolean;
+  hideRegistrationManagement?: boolean;
 }) {
   const db = createSupabaseBrowserClient();
   const router = useRouter();
@@ -102,34 +107,112 @@ export function EventEditManagement({
   const [replaceUser, setReplaceUser] = useState('');
   const [records, setRecords] = useState<Record<string, RecordLine>>({});
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
+  const [ladderConfig, setLadderConfig] = useState<{
+    id: string;
+    ranking_priority: string[];
+    position_points: number[];
+  } | null>(null);
+  const [genderRestriction, setGenderRestriction] = useState<string | null>(null);
+  const [membershipRequired, setMembershipRequired] = useState(false);
+  const [paidMembershipUserIds, setPaidMembershipUserIds] = useState<Set<string>>(new Set());
+  const [ladderStandings, setLadderStandings] = useState<
+    Array<{ userId: string; name: string; points: number | null }>
+  >([]);
   function requestConfirmation(next: Confirmation) {
     setConfirmation(next);
   }
   async function load() {
-    const [directory, registrations, courts, scores, allRegistrations] = await Promise.all([
-      db.rpc('event_member_directory', { p_event_id: eventId }),
-      db
-        .from('registrations')
-        .select('id,user_id,status,queue_position,created_at')
-        .eq('event_id', eventId)
-        .in('status', ['confirmed', 'waitlisted'])
-        .order('created_at', { ascending: true }),
-      db
-        .from('event_court_assignments')
-        .select('registration_id,court_number,segment_order')
-        .eq('event_id', eventId),
-      db
-        .from('event_scores')
-        .select(
-          'player_one_registration_id,player_two_registration_id,player_three_registration_id,player_four_registration_id,player_one_score,player_two_score',
-        )
-        .gte('played_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()),
-      db.from('registrations').select('user_id,status').eq('event_id', eventId),
-    ]);
+    const [directory, registrations, courts, scores, allRegistrations, eventMeta, genderDirectory] =
+      await Promise.all([
+        db.rpc('event_member_directory', { p_event_id: eventId }),
+        db
+          .from('registrations')
+          .select('id,user_id,status,queue_position,created_at')
+          .eq('event_id', eventId)
+          .in('status', ['confirmed', 'waitlisted'])
+          .order('created_at', { ascending: true }),
+        db
+          .from('event_court_assignments')
+          .select('registration_id,court_number,segment_order')
+          .eq('event_id', eventId),
+        db
+          .from('event_scores')
+          .select(
+            'player_one_registration_id,player_two_registration_id,player_three_registration_id,player_four_registration_id,player_one_score,player_two_score',
+          )
+          .gte('played_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()),
+        db.from('registrations').select('user_id,status').eq('event_id', eventId),
+        db
+          .from('events')
+          .select(
+            'event_type,social_doubles_ladder_id,ladder_ranking_priority,ladder_position_points,gender_restriction,members_only',
+          )
+          .eq('id', eventId)
+          .maybeSingle(),
+        db.rpc('event_tournament_member_directory', { p_event_id: eventId }),
+      ]);
+    if (
+      !eventMeta.error &&
+      eventMeta.data?.event_type === 'social_doubles_ladder' &&
+      eventMeta.data.social_doubles_ladder_id
+    ) {
+      setLadderConfig({
+        id: eventMeta.data.social_doubles_ladder_id,
+        ranking_priority: eventMeta.data.ladder_ranking_priority ?? [
+          'games_won',
+          'sets_won',
+          'games_difference',
+        ],
+        position_points: eventMeta.data.ladder_position_points ?? [2, 1, -1, -2],
+      });
+    } else setLadderConfig(null);
+    setGenderRestriction(eventMeta.data?.gender_restriction ?? null);
+    const requiresMembership = eventMeta.data?.members_only ?? false;
+    setMembershipRequired(requiresMembership);
+    const genderById = new Map<string, string | null>(
+      ((genderDirectory.data ?? []) as Array<{ id: string; gender: string | null }>).map(
+        (person) => [person.id, person.gender] as const,
+      ),
+    );
+    const directoryPeople: Person[] = ((directory.data ?? []) as Person[]).map((person) => ({
+      ...person,
+      gender: genderById.get(person.id) ?? null,
+    }));
+    if (requiresMembership) {
+      let membershipLookupFailed = false;
+      const eligibility = await Promise.all(
+        directoryPeople.map(async (person) => {
+          const { data, error } = await db.rpc('has_active_paid_membership', { v_user: person.id });
+          if (error) {
+            membershipLookupFailed = true;
+            console.error('[Event management] Membership eligibility lookup failed', {
+              userId: person.id,
+              error,
+            });
+            return [person.id, false] as const;
+          }
+          return [person.id, data === true] as const;
+        }),
+      );
+      setPaidMembershipUserIds(
+        new Set(eligibility.filter(([, eligible]) => eligible).map(([id]) => id)),
+      );
+      if (membershipLookupFailed) {
+        setError(
+          'Could not verify member eligibility. Ineligible members are disabled until eligibility can be confirmed.',
+        );
+      }
+    } else {
+      setPaidMembershipUserIds(new Set(directoryPeople.map((person) => person.id)));
+    }
+    if (genderDirectory.error) {
+      console.error('[Event management] Member gender lookup failed', genderDirectory.error);
+      setError('Could not load member gender eligibility. Please try again.');
+    }
     if (directory.error) {
       console.error('[Event management] Member directory load failed', directory.error);
       setError('Could not load event management data. Please try again.');
-    } else setPeople(directory.data ?? []);
+    } else setPeople(directoryPeople);
     if (!allRegistrations.error)
       setUsedUserIds(
         new Set(
@@ -146,7 +229,6 @@ export function EventEditManagement({
       console.error('[Event management] Registrations load failed', registrations.error);
       setError('Could not load event management data. Please try again.');
     } else {
-      const directoryPeople = (directory.data ?? []) as Person[];
       const contactById = new Map<string, Person>(directoryPeople.map((p) => [p.id, p] as const));
       setParticipants(
         (registrations.data ?? []).map((p) => {
@@ -340,7 +422,200 @@ export function EventEditManagement({
       notifyInBackground();
     } catch (e) {
       console.error('[Event management] Participant update failed', e);
-      setError('Could not update participant. Please try again.');
+      setError(registrationErrorMessage(e, genderRestriction));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function assignLadderCourts() {
+    if (!ladderConfig) return;
+    setBusy(true);
+    setError('');
+    try {
+      const { data: ladderEvents, error: eventError } = await db
+        .from('events')
+        .select('id')
+        .eq('social_doubles_ladder_id', ladderConfig.id)
+        .lte('starts_at', new Date().toISOString());
+      if (eventError) throw eventError;
+      const ids = (ladderEvents ?? []).map((e) => e.id);
+      const { data: scoreRows, error: scoreError } = ids.length
+        ? await db
+            .from('event_scores')
+            .select(
+              'event_id,player_one_registration_id,player_two_registration_id,player_three_registration_id,player_four_registration_id,player_one_score,player_two_score',
+            )
+            .in('event_id', ids)
+        : { data: [], error: null };
+      if (scoreError) throw scoreError;
+      const regIds = [
+        ...new Set(
+          (scoreRows ?? []).flatMap((row) =>
+            [
+              row.player_one_registration_id,
+              row.player_two_registration_id,
+              row.player_three_registration_id,
+              row.player_four_registration_id,
+            ].filter(Boolean),
+          ),
+        ),
+      ];
+      const { data: regs, error: regError } = regIds.length
+        ? await db.from('registrations').select('id,user_id').in('id', regIds)
+        : { data: [], error: null };
+      if (regError) throw regError;
+      const userByRegistration = new Map((regs ?? []).map((r) => [r.id, r.user_id]));
+      const names = Object.fromEntries(participants.map((p) => [p.user_id, p.full_name]));
+      const byCourtSession = new Map<string, typeof scoreRows>();
+      for (const row of scoreRows ?? []) {
+        const playerSet = [
+          row.player_one_registration_id,
+          row.player_two_registration_id,
+          row.player_three_registration_id,
+          row.player_four_registration_id,
+        ]
+          .filter(Boolean)
+          .sort()
+          .join(',');
+        const key = `${row.event_id}:${playerSet}`;
+        const list = byCourtSession.get(key) ?? [];
+        list.push(row);
+        byCourtSession.set(key, list);
+      }
+      const totalPoints = new Map<string, number>();
+      const currentPoints = new Map<string, number>();
+      const totals = new Map<
+        string,
+        { setsWon: number; setsLost: number; gamesWon: number; gamesLost: number }
+      >();
+      for (const rows of byCourtSession.values()) {
+        const normalized = (rows ?? []).flatMap((row) => {
+          const sideOne = [row.player_one_registration_id, row.player_two_registration_id]
+            .filter(Boolean)
+            .map((id) => userByRegistration.get(id!))
+            .filter(Boolean) as string[];
+          const sideTwo = [row.player_three_registration_id, row.player_four_registration_id]
+            .filter(Boolean)
+            .map((id) => userByRegistration.get(id!))
+            .filter(Boolean) as string[];
+          if (!sideOne.length || !sideTwo.length) return [];
+          return [
+            {
+              playerIds: [...sideOne, ...sideTwo],
+              sideOneIds: sideOne,
+              sideTwoIds: sideTwo,
+              scoreOne: Number(row.player_one_score),
+              scoreTwo: Number(row.player_two_score),
+            },
+          ];
+        });
+        const result = calculateLadderSession(
+          normalized,
+          names,
+          ladderConfig.ranking_priority as LadderMetric[],
+          [
+            ladderConfig.position_points[0] ?? 2,
+            ladderConfig.position_points[1] ?? 1,
+            ladderConfig.position_points[2] ?? -1,
+            ladderConfig.position_points[3] ?? -2,
+          ],
+        );
+        for (const player of result) {
+          currentPoints.set(
+            player.playerId,
+            (currentPoints.get(player.playerId) ?? 0) + player.points,
+          );
+          const prior = totals.get(player.playerId) ?? {
+            setsWon: 0,
+            setsLost: 0,
+            gamesWon: 0,
+            gamesLost: 0,
+          };
+          prior.setsWon += player.setsWon;
+          prior.setsLost += player.setsLost;
+          prior.gamesWon += player.gamesWon;
+          prior.gamesLost += player.gamesLost;
+          totals.set(player.playerId, prior);
+        }
+      }
+      const [{ data: ladderMeta }, { data: seedRows }] = await Promise.all([
+        db
+          .from('social_doubles_ladders')
+          .select('carryover_mode')
+          .eq('id', ladderConfig.id)
+          .maybeSingle(),
+        db
+          .from('social_doubles_ladder_seeds')
+          .select('user_id,initial_position,initial_points')
+          .eq('ladder_id', ladderConfig.id),
+      ]);
+      const seedByUser = new Map((seedRows ?? []).map((seed) => [seed.user_id, seed]));
+      for (const [userId, points] of currentPoints) {
+        const seed = seedByUser.get(userId);
+        totalPoints.set(
+          userId,
+          points + (ladderMeta?.carryover_mode === 'full' ? (seed?.initial_points ?? 0) : 0),
+        );
+      }
+      if (ladderMeta?.carryover_mode === 'full')
+        for (const seed of seedRows ?? []) {
+          if (!totalPoints.has(seed.user_id)) totalPoints.set(seed.user_id, seed.initial_points);
+        }
+      const confirmed = participants.filter((p) => p.status === 'confirmed');
+      confirmed.sort((a, b) => {
+        const aRanked =
+            currentPoints.has(a.user_id) ||
+            (ladderMeta?.carryover_mode === 'full' && seedByUser.has(a.user_id)),
+          bRanked =
+            currentPoints.has(b.user_id) ||
+            (ladderMeta?.carryover_mode === 'full' && seedByUser.has(b.user_id));
+        if (aRanked !== bRanked) return aRanked ? -1 : 1;
+        if (!aRanked && !bRanked) {
+          const seedDelta =
+            (seedByUser.get(a.user_id)?.initial_position ?? Number.MAX_SAFE_INTEGER) -
+            (seedByUser.get(b.user_id)?.initial_position ?? Number.MAX_SAFE_INTEGER);
+          if (seedDelta) return seedDelta;
+        }
+        const pointsDelta = (totalPoints.get(b.user_id) ?? 0) - (totalPoints.get(a.user_id) ?? 0);
+        if (pointsDelta) return pointsDelta;
+        for (const metric of ladderConfig.ranking_priority as LadderMetric[]) {
+          const value = (id: string) => {
+            const t = totals.get(id) ?? { setsWon: 0, setsLost: 0, gamesWon: 0, gamesLost: 0 };
+            if (metric === 'sets_won') return t.setsWon;
+            if (metric === 'games_won') return t.gamesWon;
+            if (metric === 'games_difference') return t.gamesWon - t.gamesLost;
+            return t.setsWon - t.setsLost;
+          };
+          const delta = value(b.user_id) - value(a.user_id);
+          if (delta) return delta;
+        }
+        return a.full_name.localeCompare(b.full_name);
+      });
+      setLadderStandings(
+        confirmed.map((player) => ({
+          userId: player.user_id,
+          name: player.full_name,
+          points:
+            currentPoints.has(player.user_id) ||
+            (ladderMeta?.carryover_mode === 'full' && totalPoints.has(player.user_id))
+              ? totalPoints.get(player.user_id)!
+              : null,
+        })),
+      );
+      const courtCount = Math.max(1, Math.ceil(confirmed.length / 4));
+      if (courtCount > 4)
+        throw new Error(
+          'This event supports up to four courts for automatic ladder assignment. Assign additional courts manually.',
+        );
+      const groups: Session[] = [{ 1: [], 2: [], 3: [], 4: [] }];
+      confirmed.forEach((player, index) => {
+        const court = Math.floor(index / 4) + 1;
+        for (const group of groups) group[court as 1 | 2 | 3 | 4].push(player.registration_id);
+      });
+      setSessions(groups);
+      setMessage('Ladder courts assigned from current standings. Review and save to apply.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not calculate ladder court assignments.');
     } finally {
       setBusy(false);
     }
@@ -485,7 +760,7 @@ export function EventEditManagement({
       router.refresh();
     } catch (e) {
       console.error('[Event management] Participant replacement failed', e);
-      setError('Could not replace player. Please try again.');
+      setError(registrationErrorMessage(e, genderRestriction));
     } finally {
       setBusy(false);
     }
@@ -497,18 +772,43 @@ export function EventEditManagement({
   const addOptions = useMemo(
     () =>
       people
-        .map((p) => ({
-          ...p,
-          available: !activeIds.has(p.id) && !usedUserIds.has(p.id),
-          unavailableReason: 'Already registered for this event',
-          statusText: p.suspended ? 'Suspended for this event date' : undefined,
-        }))
+        .map((p) => {
+          const genderEligible =
+            !genderRestriction || p.gender?.toLowerCase() === genderRestriction;
+          const genderStatus =
+            genderRestriction && !genderEligible
+              ? `Gender ${p.gender || 'not specified'}`
+              : undefined;
+          const membershipEligible = !membershipRequired || paidMembershipUserIds.has(p.id);
+          const membershipStatus =
+            membershipRequired && !membershipEligible
+              ? 'Cannot register: requires an active, paid membership.'
+              : undefined;
+          const alreadyRegistered = activeIds.has(p.id) || usedUserIds.has(p.id);
+          const eligibilityReasons = [genderStatus, membershipStatus].filter(Boolean).join(' · ');
+          return {
+            ...p,
+            available: genderEligible && membershipEligible && !alreadyRegistered,
+            unavailableReason:
+              eligibilityReasons ||
+              (alreadyRegistered ? 'Already registered for this event' : undefined),
+            statusText: p.suspended ? 'Suspended for this event date' : undefined,
+            sortPriority: genderEligible && membershipEligible ? 0 : 1,
+          };
+        })
         .sort(
           (a, b) =>
             Number(a.available === false) - Number(b.available === false) ||
             (a.full_name || '').localeCompare(b.full_name || ''),
         ),
-    [people, participants, usedUserIds],
+    [
+      people,
+      participants,
+      usedUserIds,
+      genderRestriction,
+      membershipRequired,
+      paidMembershipUserIds,
+    ],
   );
   const replaceOptions = useMemo(
     () =>
@@ -517,10 +817,26 @@ export function EventEditManagement({
           const existing = participants.find((x) => x.user_id === p.id);
           const waitlisted = existing?.status === 'waitlisted';
           const confirmed = existing?.status === 'confirmed';
+          const genderEligible =
+            !genderRestriction || p.gender?.toLowerCase() === genderRestriction;
+          const genderStatus =
+            genderRestriction && !genderEligible
+              ? `Gender ${p.gender || 'not specified'}`
+              : undefined;
+          const membershipEligible = !membershipRequired || paidMembershipUserIds.has(p.id);
+          const membershipStatus =
+            membershipRequired && !membershipEligible
+              ? 'Cannot register: requires an active, paid membership.'
+              : undefined;
+          const eligibilityReasons = [genderStatus, membershipStatus].filter(Boolean).join(' · ');
           return {
             ...p,
-            available: !confirmed && (!usedUserIds.has(p.id) || waitlisted),
-            unavailableReason: undefined,
+            available:
+              genderEligible &&
+              membershipEligible &&
+              !confirmed &&
+              (!usedUserIds.has(p.id) || waitlisted),
+            unavailableReason: eligibilityReasons || undefined,
             statusText:
               [
                 waitlisted
@@ -532,12 +848,19 @@ export function EventEditManagement({
               ]
                 .filter(Boolean)
                 .join(' · ') || undefined,
-            _sort: waitlisted ? 0 : confirmed ? 2 : 1,
+            _sort: genderEligible && membershipEligible ? (waitlisted ? 0 : confirmed ? 2 : 1) : 3,
           };
         })
         .sort((a, b) => a._sort - b._sort || (a.full_name || '').localeCompare(b.full_name || ''))
         .map(({ _sort, ...visible }) => visible),
-    [people, participants, usedUserIds],
+    [
+      people,
+      participants,
+      usedUserIds,
+      genderRestriction,
+      membershipRequired,
+      paidMembershipUserIds,
+    ],
   );
   const warnings = useMemo(
     () => validateAssignments(participants, assignments),
@@ -545,7 +868,7 @@ export function EventEditManagement({
   );
   return (
     <section className="mt-8 space-y-6">
-      {!assignmentOnly && (
+      {!assignmentOnly && !hideRegistrationManagement && (
         <div className="rounded-xl border border-border p-5">
           <h2 className="text-lg font-semibold">Add or remove participants</h2>
           <div className="mt-3 flex flex-col gap-3 sm:flex-row">
@@ -604,6 +927,7 @@ export function EventEditManagement({
         </p>
       )}
       {!assignmentOnly &&
+        !hideRegistrationManagement &&
         (['confirmed', 'waitlisted'] as const).map((status) => (
           <div key={status} className="rounded-xl border border-border p-5">
             <h2 className="text-lg font-semibold">
@@ -736,10 +1060,36 @@ export function EventEditManagement({
                   each sub-session.
                 </p>
               </div>
+              {ladderConfig && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => void assignLadderCourts()}
+                >
+                  Automatic ladder assignment
+                </Button>
+              )}
               <Button variant="outline" onClick={() => setModalOpen(false)}>
                 Close
               </Button>
             </div>
+            {ladderConfig && ladderStandings.length > 0 && (
+              <section className="mt-5 rounded-lg border border-border p-3">
+                <h3 className="font-semibold">Current ladder ranking for registered players</h3>
+                <ol className="mt-2 space-y-1 text-sm">
+                  {ladderStandings.map((player, index) => (
+                    <li key={player.userId} className="flex justify-between gap-3">
+                      <span>
+                        {index + 1}. {player.name}
+                        {player.points === null ? ' · Unranked' : ''}
+                      </span>
+                      <span>{player.points === null ? '—' : `${player.points} pts`}</span>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            )}
             <div className="mt-5 space-y-6">
               {sessions.map((session, si) => (
                 <section key={si} className="rounded-lg border border-border p-3">

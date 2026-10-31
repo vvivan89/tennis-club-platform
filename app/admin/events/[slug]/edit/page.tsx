@@ -84,7 +84,14 @@ export default async function EditEventPage({ params }: { params: { slug: string
           organizerOptions={organizers ?? []}
           showOrganizerField={showOrganizerField}
         />
-        <EventEditManagement eventId={event.id} startsAt={event.starts_at} />
+        <EventEditManagement
+          eventId={event.id}
+          startsAt={event.starts_at}
+          hideRegistrationManagement={
+            event.event_type === 'tournament' &&
+            (event.tournament_format === 'doubles' || event.tournament_format === 'team')
+          }
+        />
         <p className="mt-6 text-sm">
           <Link className="text-primary underline" href={eventPath(event)}>
             View public event page

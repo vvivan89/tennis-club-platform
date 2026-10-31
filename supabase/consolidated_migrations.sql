@@ -6280,3 +6280,162 @@ CREATE POLICY "Tournament managers manage group overrides"
 GRANT SELECT ON public.tournament_group_overrides TO anon, authenticated;
 GRANT INSERT, UPDATE, DELETE ON public.tournament_group_overrides TO authenticated;
 
+-- BEGIN MIGRATION: 0058_social_doubles_ladder.sql
+-- Social Doubles Ladder: persistent competition identity and event configuration.
+create table if not exists public.social_doubles_ladders (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  gender text not null check (gender in ('male','female')),
+  position_points integer[] not null default array[2,1,-1,-2],
+  ranking_priority text[] not null default array['games_won','sets_won','games_difference'],
+  carryover_mode text not null default 'none' check (carryover_mode in ('none','position','full')),
+  previous_ladder_id uuid references public.social_doubles_ladders(id) on delete set null,
+  starts_at timestamptz not null,
+  ends_at timestamptz,
+  created_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  check (array_length(position_points, 1) = 4),
+  check (cardinality(ranking_priority) > 0)
+);
+alter table public.events
+  add column if not exists social_doubles_ladder_id uuid references public.social_doubles_ladders(id) on delete set null,
+  add column if not exists ladder_gender text check (ladder_gender is null or ladder_gender in ('male','female')),
+  add column if not exists ladder_position_points integer[],
+  add column if not exists ladder_ranking_priority text[];
+
+create index if not exists events_social_doubles_ladder_idx
+  on public.events(social_doubles_ladder_id, starts_at);
+create index if not exists social_doubles_ladders_ends_at_idx
+  on public.social_doubles_ladders(ends_at desc nulls last);
+
+alter table public.social_doubles_ladders enable row level security;
+drop policy if exists "Approved users can view social doubles ladders" on public.social_doubles_ladders;
+create policy "Approved users can view social doubles ladders"
+  on public.social_doubles_ladders for select to authenticated
+  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.application_status = 'approved'));
+drop policy if exists "Admins and organizers manage social doubles ladders" on public.social_doubles_ladders;
+create policy "Admins and organizers manage social doubles ladders"
+  on public.social_doubles_ladders for all to authenticated
+  using (
+    exists (select 1 from public.profiles p where p.id = auth.uid() and p.application_status = 'approved'
+      and (p.role = 'admin' or p.role = 'organizer' or created_by = auth.uid()))
+  )
+  with check (
+    exists (select 1 from public.profiles p where p.id = auth.uid() and p.application_status = 'approved'
+      and (p.role = 'admin' or p.role = 'organizer' or created_by = auth.uid()))
+  );
+
+comment on table public.social_doubles_ladders is 'Seasonal Social Doubles Ladder identities; each ladder is strictly mens or womens.';
+comment on column public.events.social_doubles_ladder_id is 'Links a social doubles ladder session to its cumulative ladder.';
+
+
+create table if not exists public.social_doubles_ladder_seeds (
+  ladder_id uuid not null references public.social_doubles_ladders(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  initial_position integer not null check (initial_position > 0),
+  initial_points integer not null default 0,
+  primary key (ladder_id, user_id),
+  unique (ladder_id, initial_position)
+);
+alter table public.social_doubles_ladder_seeds enable row level security;
+drop policy if exists "Approved users can view ladder seeds" on public.social_doubles_ladder_seeds;
+create policy "Approved users can view ladder seeds" on public.social_doubles_ladder_seeds
+  for select to authenticated using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.application_status = 'approved'));
+drop policy if exists "Admins and organizers manage ladder seeds" on public.social_doubles_ladder_seeds;
+create policy "Admins and organizers manage ladder seeds" on public.social_doubles_ladder_seeds
+  for all to authenticated using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.application_status = 'approved' and (p.role = 'admin' or p.role = 'organizer')))
+  with check (exists (select 1 from public.profiles p where p.id = auth.uid() and p.application_status = 'approved' and (p.role = 'admin' or p.role = 'organizer')));
+
+GRANT SELECT ON public.social_doubles_ladders TO authenticated;
+GRANT INSERT, UPDATE, DELETE ON public.social_doubles_ladders TO authenticated;
+GRANT SELECT ON public.social_doubles_ladder_seeds TO authenticated;
+GRANT INSERT, UPDATE, DELETE ON public.social_doubles_ladder_seeds TO authenticated;
+
+
+-- BEGIN MIGRATION: 0059_unique_social_doubles_ladder_names.sql
+-- Ladder names are identities across events/seasons and must be unique, case-insensitively.
+create unique index if not exists social_doubles_ladders_name_ci_unique
+  on public.social_doubles_ladders (lower(btrim(name)));
+
+-- BEGIN MIGRATION: 0060_social_doubles_ladder_event_type.sql
+-- Allow Social Doubles Ladder events while preserving the existing event types.
+BEGIN;
+
+DO $$
+DECLARE
+    existing_check TEXT;
+BEGIN
+    SELECT pg_get_expr(conbin, conrelid)
+    INTO existing_check
+    FROM pg_constraint
+    WHERE conname = 'events_event_type_check'
+      AND conrelid = 'public.events'::regclass
+      AND contype = 'c';
+
+    IF existing_check IS NULL THEN
+        RAISE EXCEPTION
+            'Could not find check constraint events_event_type_check on public.events';
+    END IF;
+
+    ALTER TABLE public.events
+        DROP CONSTRAINT events_event_type_check;
+
+    EXECUTE format(
+        'ALTER TABLE public.events
+         ADD CONSTRAINT events_event_type_check
+         CHECK ((%s) OR (event_type = %L))',
+        existing_check,
+        'social_doubles_ladder'
+    );
+END
+$$;
+
+COMMIT;
+
+-- BEGIN MIGRATION: 0061_profile_and_score_permissions.sql
+-- Allow members and managers to update their own profile fields, and limit score
+-- editing/deletion to admins and the user who entered the score.
+BEGIN;
+
+DROP POLICY IF EXISTS "Members update own profile" ON public.profiles;
+DROP POLICY IF EXISTS "Users update own profile" ON public.profiles;
+CREATE POLICY "Users update own profile" ON public.profiles FOR UPDATE TO authenticated
+  USING (id = (SELECT auth.uid()))
+  WITH CHECK (id = (SELECT auth.uid()));
+
+-- Managers may still enter scores for any assigned court/player combination.
+DROP POLICY IF EXISTS "Event managers manage scores" ON public.event_scores;
+DROP POLICY IF EXISTS "Event managers insert scores" ON public.event_scores;
+CREATE POLICY "Event managers insert scores" ON public.event_scores FOR INSERT TO authenticated
+  WITH CHECK (public.is_event_manager());
+
+DROP POLICY IF EXISTS "Admins edit recent scores" ON public.event_scores;
+CREATE POLICY "Admins edit recent scores" ON public.event_scores FOR UPDATE TO authenticated
+  USING (
+    public.is_admin()
+    AND EXISTS (
+      SELECT 1 FROM public.events e
+      WHERE e.id = event_scores.event_id AND e.starts_at >= now() - interval '2 days'
+    )
+  )
+  WITH CHECK (
+    public.is_admin()
+    AND EXISTS (
+      SELECT 1 FROM public.events e
+      WHERE e.id = event_scores.event_id AND e.starts_at >= now() - interval '2 days'
+    )
+  );
+
+DROP POLICY IF EXISTS "Admins and score authors delete recent scores" ON public.event_scores;
+CREATE POLICY "Admins and score authors delete recent scores" ON public.event_scores FOR DELETE TO authenticated
+  USING (
+    (public.is_admin() OR entered_by = (SELECT auth.uid()))
+    AND EXISTS (
+      SELECT 1 FROM public.events e
+      WHERE e.id = event_scores.event_id AND e.starts_at >= now() - interval '2 days'
+    )
+  );
+
+GRANT UPDATE, DELETE ON public.event_scores TO authenticated;
+COMMIT;
+-- END MIGRATION: 0061_profile_and_score_permissions.sql

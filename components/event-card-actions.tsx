@@ -4,12 +4,14 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlertCircle } from 'lucide-react';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
+import { registrationErrorMessage } from '@/lib/registration-error-message';
 import { Button } from '@/components/ui/button';
 type CardEvent = {
   status: string;
   starts_at: string;
   registration_opens_at: string;
   registration_closes_at: string | null;
+  gender_restriction: string | null;
 };
 type RegistrationStatus = 'confirmed' | 'waitlisted';
 type Suspension = { starts_on: string; ends_on: string; reason: string };
@@ -29,6 +31,11 @@ export function EventCardActions({ eventId }: { eventId: string }) {
   const [showSuspension, setShowSuspension] = useState(false);
   const [confirmWithdraw, setConfirmWithdraw] = useState(false);
   useEffect(() => {
+    if (!error) return;
+    const timer = window.setTimeout(() => setError(''), 3000);
+    return () => window.clearTimeout(timer);
+  }, [error]);
+  useEffect(() => {
     let alive = true;
     async function load() {
       const [
@@ -40,7 +47,9 @@ export function EventCardActions({ eventId }: { eventId: string }) {
         db.auth.getUser(),
         db
           .from('events')
-          .select('status,starts_at,registration_opens_at,registration_closes_at')
+          .select(
+            'status,starts_at,registration_opens_at,registration_closes_at,gender_restriction',
+          )
           .eq('id', eventId)
           .maybeSingle(),
       ]);
@@ -123,7 +132,7 @@ export function EventCardActions({ eventId }: { eventId: string }) {
         });
         if (error) {
           console.error('[Event registration] Database registration failed', error);
-          throw new Error('registration-update-failed');
+          throw error;
         }
         const reg = data?.[0];
         if (reg?.registration_id) {
@@ -153,7 +162,7 @@ export function EventCardActions({ eventId }: { eventId: string }) {
       })();
     } catch (e) {
       console.error('[Event registration] Database update failed', e);
-      setError('Could not update registration. Please try again.');
+      setError(registrationErrorMessage(e, event?.gender_restriction ?? null));
     } finally {
       setBusy(false);
     }
@@ -232,7 +241,14 @@ export function EventCardActions({ eventId }: { eventId: string }) {
           {busy ? <TennisLoader compact label="Working" /> : 'Register'}
         </Button>
       )}
-      {error && <span className="max-w-48 text-right text-xs text-destructive">{error}</span>}
+      {error && (
+        <span
+          role="alert"
+          className="fixed right-4 top-4 z-[100] max-w-80 rounded-md border border-destructive/30 bg-background p-3 text-sm text-destructive shadow-lg"
+        >
+          {error}
+        </span>
+      )}
       {confirmWithdraw && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"

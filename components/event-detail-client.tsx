@@ -6,9 +6,11 @@ import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
+import { registrationErrorMessage } from '@/lib/registration-error-message';
 import { Button } from '@/components/ui/button';
 import { EventWeather } from '@/components/event-weather';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { Pencil, Trash2 } from 'lucide-react';
 
 type Roster = {
   registration_id: string;
@@ -69,6 +71,7 @@ export function EventDetailClient({
   currentPaymentStatus,
   locationQuery,
   isManager,
+  isAdmin = false,
   canViewParticipants,
   remainingSpots,
   interacEnabled = false,
@@ -83,6 +86,7 @@ export function EventDetailClient({
   currentPaymentStatus: string | null;
   locationQuery: string;
   isManager: boolean;
+  isAdmin?: boolean;
   canViewParticipants: boolean;
   remainingSpots: number;
   interacEnabled?: boolean;
@@ -123,10 +127,12 @@ export function EventDetailClient({
   } | null>(null);
   const [confirmWithdraw, setConfirmWithdraw] = useState(false);
   const [scoreCourt, setScoreCourt] = useState('');
+  const [scorePlayerOne, setScorePlayerOne] = useState('');
   const [partner, setPartner] = useState('');
   const [scoreOne, setScoreOne] = useState('');
   const [scoreTwo, setScoreTwo] = useState('');
   const [editingScore, setEditingScore] = useState<string | null>(null);
+  const [deletingScore, setDeletingScore] = useState<Score | null>(null);
   const [editScoreOne, setEditScoreOne] = useState('');
   const [editScoreTwo, setEditScoreTwo] = useState('');
   const [eventHasStarted, setEventHasStarted] = useState(
@@ -190,6 +196,14 @@ export function EventDetailClient({
     .filter((r) => r.status === 'waitlisted')
     .sort((a, b) => (a.queue_position ?? 0) - (b.queue_position ?? 0));
   const currentCourts = liveCourts.filter((c) => c.registration_id === liveRegistrationId);
+  const scoreCourts = (isManager ? liveCourts : currentCourts).filter(
+    (court, index, list) =>
+      list.findIndex(
+        (candidate) =>
+          candidate.court_number === court.court_number &&
+          candidate.segment_order === court.segment_order,
+      ) === index,
+  );
   const [scoreCourtText, scoreEventText] = scoreCourt.split(':');
   const scoreCourtNumber = Number(scoreCourtText);
   const scoreEventNumber = Number(scoreEventText);
@@ -205,7 +219,8 @@ export function EventDetailClient({
         ),
     )
     .sort((a, b) => a.full_name.localeCompare(b.full_name));
-  const otherCourtPlayers = courtPlayers.filter((r) => r.registration_id !== liveRegistrationId);
+  const playerOneId = isManager ? scorePlayerOne : liveRegistrationId;
+  const otherCourtPlayers = courtPlayers.filter((r) => r.registration_id !== playerOneId);
   const doublesCourt = courtPlayers.length === 4;
   const partnerOptions = doublesCourt ? otherCourtPlayers : [];
   const opponents = useMemo(
@@ -478,7 +493,7 @@ export function EventDetailClient({
       router.refresh();
     } catch (e) {
       console.error('[Event detail] Database registration failed', e);
-      setError('Could not update registration. Please try again.');
+      setError(registrationErrorMessage(e, event.gender_restriction));
     } finally {
       setBusy(false);
     }
@@ -553,9 +568,37 @@ export function EventDetailClient({
       setBusy(false);
     }
   }
+  async function deleteScore() {
+    if (!deletingScore) return;
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      const { error } = await db
+        .from('event_scores')
+        .delete()
+        .eq('id', deletingScore.id)
+        .eq('event_id', event.id);
+      if (error) throw error;
+      setDeletingScore(null);
+      setMessage('Score deleted.');
+      router.refresh();
+    } catch (e) {
+      console.error('[Event detail] Score deletion failed', e);
+      setDeletingScore(null);
+      setError('Could not delete score. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
   async function addScore(e: FormEvent) {
     e.preventDefault();
-    if (!liveRegistrationId || !scoreCourtNumber) return;
+    const scoringPlayerOne = isManager ? scorePlayerOne : liveRegistrationId;
+    if (!scoringPlayerOne || !scoreCourtNumber) return;
+    if (!courtPlayers.some((player) => player.registration_id === scoringPlayerOne)) {
+      setError('Choose a player assigned to the selected court and time slot.');
+      return;
+    }
     if (Date.now() < new Date(event.starts_at).getTime()) {
       setError('Scores cannot be entered before the event start time.');
       return;
@@ -588,7 +631,7 @@ export function EventDetailClient({
     try {
       const { error } = await db.from('event_scores').insert({
         event_id: event.id,
-        player_one_registration_id: liveRegistrationId,
+        player_one_registration_id: scoringPlayerOne,
         player_two_registration_id: selectedPartner || opponentPlayers[0].registration_id,
         player_three_registration_id: selectedPartner ? opponentPlayers[0].registration_id : null,
         player_four_registration_id: selectedPartner
@@ -627,6 +670,29 @@ export function EventDetailClient({
         );
   return (
     <div className="space-y-8">
+      {(error || message) && (
+        <div
+          className="pointer-events-none fixed right-4 top-4 z-[100] w-[min(24rem,calc(100vw-2rem))]"
+          aria-live="polite"
+        >
+          {error && (
+            <p
+              role="alert"
+              className="pointer-events-auto rounded-md border border-destructive/30 bg-background p-3 text-sm text-destructive shadow-lg"
+            >
+              {error}
+            </p>
+          )}
+          {message && (
+            <p
+              role="status"
+              className="pointer-events-auto mt-2 rounded-md border border-emerald-600/30 bg-background p-3 text-sm shadow-lg"
+            >
+              {message}
+            </p>
+          )}
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-3">
         <span className="text-sm text-muted-foreground">
           {money}
@@ -1121,19 +1187,36 @@ export function EventDetailClient({
                         {new Date(s.played_at).toLocaleDateString('en-CA')}
                       </span>
                       {!scoreEditLocked &&
-                        (isManager || Boolean(currentUserId && s.entered_by === currentUserId)) && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              setEditingScore(s.id);
-                              setEditScoreOne(String(s.player_one_score));
-                              setEditScoreTwo(String(s.player_two_score));
-                              setError('');
-                            }}
-                          >
-                            Edit score
-                          </Button>
+                        (isAdmin || Boolean(currentUserId && s.entered_by === currentUserId)) && (
+                          <>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              aria-label="Edit score"
+                              title="Edit score"
+                              disabled={busy}
+                              onClick={() => {
+                                setEditingScore(s.id);
+                                setEditScoreOne(String(s.player_one_score));
+                                setEditScoreTwo(String(s.player_two_score));
+                                setError('');
+                              }}
+                            >
+                              <Pencil className="h-4 w-4" aria-hidden="true" />
+                            </Button>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              aria-label="Delete score"
+                              title="Delete score"
+                              disabled={busy}
+                              onClick={() => setDeletingScore(s)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" aria-hidden="true" />
+                            </Button>
+                          </>
                         )}
                     </div>
                   </div>
@@ -1143,8 +1226,7 @@ export function EventDetailClient({
               <p className="mt-2 text-sm text-muted-foreground">No scores have been entered.</p>
             )}
             {currentUserId &&
-              registered &&
-              liveStatus === 'confirmed' &&
+              (isManager || (registered && liveStatus === 'confirmed')) &&
               event.status === 'published' &&
               !eventHasStarted && (
                 <p className="mt-5 rounded-xl border border-border p-4 text-sm text-muted-foreground">
@@ -1153,18 +1235,22 @@ export function EventDetailClient({
                 </p>
               )}
             {currentUserId &&
-              registered &&
-              liveStatus === 'confirmed' &&
+              (isManager || (registered && liveStatus === 'confirmed')) &&
               event.status === 'published' &&
               eventHasStarted &&
               !scoreEditLocked && (
                 <form onSubmit={addScore} className="mt-5 rounded-xl border border-border p-4">
                   <h3 className="font-semibold">Add a score</h3>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Choose a court and time slot you are assigned to. On a four-player court, select
-                    your partner; the other two players become your opponents automatically.
+                    {event.event_type === 'social_doubles_ladder'
+                      ? 'Choose any partner for each score. The other players on the court are your opponents.'
+                      : isManager
+                        ? 'Choose any court and time slot. For a four-player court, select two players on one team; the remaining players are their opponents.'
+                        : 'Choose a court and time slot you are assigned to. On a four-player court, select your partner; the other two players become your opponents automatically.'}
                   </p>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-4">
+                  <div
+                    className={`mt-3 grid gap-3 sm:grid-cols-2 ${isManager ? 'lg:grid-cols-5' : 'lg:grid-cols-4'}`}
+                  >
                     <label className="space-y-1 text-sm">
                       Court / time slot
                       <select
@@ -1172,12 +1258,13 @@ export function EventDetailClient({
                         value={scoreCourt}
                         onChange={(e) => {
                           setScoreCourt(e.target.value);
+                          setScorePlayerOne('');
                           setPartner('');
                         }}
                         className="block h-10 w-full rounded-md border border-input bg-background px-3"
                       >
                         <option value="">Select assignment</option>
-                        {currentCourts.map((c) => (
+                        {scoreCourts.map((c) => (
                           <option
                             key={`${c.court_number}-${c.segment_order}`}
                             value={`${c.court_number}:${c.segment_order}`}
@@ -1187,6 +1274,27 @@ export function EventDetailClient({
                         ))}
                       </select>
                     </label>
+                    {isManager && scoreCourt && (
+                      <label className="space-y-1 text-sm">
+                        Team player
+                        <select
+                          required
+                          value={scorePlayerOne}
+                          onChange={(e) => {
+                            setScorePlayerOne(e.target.value);
+                            setPartner('');
+                          }}
+                          className="block h-10 w-full rounded-md border border-input bg-background px-3"
+                        >
+                          <option value="">Select player</option>
+                          {courtPlayers.map((p) => (
+                            <option key={p.registration_id} value={p.registration_id}>
+                              {p.full_name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
                     {doublesCourt && (
                       <label className="space-y-1 text-sm">
                         Partner
@@ -1206,7 +1314,7 @@ export function EventDetailClient({
                       </label>
                     )}
                     <label className="space-y-1 text-sm">
-                      Your team score
+                      {isManager ? 'Team score' : 'Your team score'}
                       <input
                         required
                         type="number"
@@ -1217,7 +1325,7 @@ export function EventDetailClient({
                       />
                     </label>
                     <label className="space-y-1 text-sm">
-                      Opponents&apos; score
+                      {isManager ? 'Opposing team score' : 'Opponents’ score'}
                       <input
                         required
                         type="number"
@@ -1236,10 +1344,15 @@ export function EventDetailClient({
                         : opponents.map((p) => p.full_name).join(' / ') || 'No opponents assigned.'}
                     </p>
                   )}
-                  <Button className="mt-3" disabled={busy || !currentCourts.length || !scoreCourt}>
+                  <Button
+                    className="mt-3"
+                    disabled={
+                      busy || !scoreCourts.length || !scoreCourt || (isManager && !scorePlayerOne)
+                    }
+                  >
                     {busy ? <TennisLoader compact label="Saving" /> : 'Save score'}
                   </Button>
-                  {!currentCourts.length && (
+                  {!scoreCourts.length && (
                     <p className="mt-2 text-xs text-muted-foreground">
                       You need a court assignment before entering a score.
                     </p>
@@ -1249,6 +1362,16 @@ export function EventDetailClient({
           </section>
         </>
       )}
+      <ConfirmDialog
+        open={!!deletingScore}
+        title="Delete score?"
+        description="This score will be permanently removed."
+        confirmLabel="Delete score"
+        destructive
+        busy={busy}
+        onConfirm={() => void deleteScore()}
+        onCancel={() => setDeletingScore(null)}
+      />
       <ConfirmDialog
         open={!!interacNotice}
         title="Interac e-Transfer instructions"

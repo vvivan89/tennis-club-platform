@@ -356,6 +356,38 @@ describe('cancel payment endpoint', () => {
     });
   });
 
+  it('cancels an event payment without a Stripe session and reports completed or failed updates', async () => {
+    mocks.rows.payments = { id: 'payment-1', status: 'pending', stripe_checkout_session_id: null };
+    const noSession = await cancelPost(
+      request('https://club.test/api/payments/cancel', {
+        registrationId: 'registration-1',
+      }),
+    );
+    expect(noSession.status).toBe(200);
+
+    mocks.rows.payments = {
+      id: 'payment-1',
+      status: 'pending',
+      stripe_checkout_session_id: 'cs-1',
+    };
+    mocks.sessionRetrieve.mockResolvedValue({ id: 'cs-1', status: 'complete' });
+    const complete = await cancelPost(
+      request('https://club.test/api/payments/cancel', {
+        registrationId: 'registration-1',
+      }),
+    );
+    expect(complete.status).toBe(409);
+
+    mocks.sessionRetrieve.mockResolvedValue({ id: 'cs-1', status: 'expired' });
+    mocks.errors['payments.update'] = { message: 'write failed' };
+    const failedUpdate = await cancelPost(
+      request('https://club.test/api/payments/cancel', {
+        registrationId: 'registration-1',
+      }),
+    );
+    expect(failedUpdate.status).toBe(500);
+  });
+
   it('requires an authenticated participant and safely expires their tournament checkout', async () => {
     mocks.user = null;
     const unauthorized = await cancelPost(
@@ -403,6 +435,37 @@ describe('cancel payment endpoint', () => {
     expect(await response.json()).toEqual({
       error: 'Payment status is uncertain; the entry was not withdrawn.',
     });
+  });
+
+  it('handles missing tournament payment sessions, completed sessions, and candidate lookup errors', async () => {
+    mocks.rows.payments = [
+      { id: 'p', business_record_id: 'participant-1', stripe_checkout_session_id: null },
+    ];
+    const noSession = await cancelPost(
+      request('https://club.test/api/payments/cancel', {
+        participantId: 'participant-1',
+      }),
+    );
+    expect(noSession.status).toBe(409);
+
+    mocks.rows.payments = [
+      { id: 'p', business_record_id: 'participant-1', stripe_checkout_session_id: 'cs' },
+    ];
+    mocks.sessionRetrieve.mockResolvedValue({ id: 'cs', status: 'complete' });
+    const completed = await cancelPost(
+      request('https://club.test/api/payments/cancel', {
+        participantId: 'participant-1',
+      }),
+    );
+    expect(completed.status).toBe(409);
+
+    mocks.errors['payments.select'] = { message: 'unavailable' };
+    const lookupError = await cancelPost(
+      request('https://club.test/api/payments/cancel', {
+        participantId: 'participant-1',
+      }),
+    );
+    expect(lookupError.status).toBe(500);
   });
 
   it('removes only provisional guest entries after a payment reference is verified expired', async () => {

@@ -157,6 +157,8 @@ export function TournamentPublicView({
   registrationClosesAt,
   priceCents,
   interacEnabled = false,
+  resultsOnly = false,
+  rankingsControl,
 }: {
   adminContent?: ReactNode;
   eventTitle?: string;
@@ -175,6 +177,8 @@ export function TournamentPublicView({
   registrationClosesAt: string | null;
   priceCents: number;
   interacEnabled?: boolean;
+  resultsOnly?: boolean;
+  rankingsControl?: ReactNode;
 }) {
   const db = useMemo(() => createSupabaseBrowserClient(), []);
   const router = useRouter();
@@ -184,12 +188,17 @@ export function TournamentPublicView({
   const hasRules = Boolean(rulesHtml?.trim());
   const [tab, setTab] = useState<
     'overview' | 'rules' | 'competition' | 'participants' | 'matches' | 'audit'
-  >('overview');
+  >(resultsOnly ? 'competition' : 'overview');
   const [tabInitialized, setTabInitialized] = useState(false);
   const [competitionMatchGrouping, setCompetitionMatchGrouping] = useState<'group' | 'round'>(
     'group',
   );
   useEffect(() => {
+    if (resultsOnly) {
+      setTab('competition');
+      setTabInitialized(true);
+      return;
+    }
     const readTabFromUrl = () => {
       const requested = new URLSearchParams(window.location.search).get('tab');
       if (
@@ -207,7 +216,7 @@ export function TournamentPublicView({
     readTabFromUrl();
     window.addEventListener('popstate', readTabFromUrl);
     return () => window.removeEventListener('popstate', readTabFromUrl);
-  }, [hasRules]);
+  }, [hasRules, resultsOnly]);
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('pctc-tournament-tab-change', { detail: { tab } }));
   }, [tab]);
@@ -312,6 +321,18 @@ export function TournamentPublicView({
   }, []);
   useEffect(() => {
     let active = true;
+    // Keep the results area in a loading state when the Rankings selector changes
+    // the eventId. The component is reused across route changes, so this must be
+    // reset for every event rather than only on initial mount.
+    setLoading(true);
+    // Clear the previous tournament's results immediately so they are never
+    // displayed under the newly selected tournament while its data is loading.
+    setTeams([]);
+    setGroupOverrides([]);
+    setParticipants([]);
+    setPairs([]);
+    setMatches([]);
+    setMatchPlayers([]);
     void (async () => {
       const [
         teamResult,
@@ -1066,10 +1087,12 @@ export function TournamentPublicView({
       : registrationModeConfig === 'doubles'
         ? 'pair'
         : registrationMode;
+  const firstAvailableCategory = availableCategories[0];
+  const registrationCategoryIsAvailable = availableCategories.includes(registrationCategory);
   useEffect(() => {
-    if (availableCategories.length && !availableCategories.includes(registrationCategory))
-      setRegistrationCategory(availableCategories[0]);
-  }, [availableCategories.join(','), registrationCategory, entrantGender]);
+    if (firstAvailableCategory && !registrationCategoryIsAvailable)
+      setRegistrationCategory(firstAvailableCategory);
+  }, [firstAvailableCategory, registrationCategoryIsAvailable]);
   const groupStandings = useMemo(() => {
     const groups = new Map<
       string,
@@ -1628,7 +1651,7 @@ export function TournamentPublicView({
       )}
       {(canViewCompetition || !!adminContent) && (
         <>
-          {winnerSummaries.length > 0 && (
+          {!resultsOnly && winnerSummaries.length > 0 && (
             <section aria-label="Tournament winners">
               <div className="grid auto-cols-max grid-flow-col gap-4 overflow-x-auto pb-2">
                 {winnerSummaries.map((summary) => (
@@ -1664,82 +1687,91 @@ export function TournamentPublicView({
               </div>
             </section>
           )}
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap gap-2" role="tablist" aria-label="Tournament details">
-              {(
-                [
-                  ['overview', 'Overview'],
-                  ...(hasRules ? ([['rules', 'Rules']] as Array<[typeof tab, string]>) : []),
-                  ['competition', 'Groups, Schedule & Results'],
-                  ...(adminContent
-                    ? [
-                        ['participants', 'Participants'],
-                        ['matches', 'Matches'],
-                        ['audit', 'Audit log'],
-                      ]
-                    : []),
-                ] as Array<[typeof tab, string]>
-              ).map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  role="tab"
-                  aria-selected={tab === key}
-                  onClick={() => {
-                    setTab(key);
-                    if (['participants', 'matches', 'audit'].includes(key)) {
-                      window.setTimeout(() => {
-                        window.dispatchEvent(
-                          new CustomEvent('pctc-tournament-category-change', {
-                            detail: { category: activeCategory },
-                          }),
-                        );
-                        window.dispatchEvent(
-                          new CustomEvent('pctc-tournament-tab-change', {
-                            detail: { tab: key },
-                          }),
-                        );
-                      }, 0);
-                    }
-                  }}
-                  className={`rounded-md border px-3 py-2 text-sm ${tab === key ? 'border-primary bg-primary/10 font-semibold' : 'border-border'}`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            {format !== 'team' &&
-              (config?.categories ?? ['mixed', 'men', 'women']).filter((category) =>
-                ['mixed', 'men', 'women'].includes(category),
-              ).length > 1 && (
+          {(!resultsOnly || rankingsControl) && (
+            <div className="flex w-full flex-wrap items-center justify-between gap-3">
+              {!resultsOnly && (
                 <div
-                  className="inline-flex flex-wrap rounded-md border border-border p-1"
-                  role="group"
-                  aria-label="Tournament category"
+                  className="flex flex-wrap gap-2"
+                  role="tablist"
+                  aria-label="Tournament details"
                 >
-                  {(config?.categories ?? ['mixed', 'men', 'women'])
-                    .filter((category) => ['mixed', 'men', 'women'].includes(category))
-                    .map((category) => (
-                      <button
-                        key={category}
-                        type="button"
-                        aria-pressed={activeCategory === category}
-                        onClick={() => {
-                          setActiveCategory(category);
-                          window.dispatchEvent(
-                            new CustomEvent('pctc-tournament-category-change', {
-                              detail: { category },
-                            }),
-                          );
-                        }}
-                        className={`rounded px-3 py-2 text-sm ${activeCategory === category ? 'bg-primary text-primary-foreground font-semibold' : 'hover:bg-secondary'}`}
-                      >
-                        {categoryLabel(category)}
-                      </button>
-                    ))}
+                  {(
+                    [
+                      ['overview', 'Overview'],
+                      ...(hasRules ? ([['rules', 'Rules']] as Array<[typeof tab, string]>) : []),
+                      ['competition', 'Groups, Schedule & Results'],
+                      ...(adminContent
+                        ? [
+                            ['participants', 'Participants'],
+                            ['matches', 'Matches'],
+                            ['audit', 'Audit log'],
+                          ]
+                        : []),
+                    ] as Array<[typeof tab, string]>
+                  ).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      role="tab"
+                      aria-selected={tab === key}
+                      onClick={() => {
+                        setTab(key);
+                        if (['participants', 'matches', 'audit'].includes(key)) {
+                          window.setTimeout(() => {
+                            window.dispatchEvent(
+                              new CustomEvent('pctc-tournament-category-change', {
+                                detail: { category: activeCategory },
+                              }),
+                            );
+                            window.dispatchEvent(
+                              new CustomEvent('pctc-tournament-tab-change', {
+                                detail: { tab: key },
+                              }),
+                            );
+                          }, 0);
+                        }
+                      }}
+                      className={`rounded-md border px-3 py-2 text-sm ${tab === key ? 'border-primary bg-primary/10 font-semibold' : 'border-border'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
               )}
-          </div>
+              {rankingsControl && <div className="order-1 shrink-0">{rankingsControl}</div>}
+              {format !== 'team' &&
+                (config?.categories ?? ['mixed', 'men', 'women']).filter((category) =>
+                  ['mixed', 'men', 'women'].includes(category),
+                ).length > 1 && (
+                  <div
+                    className="order-2 ml-auto inline-flex flex-wrap rounded-md border border-border p-1"
+                    role="group"
+                    aria-label="Tournament category"
+                  >
+                    {(config?.categories ?? ['mixed', 'men', 'women'])
+                      .filter((category) => ['mixed', 'men', 'women'].includes(category))
+                      .map((category) => (
+                        <button
+                          key={category}
+                          type="button"
+                          aria-pressed={activeCategory === category}
+                          onClick={() => {
+                            setActiveCategory(category);
+                            window.dispatchEvent(
+                              new CustomEvent('pctc-tournament-category-change', {
+                                detail: { category },
+                              }),
+                            );
+                          }}
+                          className={`rounded px-3 py-2 text-sm ${activeCategory === category ? 'bg-primary text-primary-foreground font-semibold' : 'hover:bg-secondary'}`}
+                        >
+                          {categoryLabel(category)}
+                        </button>
+                      ))}
+                  </div>
+                )}
+            </div>
+          )}
           {overrideEditor && adminContent && (
             <div
               className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4"
@@ -1882,7 +1914,17 @@ export function TournamentPublicView({
           {['participants', 'matches', 'audit'].includes(tab) && adminContent ? (
             adminContent
           ) : loading ? (
-            <p className="text-sm text-muted-foreground">Loading tournament details…</p>
+            <div
+              className="flex items-center gap-2 py-6 text-sm text-muted-foreground"
+              role="status"
+              aria-live="polite"
+            >
+              <span
+                className="h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent"
+                aria-hidden="true"
+              />
+              Loading tournament details…
+            </div>
           ) : tab === 'rules' && hasRules ? (
             <section className="rounded-lg border border-border p-4" aria-label="Tournament rules">
               <div
@@ -2900,390 +2942,403 @@ export function TournamentPublicView({
                     ))}
                 </details>
               )}
-              {categoryVisibleMatches.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No matches have been scheduled for this category yet.
-                </p>
-              ) : (
-                <details open className="space-y-3">
-                  <summary className="cursor-pointer text-lg font-semibold">
-                    Match schedule and results
-                  </summary>
-                  {categoryVisibleMatches.some((match) => match.phase.includes('round_robin')) && (
-                    <div
-                      className="inline-flex rounded-md border border-border p-1"
-                      role="group"
-                      aria-label="Group round-robin matches by"
-                    >
-                      {(['group', 'round'] as const).map((mode) => (
-                        <button
-                          key={mode}
-                          type="button"
-                          aria-pressed={competitionMatchGrouping === mode}
-                          onClick={() => setCompetitionMatchGrouping(mode)}
-                          className={`rounded px-3 py-2 text-sm ${competitionMatchGrouping === mode ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary'}`}
-                        >
-                          By {mode}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {([format === 'team' ? 'team' : activeCategory] as const)
-                    .filter((category) =>
-                      categoryVisibleMatches.some((m) => m.category === category),
-                    )
-                    .map((category) => (
-                      <div key={category} className="space-y-3">
-                        {[
-                          'preliminary_knockout',
-                          'final_knockout',
-                          'team_knockout',
-                          'round_robin',
-                          'team_round_robin',
-                        ]
-                          .filter((phase) =>
-                            categoryVisibleMatches.some(
-                              (m) => m.category === category && m.phase === phase,
-                            ),
-                          )
-                          .map((phase) => (
-                            <div key={phase}>
-                              <h4 className="font-medium">{phaseLabel(phase)}</h4>
-                              {(() => {
-                                const phaseMatches = categoryVisibleMatches
-                                  .filter((m) => m.category === category && m.phase === phase)
-                                  .sort((a, b) => {
-                                    if (
-                                      phase.includes('knockout') &&
-                                      a.round_number !== b.round_number
-                                    )
-                                      return a.round_number - b.round_number;
-                                    const aTime = a.scheduled_at
-                                      ? new Date(a.scheduled_at).getTime()
-                                      : Number.MAX_SAFE_INTEGER;
-                                    const bTime = b.scheduled_at
-                                      ? new Date(b.scheduled_at).getTime()
-                                      : Number.MAX_SAFE_INTEGER;
-                                    return (
-                                      aTime - bTime ||
-                                      (a.court_number ?? Number.MAX_SAFE_INTEGER) -
-                                        (b.court_number ?? Number.MAX_SAFE_INTEGER)
-                                    );
-                                  });
-                                const isRoundRobin = phase.includes('round_robin');
-                                const isKnockout = phase.includes('knockout');
-                                const stageCount = Math.max(
-                                  1,
-                                  ...phaseMatches.map((m) => m.round_number),
-                                );
-                                const grouped = isRoundRobin
-                                  ? Array.from(
-                                      new Set<string>(
-                                        phaseMatches.map((m) =>
-                                          competitionMatchGrouping === 'group'
-                                            ? `Group ${m.group_number ?? 'Unassigned'}`
-                                            : `Round ${roundRobinRoundByMatch.get(m.id) ?? m.round_number}`,
-                                        ),
-                                      ),
-                                    ).map((title) => ({
-                                      title,
-                                      matches: phaseMatches.filter(
-                                        (m) =>
-                                          (competitionMatchGrouping === 'group'
-                                            ? `Group ${m.group_number ?? 'Unassigned'}`
-                                            : `Round ${roundRobinRoundByMatch.get(m.id) ?? m.round_number}`) ===
-                                          title,
-                                      ),
-                                    }))
-                                  : isKnockout
+              {!resultsOnly &&
+                (categoryVisibleMatches.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No matches have been scheduled for this category yet.
+                  </p>
+                ) : (
+                  <details open className="space-y-3">
+                    <summary className="cursor-pointer text-lg font-semibold">
+                      Match schedule and results
+                    </summary>
+                    {categoryVisibleMatches.some((match) =>
+                      match.phase.includes('round_robin'),
+                    ) && (
+                      <div
+                        className="inline-flex rounded-md border border-border p-1"
+                        role="group"
+                        aria-label="Group round-robin matches by"
+                      >
+                        {(['group', 'round'] as const).map((mode) => (
+                          <button
+                            key={mode}
+                            type="button"
+                            aria-pressed={competitionMatchGrouping === mode}
+                            onClick={() => setCompetitionMatchGrouping(mode)}
+                            className={`rounded px-3 py-2 text-sm ${competitionMatchGrouping === mode ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary'}`}
+                          >
+                            By {mode}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {([format === 'team' ? 'team' : activeCategory] as const)
+                      .filter((category) =>
+                        categoryVisibleMatches.some((m) => m.category === category),
+                      )
+                      .map((category) => (
+                        <div key={category} className="space-y-3">
+                          {[
+                            'preliminary_knockout',
+                            'final_knockout',
+                            'team_knockout',
+                            'round_robin',
+                            'team_round_robin',
+                          ]
+                            .filter((phase) =>
+                              categoryVisibleMatches.some(
+                                (m) => m.category === category && m.phase === phase,
+                              ),
+                            )
+                            .map((phase) => (
+                              <div key={phase}>
+                                <h4 className="font-medium">{phaseLabel(phase)}</h4>
+                                {(() => {
+                                  const phaseMatches = categoryVisibleMatches
+                                    .filter((m) => m.category === category && m.phase === phase)
+                                    .sort((a, b) => {
+                                      if (
+                                        phase.includes('knockout') &&
+                                        a.round_number !== b.round_number
+                                      )
+                                        return a.round_number - b.round_number;
+                                      const aTime = a.scheduled_at
+                                        ? new Date(a.scheduled_at).getTime()
+                                        : Number.MAX_SAFE_INTEGER;
+                                      const bTime = b.scheduled_at
+                                        ? new Date(b.scheduled_at).getTime()
+                                        : Number.MAX_SAFE_INTEGER;
+                                      return (
+                                        aTime - bTime ||
+                                        (a.court_number ?? Number.MAX_SAFE_INTEGER) -
+                                          (b.court_number ?? Number.MAX_SAFE_INTEGER)
+                                      );
+                                    });
+                                  const isRoundRobin = phase.includes('round_robin');
+                                  const isKnockout = phase.includes('knockout');
+                                  const stageCount = Math.max(
+                                    1,
+                                    ...phaseMatches.map((m) => m.round_number),
+                                  );
+                                  const grouped = isRoundRobin
                                     ? Array.from(
-                                        new Set(
+                                        new Set<string>(
                                           phaseMatches.map((m) =>
-                                            knockoutStageLabel(m.round_number, stageCount),
+                                            competitionMatchGrouping === 'group'
+                                              ? `Group ${m.group_number ?? 'Unassigned'}`
+                                              : `Round ${roundRobinRoundByMatch.get(m.id) ?? m.round_number}`,
                                           ),
                                         ),
                                       ).map((title) => ({
                                         title,
                                         matches: phaseMatches.filter(
                                           (m) =>
-                                            knockoutStageLabel(m.round_number, stageCount) ===
+                                            (competitionMatchGrouping === 'group'
+                                              ? `Group ${m.group_number ?? 'Unassigned'}`
+                                              : `Round ${roundRobinRoundByMatch.get(m.id) ?? m.round_number}`) ===
                                             title,
                                         ),
                                       }))
-                                    : [{ title: '', matches: phaseMatches }];
-                                return (
-                                  <div className="mt-2 space-y-4">
-                                    {grouped.map((group) => (
-                                      <section key={group.title || phase} className="space-y-2">
-                                        {group.title && (
-                                          <h5 className="text-sm font-semibold text-muted-foreground">
-                                            {group.title}
-                                          </h5>
-                                        )}
-                                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                                          {group.matches.map((m) => (
-                                            <article
-                                              key={m.id}
-                                              className={`rounded-lg border border-border p-3 ${isOwnPair(m.pair_one_id) || isOwnPair(m.pair_two_id) || (format === 'team' && (ownTeamIds.includes(m.team_one_id || '') || ownTeamIds.includes(m.team_two_id || ''))) ? 'border-primary/40 bg-primary/[0.04]' : ''}`}
-                                            >
-                                              <div
-                                                className="grid items-center gap-x-2 gap-y-1"
-                                                style={{
-                                                  gridTemplateColumns: (m.score_sets ?? []).length
-                                                    ? `repeat(${m.score_sets.length}, 2.25rem) minmax(0,1fr)`
-                                                    : 'minmax(0,1fr)',
-                                                }}
+                                    : isKnockout
+                                      ? Array.from(
+                                          new Set(
+                                            phaseMatches.map((m) =>
+                                              knockoutStageLabel(m.round_number, stageCount),
+                                            ),
+                                          ),
+                                        ).map((title) => ({
+                                          title,
+                                          matches: phaseMatches.filter(
+                                            (m) =>
+                                              knockoutStageLabel(m.round_number, stageCount) ===
+                                              title,
+                                          ),
+                                        }))
+                                      : [{ title: '', matches: phaseMatches }];
+                                  return (
+                                    <div className="mt-2 space-y-4">
+                                      {grouped.map((group) => (
+                                        <section key={group.title || phase} className="space-y-2">
+                                          {group.title && (
+                                            <h5 className="text-sm font-semibold text-muted-foreground">
+                                              {group.title}
+                                            </h5>
+                                          )}
+                                          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                                            {group.matches.map((m) => (
+                                              <article
+                                                key={m.id}
+                                                className={`rounded-lg border border-border p-3 ${isOwnPair(m.pair_one_id) || isOwnPair(m.pair_two_id) || (format === 'team' && (ownTeamIds.includes(m.team_one_id || '') || ownTeamIds.includes(m.team_two_id || ''))) ? 'border-primary/40 bg-primary/[0.04]' : ''}`}
                                               >
-                                                {(m.score_sets ?? []).map((set, index) => (
-                                                  <span
-                                                    key={`one-${index}`}
-                                                    className={`rounded border border-border px-1 py-1 text-center text-[15px] font-mono tabular-nums ${set.one > set.two ? 'font-bold' : ''}`}
-                                                  >
-                                                    {set.one}
-                                                  </span>
-                                                ))}
                                                 <div
-                                                  className={`min-w-0 truncate ${m.winner_side === 1 ? 'font-semibold' : ''}`}
+                                                  className="grid items-center gap-x-2 gap-y-1"
+                                                  style={{
+                                                    gridTemplateColumns: (m.score_sets ?? []).length
+                                                      ? `repeat(${m.score_sets.length}, 2.25rem) minmax(0,1fr)`
+                                                      : 'minmax(0,1fr)',
+                                                  }}
                                                 >
-                                                  {m.phase.includes('knockout')
-                                                    ? bracketSideLabel(
-                                                        m,
-                                                        1,
-                                                        Math.max(
-                                                          1,
-                                                          ...categoryVisibleMatches
-                                                            .filter(
-                                                              (item) => item.phase === m.phase,
-                                                            )
-                                                            .map((item) => item.round_number),
-                                                        ),
-                                                      )
-                                                    : format === 'team'
-                                                      ? m.team_one_name || 'TBD'
-                                                      : m.player_one_name || 'TBD'}
-                                                  {(format === 'team'
-                                                    ? ownTeamIds.includes(m.team_one_id || '')
-                                                    : isOwnPair(m.pair_one_id)) && (
-                                                    <span className="ml-2 inline-flex rounded-full bg-primary/10 px-1.5 py-0.5 align-middle text-[10px] font-medium text-primary">
-                                                      You
+                                                  {(m.score_sets ?? []).map((set, index) => (
+                                                    <span
+                                                      key={`one-${index}`}
+                                                      className={`rounded border border-border px-1 py-1 text-center text-[15px] font-mono tabular-nums ${set.one > set.two ? 'font-bold' : ''}`}
+                                                    >
+                                                      {set.one}
                                                     </span>
-                                                  )}
-                                                </div>
-                                                {(m.score_sets ?? []).map((set, index) => (
-                                                  <span
-                                                    key={`two-${index}`}
-                                                    className={`rounded border border-border px-1 py-1 text-center text-[15px] font-mono tabular-nums ${set.two > set.one ? 'font-bold' : ''}`}
+                                                  ))}
+                                                  <div
+                                                    className={`min-w-0 truncate ${m.winner_side === 1 ? 'font-semibold' : ''}`}
                                                   >
-                                                    {set.two}
-                                                  </span>
-                                                ))}
-                                                <div
-                                                  className={`min-w-0 truncate ${m.winner_side === 2 ? 'font-semibold' : ''}`}
-                                                >
-                                                  {m.phase.includes('knockout')
-                                                    ? bracketSideLabel(
-                                                        m,
-                                                        2,
-                                                        Math.max(
+                                                    {m.phase.includes('knockout')
+                                                      ? bracketSideLabel(
+                                                          m,
                                                           1,
-                                                          ...categoryVisibleMatches
-                                                            .filter(
-                                                              (item) => item.phase === m.phase,
-                                                            )
-                                                            .map((item) => item.round_number),
-                                                        ),
-                                                      )
-                                                    : format === 'team'
-                                                      ? m.team_two_name || 'TBD'
-                                                      : m.opponent_one_name || 'TBD'}
-                                                  {(format === 'team'
-                                                    ? ownTeamIds.includes(m.team_two_id || '')
-                                                    : isOwnPair(m.pair_two_id)) && (
-                                                    <span className="ml-2 inline-flex rounded-full bg-primary/10 px-1.5 py-0.5 align-middle text-[10px] font-medium text-primary">
-                                                      You
+                                                          Math.max(
+                                                            1,
+                                                            ...categoryVisibleMatches
+                                                              .filter(
+                                                                (item) => item.phase === m.phase,
+                                                              )
+                                                              .map((item) => item.round_number),
+                                                          ),
+                                                        )
+                                                      : format === 'team'
+                                                        ? m.team_one_name || 'TBD'
+                                                        : m.player_one_name || 'TBD'}
+                                                    {(format === 'team'
+                                                      ? ownTeamIds.includes(m.team_one_id || '')
+                                                      : isOwnPair(m.pair_one_id)) && (
+                                                      <span className="ml-2 inline-flex rounded-full bg-primary/10 px-1.5 py-0.5 align-middle text-[10px] font-medium text-primary">
+                                                        You
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                  {(m.score_sets ?? []).map((set, index) => (
+                                                    <span
+                                                      key={`two-${index}`}
+                                                      className={`rounded border border-border px-1 py-1 text-center text-[15px] font-mono tabular-nums ${set.two > set.one ? 'font-bold' : ''}`}
+                                                    >
+                                                      {set.two}
                                                     </span>
-                                                  )}
+                                                  ))}
+                                                  <div
+                                                    className={`min-w-0 truncate ${m.winner_side === 2 ? 'font-semibold' : ''}`}
+                                                  >
+                                                    {m.phase.includes('knockout')
+                                                      ? bracketSideLabel(
+                                                          m,
+                                                          2,
+                                                          Math.max(
+                                                            1,
+                                                            ...categoryVisibleMatches
+                                                              .filter(
+                                                                (item) => item.phase === m.phase,
+                                                              )
+                                                              .map((item) => item.round_number),
+                                                          ),
+                                                        )
+                                                      : format === 'team'
+                                                        ? m.team_two_name || 'TBD'
+                                                        : m.opponent_one_name || 'TBD'}
+                                                    {(format === 'team'
+                                                      ? ownTeamIds.includes(m.team_two_id || '')
+                                                      : isOwnPair(m.pair_two_id)) && (
+                                                      <span className="ml-2 inline-flex rounded-full bg-primary/10 px-1.5 py-0.5 align-middle text-[10px] font-medium text-primary">
+                                                        You
+                                                      </span>
+                                                    )}
+                                                  </div>
                                                 </div>
-                                              </div>
-                                              <p className="mt-2 text-xs text-muted-foreground">
-                                                {[
-                                                  m.group_number ? `Group ${m.group_number}` : null,
-                                                  m.phase.includes('knockout')
-                                                    ? `${knockoutStageLabel(m.round_number, Math.max(1, ...categoryVisibleMatches.filter((item) => item.phase === m.phase).map((item) => item.round_number)))} ${m.match_number}`
-                                                    : `Round ${roundRobinRoundByMatch.get(m.id) ?? m.round_number}`,
-                                                  m.status === 'bye'
-                                                    ? null
-                                                    : dateLabel(m.scheduled_at),
-                                                  m.status !== 'bye' && m.scheduled_at
-                                                    ? `Ends ${formatTime(new Date(new Date(m.scheduled_at).getTime() + Math.max(30, Number(config?.schedule?.match_minutes ?? 60)) * 60000))}`
-                                                    : null,
-                                                  m.court_number ? `Court ${m.court_number}` : null,
-                                                ]
-                                                  .filter(Boolean)
-                                                  .join(' · ')}
-                                              </p>
-                                              {!(m.score_sets ?? []).length && (
-                                                <p className="mt-1 text-xs text-muted-foreground">
-                                                  {m.status === 'bye'
-                                                    ? 'Walkover — winner advances'
-                                                    : m.status === 'completed'
-                                                      ? 'Walkover / result recorded'
-                                                      : 'Upcoming'}
-                                                </p>
-                                              )}
-                                              {format === 'team' && m.status === 'completed' && (
                                                 <p className="mt-2 text-xs text-muted-foreground">
-                                                  Team standings points: {m.team_points_one} –{' '}
-                                                  {m.team_points_two}
+                                                  {[
+                                                    m.group_number
+                                                      ? `Group ${m.group_number}`
+                                                      : null,
+                                                    m.phase.includes('knockout')
+                                                      ? `${knockoutStageLabel(m.round_number, Math.max(1, ...categoryVisibleMatches.filter((item) => item.phase === m.phase).map((item) => item.round_number)))} ${m.match_number}`
+                                                      : `Round ${roundRobinRoundByMatch.get(m.id) ?? m.round_number}`,
+                                                    m.status === 'bye'
+                                                      ? null
+                                                      : dateLabel(m.scheduled_at),
+                                                    m.status !== 'bye' && m.scheduled_at
+                                                      ? `Ends ${formatTime(new Date(new Date(m.scheduled_at).getTime() + Math.max(30, Number(config?.schedule?.match_minutes ?? 60)) * 60000))}`
+                                                      : null,
+                                                    m.court_number
+                                                      ? `Court ${m.court_number}`
+                                                      : null,
+                                                  ]
+                                                    .filter(Boolean)
+                                                    .join(' · ')}
                                                 </p>
-                                              )}
-                                              {format === 'team' &&
-                                                currentUserId &&
-                                                ([1, 2] as const)
-                                                  .filter(
-                                                    (side) =>
-                                                      m.status !== 'completed' &&
-                                                      m.status !== 'cancelled' &&
-                                                      (() => {
-                                                        const teamId =
-                                                          side === 1
-                                                            ? m.team_one_id
-                                                            : m.team_two_id;
-                                                        return (
-                                                          !!teamId &&
-                                                          teams.some(
-                                                            (team) =>
-                                                              team.id === teamId &&
-                                                              team.captain_user_id ===
-                                                                currentUserId,
-                                                          )
+                                                {!(m.score_sets ?? []).length && (
+                                                  <p className="mt-1 text-xs text-muted-foreground">
+                                                    {m.status === 'bye'
+                                                      ? 'Walkover — winner advances'
+                                                      : m.status === 'completed'
+                                                        ? 'Walkover / result recorded'
+                                                        : 'Upcoming'}
+                                                  </p>
+                                                )}
+                                                {format === 'team' && m.status === 'completed' && (
+                                                  <p className="mt-2 text-xs text-muted-foreground">
+                                                    Team standings points: {m.team_points_one} –{' '}
+                                                    {m.team_points_two}
+                                                  </p>
+                                                )}
+                                                {format === 'team' &&
+                                                  currentUserId &&
+                                                  ([1, 2] as const)
+                                                    .filter(
+                                                      (side) =>
+                                                        m.status !== 'completed' &&
+                                                        m.status !== 'cancelled' &&
+                                                        (() => {
+                                                          const teamId =
+                                                            side === 1
+                                                              ? m.team_one_id
+                                                              : m.team_two_id;
+                                                          return (
+                                                            !!teamId &&
+                                                            teams.some(
+                                                              (team) =>
+                                                                team.id === teamId &&
+                                                                team.captain_user_id ===
+                                                                  currentUserId,
+                                                            )
+                                                          );
+                                                        })(),
+                                                    )
+                                                    .map((side) => {
+                                                      const teamId = (
+                                                        side === 1 ? m.team_one_id : m.team_two_id
+                                                      )!;
+                                                      const currentSidePlayers =
+                                                        matchPlayers.filter(
+                                                          (p) =>
+                                                            p.match_id === m.id &&
+                                                            p.team_id === teamId,
                                                         );
-                                                      })(),
-                                                  )
-                                                  .map((side) => {
-                                                    const teamId = (
-                                                      side === 1 ? m.team_one_id : m.team_two_id
-                                                    )!;
-                                                    const currentSidePlayers = matchPlayers.filter(
-                                                      (p) =>
-                                                        p.match_id === m.id && p.team_id === teamId,
-                                                    );
-                                                    const roster = participants.filter(
-                                                      (p) => p.team_id === teamId,
-                                                    );
-                                                    return (
-                                                      <div
-                                                        key={`${m.id}-pairing-${side}`}
-                                                        className="mt-3 rounded-md bg-secondary/30 p-3"
-                                                      >
-                                                        <p className="text-sm font-medium">
-                                                          Your team pairing (
-                                                          {side === 1 ? 'Side one' : 'Side two'})
-                                                        </p>
-                                                        <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                                                          <label className="text-xs">
-                                                            Player one
-                                                            <select
-                                                              id={`captain-pair-${m.id}-${side}-a`}
-                                                              className="mt-1 block h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                                                              defaultValue={
-                                                                currentSidePlayers[0]
-                                                                  ?.participant_id ?? ''
-                                                              }
-                                                            >
-                                                              <option value="">
-                                                                Select player
-                                                              </option>
-                                                              {roster.map((p) => (
-                                                                <option key={p.id} value={p.id}>
-                                                                  {p.display_name}
+                                                      const roster = participants.filter(
+                                                        (p) => p.team_id === teamId,
+                                                      );
+                                                      return (
+                                                        <div
+                                                          key={`${m.id}-pairing-${side}`}
+                                                          className="mt-3 rounded-md bg-secondary/30 p-3"
+                                                        >
+                                                          <p className="text-sm font-medium">
+                                                            Your team pairing (
+                                                            {side === 1 ? 'Side one' : 'Side two'})
+                                                          </p>
+                                                          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                                                            <label className="text-xs">
+                                                              Player one
+                                                              <select
+                                                                id={`captain-pair-${m.id}-${side}-a`}
+                                                                className="mt-1 block h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                                                                defaultValue={
+                                                                  currentSidePlayers[0]
+                                                                    ?.participant_id ?? ''
+                                                                }
+                                                              >
+                                                                <option value="">
+                                                                  Select player
                                                                 </option>
-                                                              ))}
-                                                            </select>
-                                                          </label>
-                                                          <label className="text-xs">
-                                                            Player two
-                                                            <select
-                                                              id={`captain-pair-${m.id}-${side}-b`}
-                                                              className="mt-1 block h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                                                              defaultValue={
-                                                                currentSidePlayers[1]
-                                                                  ?.participant_id ?? ''
-                                                              }
-                                                            >
-                                                              <option value="">
-                                                                Select player
-                                                              </option>
-                                                              {roster
-                                                                .filter(
-                                                                  (p) =>
-                                                                    p.id !==
-                                                                    currentSidePlayers[0]
-                                                                      ?.participant_id,
-                                                                )
-                                                                .map((p) => (
+                                                                {roster.map((p) => (
                                                                   <option key={p.id} value={p.id}>
                                                                     {p.display_name}
                                                                   </option>
                                                                 ))}
-                                                            </select>
-                                                          </label>
+                                                              </select>
+                                                            </label>
+                                                            <label className="text-xs">
+                                                              Player two
+                                                              <select
+                                                                id={`captain-pair-${m.id}-${side}-b`}
+                                                                className="mt-1 block h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                                                                defaultValue={
+                                                                  currentSidePlayers[1]
+                                                                    ?.participant_id ?? ''
+                                                                }
+                                                              >
+                                                                <option value="">
+                                                                  Select player
+                                                                </option>
+                                                                {roster
+                                                                  .filter(
+                                                                    (p) =>
+                                                                      p.id !==
+                                                                      currentSidePlayers[0]
+                                                                        ?.participant_id,
+                                                                  )
+                                                                  .map((p) => (
+                                                                    <option key={p.id} value={p.id}>
+                                                                      {p.display_name}
+                                                                    </option>
+                                                                  ))}
+                                                              </select>
+                                                            </label>
+                                                          </div>
+                                                          <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                              void saveCaptainPairing(
+                                                                m,
+                                                                teamId,
+                                                                side,
+                                                              )
+                                                            }
+                                                            className="mt-2 h-8 rounded-md border border-border px-3 text-sm"
+                                                          >
+                                                            Save pairing
+                                                          </button>
                                                         </div>
-                                                        <button
-                                                          type="button"
-                                                          onClick={() =>
-                                                            void saveCaptainPairing(m, teamId, side)
-                                                          }
-                                                          className="mt-2 h-8 rounded-md border border-border px-3 text-sm"
-                                                        >
-                                                          Save pairing
-                                                        </button>
-                                                      </div>
-                                                    );
-                                                  })}
-                                              {format === 'team' &&
-                                                currentUserId &&
-                                                teams.some(
-                                                  (team) =>
-                                                    team.captain_user_id === currentUserId &&
-                                                    (team.id === m.team_one_id ||
-                                                      team.id === m.team_two_id),
-                                                ) && (
-                                                  <div className="mt-3 flex flex-wrap items-end gap-2">
-                                                    <label className="text-xs">
-                                                      Edit result (sets)
-                                                      <input
-                                                        id={`captain-score-${m.id}`}
-                                                        defaultValue={(m.score_sets ?? [])
-                                                          .map((set) => `${set.one}-${set.two}`)
-                                                          .join(', ')}
-                                                        placeholder="6-4, 3-6, 10-8"
-                                                        className="mt-1 block h-9 w-64 rounded-md border border-input bg-background px-2 text-sm"
-                                                      />
-                                                    </label>
-                                                    <button
-                                                      type="button"
-                                                      onClick={() => void saveCaptainScore(m)}
-                                                      className="h-9 rounded-md border border-border px-3 text-sm"
-                                                    >
-                                                      Save result
-                                                    </button>
-                                                  </div>
-                                                )}
-                                            </article>
-                                          ))}
-                                        </div>
-                                      </section>
-                                    ))}
-                                  </div>
-                                );
-                              })()}
-                            </div>
-                          ))}
-                      </div>
-                    ))}
-                </details>
-              )}
+                                                      );
+                                                    })}
+                                                {format === 'team' &&
+                                                  currentUserId &&
+                                                  teams.some(
+                                                    (team) =>
+                                                      team.captain_user_id === currentUserId &&
+                                                      (team.id === m.team_one_id ||
+                                                        team.id === m.team_two_id),
+                                                  ) && (
+                                                    <div className="mt-3 flex flex-wrap items-end gap-2">
+                                                      <label className="text-xs">
+                                                        Edit result (sets)
+                                                        <input
+                                                          id={`captain-score-${m.id}`}
+                                                          defaultValue={(m.score_sets ?? [])
+                                                            .map((set) => `${set.one}-${set.two}`)
+                                                            .join(', ')}
+                                                          placeholder="6-4, 3-6, 10-8"
+                                                          className="mt-1 block h-9 w-64 rounded-md border border-input bg-background px-2 text-sm"
+                                                        />
+                                                      </label>
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => void saveCaptainScore(m)}
+                                                        className="h-9 rounded-md border border-border px-3 text-sm"
+                                                      >
+                                                        Save result
+                                                      </button>
+                                                    </div>
+                                                  )}
+                                              </article>
+                                            ))}
+                                          </div>
+                                        </section>
+                                      ))}
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+                            ))}
+                        </div>
+                      ))}
+                  </details>
+                ))}
             </div>
           )}
         </>

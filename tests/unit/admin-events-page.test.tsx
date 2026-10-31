@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
   redirect: (path: string) => {
     throw new Error(`redirect:${path}`);
   },
