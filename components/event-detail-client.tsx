@@ -1,6 +1,5 @@
 'use client';
 import { formatDateTime } from '@/lib/time-format';
-import { eventEditPath } from '@/lib/event-slug';
 import { TennisLoader } from '@/components/tennis-loader';
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
@@ -863,11 +862,6 @@ export function EventDetailClient({
                 )}
               </Button>
             )}
-            {isManager && (
-              <Button asChild variant="outline">
-                <Link href={eventEditPath(event)}>Edit event</Link>
-              </Button>
-            )}
           </div>
         </div>
         {event.status === 'cancelled' && (
@@ -1252,7 +1246,7 @@ export function EventDetailClient({
                     className={`mt-3 grid gap-3 sm:grid-cols-2 ${isManager ? 'lg:grid-cols-5' : 'lg:grid-cols-4'}`}
                   >
                     <label className="space-y-1 text-sm">
-                      Court / time slot
+                      Court / sub-session
                       <select
                         required
                         value={scoreCourt}
@@ -1269,7 +1263,7 @@ export function EventDetailClient({
                             key={`${c.court_number}-${c.segment_order}`}
                             value={`${c.court_number}:${c.segment_order}`}
                           >
-                            Court {c.court_number} · Time slot {c.segment_order}
+                            Court {c.court_number} · Sub-session {c.segment_order}
                           </option>
                         ))}
                       </select>

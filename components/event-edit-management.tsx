@@ -621,19 +621,10 @@ export function EventEditManagement({
     }
   }
   function openCourtModal() {
-    const max = Math.max(1, ...assignments.map((a) => a.segment_order));
-    const built: Session[] = [];
-    for (let i = 1; i <= max; i++) {
-      const session: Session = { 1: [], 2: [], 3: [], 4: [] };
-      for (const a of assignments.filter((x) => x.segment_order === i))
-        session[a.court_number].push(a.registration_id);
-      built.push(session);
-    }
-    if (!assignments.length) {
-      const empty: Session = { 1: [], 2: [], 3: [], 4: [] };
-      built.push(empty);
-    }
-    setSessions(built);
+    const first: Session = { 1: [], 2: [], 3: [], 4: [] };
+    for (const assignment of assignments.filter((item) => item.segment_order === 1))
+      first[assignment.court_number].push(assignment.registration_id);
+    setSessions([first]);
     setModalOpen(true);
   }
   function addSession() {
@@ -1130,7 +1121,11 @@ export function EventEditManagement({
                               <div
                                 key={id}
                                 draggable
-                                onDragStart={() => setDragging(id)}
+                                onDragStart={(event) => {
+                                  setDragging(id);
+                                  event.dataTransfer?.setData('text/plain', id);
+                                  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+                                }}
                                 onDragEnd={() => setDragging(null)}
                                 className="flex cursor-grab items-center gap-2 rounded-lg border border-border bg-background p-2 shadow-sm active:cursor-grabbing"
                               >
@@ -1161,22 +1156,6 @@ export function EventEditManagement({
                                     {p.tennis_skill_level ?? '—'}
                                   </p>
                                 </div>
-                                <button
-                                  type="button"
-                                  aria-label={`Unassign ${p.full_name}`}
-                                  className="ml-auto text-muted-foreground"
-                                  onClick={() =>
-                                    setSessions((old) =>
-                                      old.map((s, i) =>
-                                        i === si
-                                          ? { ...s, [court]: s[court].filter((x) => x !== id) }
-                                          : s,
-                                      ),
-                                    )
-                                  }
-                                >
-                                  ×
-                                </button>
                               </div>
                             );
                           })}
@@ -1184,7 +1163,30 @@ export function EventEditManagement({
                       </div>
                     ))}
                   </div>
-                  <div className="mt-3 rounded-lg bg-muted/30 p-3">
+                  <div
+                    className="mt-3 min-h-20 rounded-lg border-2 border-dashed border-border bg-muted/30 p-3"
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const id = dragging || event.dataTransfer.getData('text/plain');
+                      if (!id) return;
+                      setSessions((old) =>
+                        old.map((current, index) => {
+                          if (index !== si) return current;
+                          const next: Session = {
+                            1: [...current[1]],
+                            2: [...current[2]],
+                            3: [...current[3]],
+                            4: [...current[4]],
+                          };
+                          for (const court of [1, 2, 3, 4])
+                            next[court] = next[court].filter((playerId) => playerId !== id);
+                          return next;
+                        }),
+                      );
+                      setDragging(null);
+                    }}
+                  >
                     <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       Unassigned players
                     </p>
@@ -1199,7 +1201,11 @@ export function EventEditManagement({
                           <div
                             key={p.registration_id}
                             draggable
-                            onDragStart={() => setDragging(p.registration_id)}
+                            onDragStart={(event) => {
+                              setDragging(p.registration_id);
+                              event.dataTransfer.setData('text/plain', p.registration_id);
+                              event.dataTransfer.effectAllowed = 'move';
+                            }}
                             onDragEnd={() => setDragging(null)}
                             className="flex cursor-grab items-center gap-2 rounded-lg border border-border bg-background p-2"
                           >

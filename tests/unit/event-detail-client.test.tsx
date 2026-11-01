@@ -336,7 +336,7 @@ describe('EventDetailClient registration workflow', () => {
       currentStatus: 'confirmed',
       canViewParticipants: true,
     });
-    await user.selectOptions(screen.getByLabelText('Court / time slot'), '1:1');
+    await user.selectOptions(screen.getByLabelText('Court / sub-session'), '1:1');
     await user.type(screen.getByLabelText('Your team score'), '6');
     await user.type(screen.getByLabelText('Opponents’ score'), '4');
     fireEvent.submit(screen.getByText('Add a score').closest('form') as HTMLFormElement);
@@ -389,7 +389,7 @@ describe('EventDetailClient registration workflow', () => {
       currentStatus: 'confirmed',
       canViewParticipants: true,
     });
-    await user.selectOptions(screen.getByLabelText('Court / time slot'), '1:1');
+    await user.selectOptions(screen.getByLabelText('Court / sub-session'), '1:1');
     await user.type(screen.getByLabelText('Your team score'), '7');
     await user.type(screen.getByLabelText('Opponents’ score'), '5');
     fireEvent.submit(screen.getByText('Add a score').closest('form') as HTMLFormElement);
@@ -440,7 +440,7 @@ describe('EventDetailClient registration workflow', () => {
       currentStatus: 'confirmed',
       canViewParticipants: true,
     });
-    await user.selectOptions(await screen.findByLabelText('Court / time slot'), '1:1');
+    await user.selectOptions(await screen.findByLabelText('Court / sub-session'), '1:1');
     await user.type(screen.getByLabelText('Your team score'), '6');
     await user.type(screen.getByLabelText('Opponents’ score'), '2');
     fireEvent.submit(screen.getByText('Add a score').closest('form') as HTMLFormElement);

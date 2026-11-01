@@ -31,6 +31,8 @@ describe('public tournament skill-level display migration', () => {
     expect(publicView).toContain('participant.tennis_skill_level');
     expect(publicView).toContain('pair.player_one_skill_level');
     expect(publicView).toContain('pair.player_two_skill_level');
-    expect(publicView).toContain('aria-label="Registered entries"');
+    expect(publicView).toContain(
+      "aria-label={leagueTournament ? 'Players and courts' : 'Registered entries'}",
+    );
   });
 });

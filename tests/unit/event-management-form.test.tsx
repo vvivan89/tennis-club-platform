@@ -64,6 +64,11 @@ describe('Social Doubles Ladder ranking criteria controls', () => {
     const user = userEvent.setup();
     render(<EventManagementForm currentUserId="admin-1" />);
     await user.selectOptions(screen.getByLabelText('Event type'), 'social_doubles_ladder');
+    expect(
+      screen.getByText(
+        'This is a unique name. It will aggregate results of all events associated with this ladder',
+      ),
+    ).toBeInTheDocument();
 
     const selected = screen.getByRole('list', { name: 'Ladder ranking priorities' });
     const initial = Array.from(selected.querySelectorAll('li')).map(
@@ -90,6 +95,61 @@ describe('Social Doubles Ladder ranking criteria controls', () => {
 });
 
 describe('tournament configuration controls', () => {
+  it('configures League as one gender and a single round-robin group while keeping group standings priorities', async () => {
+    const user = userEvent.setup();
+    render(<EventManagementForm currentUserId="admin-1" />);
+    await user.selectOptions(screen.getByLabelText('Event type'), 'league_tournament');
+
+    const leagueConfiguration = screen.getByRole('heading', { name: 'League configuration' });
+    const leagueName = screen.getByLabelText('League name');
+    const leagueGender = screen.getByLabelText('League gender');
+    const existingLeague = screen.getByLabelText('Associate with existing league (optional)');
+    expect(
+      screen.getByText(
+        'This is a unique name. It will aggregate results of all events associated with this league',
+      ),
+    ).toBeInTheDocument();
+    expect(leagueConfiguration.closest('section')).toContainElement(leagueName);
+    expect(leagueConfiguration.closest('section')).toContainElement(existingLeague);
+    expect(
+      leagueGender.compareDocumentPosition(existingLeague) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      existingLeague.compareDocumentPosition(leagueName) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole('heading', { name: 'Tournament configuration' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Event type').closest('section')).not.toContainElement(leagueName);
+    expect(screen.getByLabelText('Event type').closest('section')).toContainElement(
+      screen.getByLabelText('Description'),
+    );
+    expect(screen.getByLabelText('Maximum attendees')).toBeInTheDocument();
+    expect(leagueGender).toHaveValue('male');
+    expect(screen.getByRole('button', { name: 'Series of events' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByLabelText('Repeat until')).toBeInTheDocument();
+    const registrationOptions = screen.getByText('Registration options').closest('fieldset');
+    expect(screen.queryByLabelText('Match scoring template')).not.toBeInTheDocument();
+    expect(registrationOptions).toBeInTheDocument();
+    expect(screen.queryByTestId('tournament-rules-editor')).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText('Approximate match length for scheduling (minutes)'),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Break between matches (minutes)')).not.toBeInTheDocument();
+    expect(screen.queryByText('Enabled doubles categories and capacity')).not.toBeInTheDocument();
+    expect(screen.queryByText('Group count')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Round robin')).not.toBeInTheDocument();
+    expect(screen.getByRole('list', { name: 'Group ranking priorities' })).toBeInTheDocument();
+    await user.selectOptions(leagueGender, 'female');
+    expect(leagueGender).toHaveValue('female');
+    await user.click(screen.getByRole('button', { name: 'Single event' }));
+    expect(screen.getByLabelText('Event starts')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create event' })).toBeInTheDocument();
+  });
+
   it('allows all ranking criteria to be reordered and stores the resulting priority order', async () => {
     const user = userEvent.setup();
     render(<EventManagementForm currentUserId="admin-1" />);

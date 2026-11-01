@@ -102,20 +102,26 @@ const localDateTime = (value: string | null) =>
 
 export function TournamentManagement({
   eventId,
+  leagueId = null,
   eventStartsAt,
   eventEndsAt,
   courtCount,
   format,
   config,
   priceCents,
+  leagueTournament = false,
+  leagueGender = null,
 }: {
   eventId: string;
+  leagueId?: string | null;
   eventStartsAt: string;
   eventEndsAt: string | null;
   courtCount: number;
   format: string | null;
   config: TournamentConfig | null;
   priceCents: number;
+  leagueTournament?: boolean;
+  leagueGender?: string | null;
 }) {
   const db = createSupabaseBrowserClient();
   const [teams, setTeams] = useState<Team[]>([]);
@@ -179,6 +185,9 @@ export function TournamentManagement({
   const [pairCategory, setPairCategory] = useState((config?.categories ?? ['mixed'])[0] ?? 'mixed');
   const [pairOne, setPairOne] = useState('');
   const [pairTwo, setPairTwo] = useState('');
+  const [leagueMemberEligibility, setLeagueMemberEligibility] = useState<Record<string, boolean>>(
+    {},
+  );
   const [matchCategory, setMatchCategory] = useState(
     format === 'team' ? 'team' : ((config?.categories ?? ['mixed'])[0] ?? 'mixed'),
   );
@@ -191,31 +200,41 @@ export function TournamentManagement({
   const [matchCourt, setMatchCourt] = useState('');
 
   const refresh = useCallback(async () => {
-    const [teamResult, participantResult, pairResult, matchResult, memberResult, auditResult] =
-      await Promise.all([
-        db.from('tournament_teams').select('*').eq('event_id', eventId).order('name'),
-        db
-          .from('tournament_participants')
-          .select(
-            'id,user_id,team_id,category,payment_status,amount_cents,display_name,email,phone,gender,gender_override,status',
-          )
-          .eq('event_id', eventId)
-          .order('display_name'),
-        db.from('tournament_pairs').select('*').eq('event_id', eventId).order('category'),
-        db
-          .from('tournament_matches')
-          .select('*')
-          .eq('event_id', eventId)
-          .order('scheduled_at', { ascending: true, nullsFirst: false })
-          .order('court_number', { ascending: true, nullsFirst: true }),
-        db.rpc('event_tournament_member_directory', { p_event_id: eventId }),
-        db
-          .from('tournament_audit_log')
-          .select('id,actor_user_id,action,entity_type,entity_id,before_data,after_data,created_at')
-          .eq('event_id', eventId)
-          .order('created_at', { ascending: false })
-          .limit(30),
-      ]);
+    const [
+      teamResult,
+      participantResult,
+      pairResult,
+      matchResult,
+      memberResult,
+      auditResult,
+      leagueEligibilityResult,
+    ] = await Promise.all([
+      db.from('tournament_teams').select('*').eq('event_id', eventId).order('name'),
+      db
+        .from('tournament_participants')
+        .select(
+          'id,user_id,team_id,category,payment_status,amount_cents,display_name,email,phone,gender,gender_override,status',
+        )
+        .eq('event_id', eventId)
+        .order('display_name'),
+      db.from('tournament_pairs').select('*').eq('event_id', eventId).order('category'),
+      db
+        .from('tournament_matches')
+        .select('*')
+        .eq('event_id', eventId)
+        .order('scheduled_at', { ascending: true, nullsFirst: false })
+        .order('court_number', { ascending: true, nullsFirst: true }),
+      db.rpc('event_tournament_member_directory', { p_event_id: eventId }),
+      db
+        .from('tournament_audit_log')
+        .select('id,actor_user_id,action,entity_type,entity_id,before_data,after_data,created_at')
+        .eq('event_id', eventId)
+        .order('created_at', { ascending: false })
+        .limit(30),
+      leagueTournament
+        ? db.rpc('league_event_pair_eligibility', { p_event_id: eventId })
+        : Promise.resolve({ data: [], error: null }),
+    ]);
     const firstError =
       teamResult.error || participantResult.error || pairResult.error || matchResult.error;
     if (firstError) {
@@ -238,6 +257,18 @@ export function TournamentManagement({
     setParticipants((previous) =>
       JSON.stringify(previous) === JSON.stringify(nextParticipants) ? previous : nextParticipants,
     );
+    if (leagueTournament && !leagueEligibilityResult.error) {
+      setLeagueMemberEligibility(
+        Object.fromEntries(
+          (
+            (leagueEligibilityResult.data ?? []) as Array<{
+              user_id: string;
+              eligible: boolean;
+            }>
+          ).map((entry) => [entry.user_id, entry.eligible]),
+        ),
+      );
+    } else if (!leagueTournament) setLeagueMemberEligibility({});
     setPairs((previous) =>
       JSON.stringify(previous) === JSON.stringify(nextPairs) ? previous : nextPairs,
     );
@@ -266,7 +297,7 @@ export function TournamentManagement({
       JSON.stringify(previous) === JSON.stringify(nextAuditRows) ? previous : nextAuditRows,
     );
     window.dispatchEvent(new CustomEvent('pctc-tournament-data-refresh', { detail: { eventId } }));
-  }, [db, eventId]);
+  }, [db, eventId, leagueTournament]);
 
   useEffect(() => {
     const closeOutsideMenus = (event: PointerEvent) => {
@@ -576,11 +607,34 @@ export function TournamentManagement({
   async function addParticipant(e: FormEvent) {
     e.preventDefault();
     const selected = members.find((m) => m.id === memberId);
+    if (leagueTournament && !selected) {
+      setError('Select an eligible active member for this League event.');
+      return;
+    }
+    if (leagueTournament && selected && leagueMemberEligibility[selected.id] !== true) {
+      setError('An active paid membership is required to join a League event.');
+      return;
+    }
+    const targetCategory = isTeam
+      ? 'team'
+      : leagueTournament
+        ? leagueGender === 'male'
+          ? 'men'
+          : 'women'
+        : activeCategory;
+    if (
+      leagueTournament &&
+      selected &&
+      !isTeam &&
+      hasOpposingGenderProfile(selected.gender, targetCategory)
+    ) {
+      setError('This player’s profile gender does not match the selected doubles category.');
+      return;
+    }
     if (!selected && !participantName.trim()) {
       setError('Enter a participant name or select a member.');
       return;
     }
-    const targetCategory = isTeam ? 'team' : activeCategory;
     const registrationGender = selected?.gender || participantGender || null;
     const emailKey = (selected?.email || participantEmail).trim().toLowerCase();
     const oppositeCategory =
@@ -601,12 +655,43 @@ export function TournamentManagement({
       );
       return;
     }
+    if (leagueTournament && selected) {
+      if (!leagueId) {
+        setError('League configuration could not be found.');
+        return;
+      }
+      const { data: leagueTeam, error: teamError } = await db
+        .from('league_teams')
+        .select('id')
+        .eq('league_id', leagueId)
+        .eq('status', 'active')
+        .or(`player_one_id.eq.${selected.id},player_two_id.eq.${selected.id}`)
+        .maybeSingle();
+      if (teamError) {
+        setError(teamError.message);
+        return;
+      }
+      if (leagueTeam) {
+        const { error: registrationError } = await db.rpc('register_league_event_team', {
+          p_event_id: eventId,
+          p_member_id: selected.id,
+        });
+        if (registrationError) {
+          setError(registrationError.message);
+          return;
+        }
+        setMessage(`${selected.full_name} and their confirmed League partner registered.`);
+        setMemberId('');
+        await refresh();
+        return;
+      }
+    }
     await runAction(
       () =>
         db.from('tournament_participants').insert({
           event_id: eventId,
           user_id: selected?.id ?? null,
-          category: isTeam ? 'team' : activeCategory,
+          category: targetCategory,
           amount_cents: priceCents,
           payment_status: priceCents > 0 ? 'pending' : 'not_required',
           display_name: selected?.full_name || participantName.trim(),
@@ -726,6 +811,20 @@ export function TournamentManagement({
     setError('');
     setMessage('');
     try {
+      if (leagueTournament) {
+        const { error: replacementError } = await db.rpc('replace_league_team_member', {
+          p_event_id: eventId,
+          p_pair_id: pair.id,
+          p_side: side,
+          p_replacement_participant_id: replacementId,
+        });
+        if (replacementError) throw new Error(replacementError.message);
+        setMessage(
+          'League team updated. Future event pairs use the replacement; completed match records keep the players who played.',
+        );
+        await refresh();
+        return true;
+      }
       const changes =
         side === 1 ? { player_one_id: replacementId } : { player_two_id: replacementId };
       const { error: pairError } = await db
@@ -3073,10 +3172,18 @@ export function TournamentManagement({
                   <SearchableMemberSelect
                     value={memberId}
                     onChange={setMemberId}
-                    placeholder="Search members or leave blank for a non-member"
+                    placeholder={leagueTournament ? 'Search active members' : 'Search members'}
                     options={[...members]
                       .sort((a, b) => {
                         const category = isTeam ? 'team' : activeCategory;
+                        const aMembershipBlocked =
+                          leagueTournament && leagueMemberEligibility[a.id] !== true;
+                        const bMembershipBlocked =
+                          leagueTournament && leagueMemberEligibility[b.id] !== true;
+                        const aGenderBlocked =
+                          !isTeam && hasOpposingGenderProfile(a.gender, category);
+                        const bGenderBlocked =
+                          !isTeam && hasOpposingGenderProfile(b.gender, category);
                         const aRegistered = participants.some(
                           (p) =>
                             p.user_id === a.id &&
@@ -3090,6 +3197,8 @@ export function TournamentManagement({
                             p.status === 'registered',
                         );
                         return (
+                          Number(aMembershipBlocked) - Number(bMembershipBlocked) ||
+                          Number(aGenderBlocked) - Number(bGenderBlocked) ||
                           Number(aRegistered) - Number(bRegistered) ||
                           Number(hasOpposingGenderProfile(a.gender, category)) -
                             Number(hasOpposingGenderProfile(b.gender, category)) ||
@@ -3125,27 +3234,53 @@ export function TournamentManagement({
                                 p.status === 'registered',
                             )
                           : undefined;
+                        const membershipBlocked =
+                          leagueTournament && leagueMemberEligibility[m.id] !== true;
+                        const genderBlocked =
+                          !isTeam && hasOpposingGenderProfile(m.gender, selectedCategory);
                         const blockedReason = existingEntries.length
                           ? `Already added (${addedCategories})`
                           : oppositeEntry
                             ? `Already registered for ${oppositeCategory === 'men' ? "men's" : "women's"} doubles and cannot enter both`
-                            : undefined;
+                            : genderBlocked
+                              ? `Profile gender does not match ${selectedCategory === 'men' ? "men's" : "women's"} doubles`
+                              : membershipBlocked
+                                ? 'Active paid membership required'
+                                : undefined;
                         const genderLabel = profileGenderLabel(m.gender, selectedCategory);
                         const statusText =
-                          [genderLabel, blockedReason].filter(Boolean).join(' · ') || undefined;
+                          [
+                            genderLabel,
+                            membershipBlocked ? 'Active paid membership required' : undefined,
+                            genderBlocked
+                              ? `Not eligible for ${selectedCategory === 'men' ? "men's" : "women's"} doubles`
+                              : undefined,
+                            blockedReason,
+                          ]
+                            .filter(Boolean)
+                            .filter((text, index, all) => all.indexOf(text) === index)
+                            .join(' · ') || undefined;
                         return {
                           id: m.id,
                           full_name: m.full_name || m.email,
                           email: m.email,
                           statusText,
-                          sortPriority: genderLabel ? 1 : 0,
+                          sortPriority: membershipBlocked
+                            ? 3
+                            : genderBlocked
+                              ? 2
+                              : blockedReason
+                                ? 1
+                                : genderLabel
+                                  ? 1
+                                  : 0,
                           available: !blockedReason,
                           unavailableReason: statusText,
                         };
                       })}
                   />
                 </label>
-                {!memberId && (
+                {!memberId && !leagueTournament && (
                   <>
                     <Input
                       placeholder="Full name"
@@ -3178,7 +3313,7 @@ export function TournamentManagement({
                     </label>
                   </>
                 )}
-                <Button disabled={busy} type="submit">
+                <Button disabled={busy || (leagueTournament && !memberId)} type="submit">
                   Add participant
                 </Button>
               </form>
@@ -3257,28 +3392,32 @@ export function TournamentManagement({
                           ⋮
                         </summary>
                         <div className="absolute right-0 z-50 mt-1 w-64 max-w-[calc(100vw-2rem)] space-y-2 rounded-md border border-border bg-background p-3 shadow-lg">
-                          <label className="block text-xs">
-                            Tournament gender override
-                            <select
-                              aria-label={`Gender override for ${p.display_name}`}
-                              className="mt-1 block h-8 rounded-md border border-input bg-background px-2"
-                              value={p.gender_override ?? ''}
-                              onChange={(e) =>
-                                void runAction(
-                                  () =>
-                                    db
-                                      .from('tournament_participants')
-                                      .update({ gender_override: e.target.value || null })
-                                      .eq('id', p.id),
-                                  'Gender eligibility override updated.',
-                                )
-                              }
-                            >
-                              <option value="">Use profile gender ({p.gender || 'not set'})</option>
-                              <option value="male">Male</option>
-                              <option value="female">Female</option>
-                            </select>
-                          </label>
+                          {!leagueTournament && (
+                            <label className="block text-xs">
+                              Tournament gender override
+                              <select
+                                aria-label={`Gender override for ${p.display_name}`}
+                                className="mt-1 block h-8 rounded-md border border-input bg-background px-2"
+                                value={p.gender_override ?? ''}
+                                onChange={(e) =>
+                                  void runAction(
+                                    () =>
+                                      db
+                                        .from('tournament_participants')
+                                        .update({ gender_override: e.target.value || null })
+                                        .eq('id', p.id),
+                                    'Gender eligibility override updated.',
+                                  )
+                                }
+                              >
+                                <option value="">
+                                  Use profile gender ({p.gender || 'not set'})
+                                </option>
+                                <option value="male">Male</option>
+                                <option value="female">Female</option>
+                              </select>
+                            </label>
+                          )}
                           <label className="block text-xs">
                             Entry payment
                             <select
@@ -3320,22 +3459,25 @@ export function TournamentManagement({
             <div className="space-y-3 rounded-lg border border-border p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="font-semibold">{isTeam ? 'Teams and captains' : 'Doubles pairs'}</h3>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={
-                    busy ||
-                    !(isTeam
-                      ? teams.length
-                      : pairs.some(
-                          (pair) => pair.category === activeCategory && pair.status !== 'withdrawn',
-                        ))
-                  }
-                  onClick={() => void randomizeGroups()}
-                >
-                  Random group draw
-                </Button>
+                {!leagueTournament && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={
+                      busy ||
+                      !(isTeam
+                        ? teams.length
+                        : pairs.some(
+                            (pair) =>
+                              pair.category === activeCategory && pair.status !== 'withdrawn',
+                          ))
+                    }
+                    onClick={() => void randomizeGroups()}
+                  >
+                    Random group draw
+                  </Button>
+                )}
               </div>
               {isTeam && unevenTeams && (
                 <p
@@ -3546,34 +3688,36 @@ export function TournamentManagement({
                           <span className="min-w-0 flex-1 font-medium">
                             {p.player_one_name} + {p.player_two_name}
                           </span>
-                          <label className="flex items-center gap-1 text-xs text-muted-foreground">
-                            Group
-                            <select
-                              aria-label={`Group for ${p.player_one_name} and ${p.player_two_name}`}
-                              className="h-8 rounded-md border border-input bg-background px-2 text-foreground"
-                              value={p.group_number ?? ''}
-                              onChange={(event) =>
-                                void runAction(
-                                  () =>
-                                    saveEntryGroup(
-                                      p.id,
-                                      event.target.value ? Number(event.target.value) : null,
-                                    ),
-                                  'Group assignment updated.',
-                                )
-                              }
-                            >
-                              <option value="">Unassigned</option>
-                              {Array.from(
-                                { length: Math.max(1, Number(config?.group_count ?? 2)) },
-                                (_, index) => index + 1,
-                              ).map((group) => (
-                                <option key={group} value={group}>
-                                  Group {group}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
+                          {!leagueTournament && (
+                            <label className="flex items-center gap-1 text-xs text-muted-foreground">
+                              Group
+                              <select
+                                aria-label={`Group for ${p.player_one_name} and ${p.player_two_name}`}
+                                className="h-8 rounded-md border border-input bg-background px-2 text-foreground"
+                                value={p.group_number ?? ''}
+                                onChange={(event) =>
+                                  void runAction(
+                                    () =>
+                                      saveEntryGroup(
+                                        p.id,
+                                        event.target.value ? Number(event.target.value) : null,
+                                      ),
+                                    'Group assignment updated.',
+                                  )
+                                }
+                              >
+                                <option value="">Unassigned</option>
+                                {Array.from(
+                                  { length: Math.max(1, Number(config?.group_count ?? 2)) },
+                                  (_, index) => index + 1,
+                                ).map((group) => (
+                                  <option key={group} value={group}>
+                                    Group {group}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          )}
                           <details
                             className="relative shrink-0"
                             onBlur={(e) => {

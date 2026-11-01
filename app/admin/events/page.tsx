@@ -16,7 +16,7 @@ export default async function EventsAdminPage() {
   let eventQuery = db
     .from('events')
     .select(
-      'id,slug,title,starts_at,ends_at,status,capacity,price_cents,series_id,created_by,organizer_id,event_type,tournament_format',
+      'id,slug,title,starts_at,ends_at,status,capacity,price_cents,series_id,created_by,organizer_id,event_type,tournament_format,social_doubles_ladder_id',
     );
   if (me?.role === 'organizer')
     eventQuery = eventQuery.or(`created_by.eq.${user.id},organizer_id.eq.${user.id}`);
@@ -24,6 +24,17 @@ export default async function EventsAdminPage() {
     eventQuery.order('starts_at', { ascending: false }),
     db.from('club_settings').select('club_name,short_name,social_links').eq('id', 1).maybeSingle(),
   ]);
+  const competitionIds = [
+    ...new Set((events ?? []).map((event) => event.social_doubles_ladder_id).filter(Boolean)),
+  ];
+  const { data: competitions } = competitionIds.length
+    ? await db.from('social_doubles_ladders').select('id,competition_type').in('id', competitionIds)
+    : { data: [] };
+  const leagueIds = new Set(
+    (competitions ?? [])
+      .filter((competition) => competition.competition_type === 'league')
+      .map((competition) => competition.id),
+  );
   return (
     <main className="flex min-h-screen flex-col bg-background text-foreground">
       <AdminNav />
@@ -46,7 +57,10 @@ export default async function EventsAdminPage() {
         ) : (
           <AdminEventsTable
             events={
-              (events ?? []) as Array<{
+              (events ?? []).map((event) => ({
+                ...event,
+                is_league_tournament: leagueIds.has(event.social_doubles_ladder_id),
+              })) as Array<{
                 id: string;
                 slug: string | null;
                 title: string;
@@ -60,6 +74,8 @@ export default async function EventsAdminPage() {
                 organizer_id: string | null;
                 event_type: string | null;
                 tournament_format: string | null;
+                social_doubles_ladder_id: string | null;
+                is_league_tournament: boolean;
               }>
             }
           />

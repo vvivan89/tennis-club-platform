@@ -13,9 +13,10 @@ import {
 } from '@/lib/tournament-config';
 import { Input } from '@/components/ui/input';
 import { EventWeather } from '@/components/event-weather';
-import { Sparkles, Trophy } from 'lucide-react';
+import { Sparkles, Triangle, Trophy } from 'lucide-react';
 import { TennisLoader } from '@/components/tennis-loader';
 import { SearchableMemberSelect, type MemberOption } from '@/components/searchable-member-select';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 
 type GroupOverride = {
   id: string;
@@ -104,6 +105,7 @@ type Match = {
   opponent_two_name: string | null;
   notes?: string | null;
 };
+type LeagueCourtAssignment = { pair_id: string; court_number: number; segment_order: number };
 
 function safeRulesHtml(input: string) {
   if (typeof window === 'undefined')
@@ -142,6 +144,8 @@ const dateLabel = (value: string | null) =>
 export function TournamentPublicView({
   adminContent = null,
   eventTitle = '',
+  eventDescription = '',
+  genderRestriction = null,
   eventId,
   currentUserId,
   format,
@@ -159,9 +163,18 @@ export function TournamentPublicView({
   interacEnabled = false,
   resultsOnly = false,
   rankingsControl,
+  leagueTournament = false,
+  leagueId = null,
+  leagueGender = null,
+  leagueStandingsBefore = [],
+  leagueStandingsAfter = [],
+  leagueHasResults = false,
+  courtCount = 4,
 }: {
   adminContent?: ReactNode;
   eventTitle?: string;
+  eventDescription?: string | null;
+  genderRestriction?: string | null;
   eventId: string;
   currentUserId: string | null;
   format: string | null;
@@ -179,16 +192,72 @@ export function TournamentPublicView({
   interacEnabled?: boolean;
   resultsOnly?: boolean;
   rankingsControl?: ReactNode;
+  leagueTournament?: boolean;
+  leagueId?: string | null;
+  leagueGender?: string | null;
+  leagueStandingsBefore?: Array<Record<string, unknown>>;
+  leagueStandingsAfter?: Array<Record<string, unknown>>;
+  leagueHasResults?: boolean;
+  courtCount?: number;
 }) {
   const db = useMemo(() => createSupabaseBrowserClient(), []);
   const router = useRouter();
   useEffect(() => {
     if (eventTitle) document.title = `PCTC | ${eventTitle}`;
   }, [eventTitle]);
-  const hasRules = Boolean(rulesHtml?.trim());
+  const hasRules = Boolean(rulesHtml?.trim()) && !leagueTournament;
+  const canManageLeagueScores = leagueTournament && Boolean(adminContent);
   const [tab, setTab] = useState<
     'overview' | 'rules' | 'competition' | 'participants' | 'matches' | 'audit'
   >(resultsOnly ? 'competition' : 'overview');
+  const [leagueStandingsMode, setLeagueStandingsMode] = useState<'before' | 'after'>('before');
+  const [leagueCourtModalOpen, setLeagueCourtModalOpen] = useState(false);
+  const [leagueCourtSaving, setLeagueCourtSaving] = useState(false);
+  const [leagueCourtAssignments, setLeagueCourtAssignments] = useState<LeagueCourtAssignment[]>([]);
+  const [leagueCourtDraft, setLeagueCourtDraft] = useState<LeagueCourtAssignment[]>([]);
+  const [leagueCourtSessionCount, setLeagueCourtSessionCount] = useState(1);
+  const [leagueCourtDragging, setLeagueCourtDragging] = useState<string | null>(null);
+  const [leagueCourtError, setLeagueCourtError] = useState('');
+  const [leagueCourtConfirmation, setLeagueCourtConfirmation] = useState(false);
+  const [leagueCourtView, setLeagueCourtView] = useState<'courts' | 'list'>('list');
+  const [leagueScoreMatchId, setLeagueScoreMatchId] = useState('');
+  const [leagueScoreTeamSide, setLeagueScoreTeamSide] = useState<'1' | '2'>('1');
+  const [leagueScoreDrafts, setLeagueScoreDrafts] = useState<
+    Record<string, { one: string; two: string }>
+  >({});
+  const [savingLeagueScore, setSavingLeagueScore] = useState<string | null>(null);
+  const [leagueEventStarted, setLeagueEventStarted] = useState(
+    () => Date.now() >= new Date(startsAt).getTime(),
+  );
+  const [leagueScoresOpen, setLeagueScoresOpen] = useState(() => {
+    const elapsed = Date.now() - new Date(startsAt).getTime();
+    return elapsed >= 0 && elapsed <= 2 * 24 * 60 * 60 * 1000;
+  });
+  useEffect(() => {
+    const starts = new Date(startsAt).getTime();
+    const closes = starts + 2 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    setLeagueEventStarted(now >= starts);
+    const startTimer =
+      now < starts
+        ? window.setTimeout(
+            () => {
+              setLeagueEventStarted(true);
+              setLeagueScoresOpen(true);
+            },
+            starts - now + 25,
+          )
+        : undefined;
+    const closeTimer =
+      now < closes
+        ? window.setTimeout(() => setLeagueScoresOpen(false), closes - now + 25)
+        : undefined;
+    if (now > closes) setLeagueScoresOpen(false);
+    return () => {
+      if (startTimer) window.clearTimeout(startTimer);
+      if (closeTimer) window.clearTimeout(closeTimer);
+    };
+  }, [startsAt]);
   const [tabInitialized, setTabInitialized] = useState(false);
   const [competitionMatchGrouping, setCompetitionMatchGrouping] = useState<'group' | 'round'>(
     'group',
@@ -205,6 +274,7 @@ export function TournamentPublicView({
         ['overview', 'rules', 'competition', 'participants', 'matches', 'audit'].includes(
           requested || '',
         ) &&
+        !(leagueTournament && ['matches', 'audit'].includes(requested || '')) &&
         (requested !== 'rules' || hasRules)
       ) {
         setTab(
@@ -216,7 +286,7 @@ export function TournamentPublicView({
     readTabFromUrl();
     window.addEventListener('popstate', readTabFromUrl);
     return () => window.removeEventListener('popstate', readTabFromUrl);
-  }, [hasRules, resultsOnly]);
+  }, [hasRules, resultsOnly, leagueTournament]);
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('pctc-tournament-tab-change', { detail: { tab } }));
   }, [tab]);
@@ -260,6 +330,7 @@ export function TournamentPublicView({
   const [profileGender, setProfileGender] = useState<string | null>(null);
   const [ownCategories, setOwnCategories] = useState<string[]>([]);
   const [ownTeamIds, setOwnTeamIds] = useState<string[]>([]);
+  const [ownLeagueTeamId, setOwnLeagueTeamId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [registrationRefresh, setRegistrationRefresh] = useState(0);
   const [registrationCategory, setRegistrationCategory] = useState(
@@ -295,6 +366,12 @@ export function TournamentPublicView({
   const [newPartnerParticipantId, setNewPartnerParticipantId] = useState<string | null>(null);
   const [paymentBusy, setPaymentBusy] = useState(false);
   const [paymentBusyKey, setPaymentBusyKey] = useState<string | null>(null);
+  const [leagueWithdrawTarget, setLeagueWithdrawTarget] = useState<{
+    participantId: string;
+    partnerParticipantId: string;
+  } | null>(null);
+  const [leagueWithdrawBusy, setLeagueWithdrawBusy] = useState(false);
+  const [leagueWithdrawError, setLeagueWithdrawError] = useState('');
   const [interacDetails, setInteracDetails] = useState<{
     paymentId: string;
     amountMinor: number;
@@ -333,6 +410,8 @@ export function TournamentPublicView({
     setPairs([]);
     setMatches([]);
     setMatchPlayers([]);
+    setLeagueCourtAssignments([]);
+    setOwnLeagueTeamId(null);
     void (async () => {
       const [
         teamResult,
@@ -344,6 +423,8 @@ export function TournamentPublicView({
         partnerDirectoryResult,
         pairPaymentResult,
         groupOverrideResult,
+        leagueCourtAssignmentResult,
+        leagueTeamResult,
       ] = await Promise.all([
         db.from('tournament_public_teams').select('*').eq('event_id', eventId).order('name'),
         db
@@ -384,6 +465,21 @@ export function TournamentPublicView({
               .catch((error) => ({ data: [], error }))
           : Promise.resolve({ data: [], error: null }),
         db.from('tournament_group_overrides').select('*').eq('event_id', eventId),
+        leagueTournament
+          ? db
+              .from('league_event_court_assignments')
+              .select('pair_id,court_number,segment_order')
+              .eq('event_id', eventId)
+          : Promise.resolve({ data: [], error: null }),
+        currentUserId && leagueTournament && leagueId
+          ? db
+              .from('league_teams')
+              .select('id')
+              .eq('league_id', leagueId)
+              .eq('status', 'active')
+              .or(`player_one_id.eq.${currentUserId},player_two_id.eq.${currentUserId}`)
+              .maybeSingle()
+          : Promise.resolve({ data: null, error: null }),
       ]);
       const matchIds = (matchResult.data ?? []).map((m) => m.id);
       const matchPlayerResult = matchIds.length
@@ -400,6 +496,9 @@ export function TournamentPublicView({
       setPairPaymentStatuses((pairPaymentResult.data ?? []) as PairPaymentStatus[]);
       setPairs((pairResult.data ?? []) as Pair[]);
       setMatches((matchResult.data ?? []) as Match[]);
+      setLeagueCourtAssignments(
+        (leagueCourtAssignmentResult.data ?? []) as LeagueCourtAssignment[],
+      );
       setMatchPlayers((matchPlayerResult.data ?? []) as MatchPlayer[]);
       setProfileGender((profileResult.data as { gender?: string | null } | null)?.gender ?? null);
       setOwnParticipantIds((ownResult.data ?? []).map((p: { id: string }) => p.id));
@@ -426,12 +525,13 @@ export function TournamentPublicView({
             .filter((id: string | null): id is string => !!id),
         ),
       ]);
+      setOwnLeagueTeamId((leagueTeamResult.data as { id?: string } | null)?.id ?? null);
       setLoading(false);
     })();
     return () => {
       active = false;
     };
-  }, [db, eventId, currentUserId, registrationRefresh]);
+  }, [db, eventId, currentUserId, registrationRefresh, leagueTournament, leagueId]);
   useEffect(() => {
     const channel = db
       .channel(`tournament-public-${eventId}`)
@@ -475,6 +575,16 @@ export function TournamentPublicView({
         {
           event: '*',
           schema: 'public',
+          table: 'league_event_court_assignments',
+          filter: `event_id=eq.${eventId}`,
+        },
+        () => setRegistrationRefresh((value) => value + 1),
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
           table: 'tournament_matches',
           filter: `event_id=eq.${eventId}`,
         },
@@ -509,6 +619,7 @@ export function TournamentPublicView({
     setRegistrationError('');
     setRegistrationMessage('');
     try {
+      const entryCategory = leagueTournament ? leagueRegistrationCategory : registrationCategory;
       if (!currentUserId && (!entrantName.trim() || !entrantEmail.trim()))
         throw new Error('Enter your name and email to register without an account.');
       const useNewPartner =
@@ -528,29 +639,27 @@ export function TournamentPublicView({
             ? (selectedPartner as Participant).gender_override
             : null) ||
           null;
-      if (!isGenderEligibleForCategory(registrationCategory, entrantGenderValue))
-        throw new Error(
-          `The entered gender is not eligible for ${categoryLabel(registrationCategory)}.`,
-        );
+      if (!isGenderEligibleForCategory(entryCategory, entrantGenderValue))
+        throw new Error(`The entered gender is not eligible for ${categoryLabel(entryCategory)}.`);
       if (
         effectiveRegistrationMode === 'pair' &&
         partnerChoice &&
         partnerChoice !== 'new' &&
-        !isGenderEligibleForCategory(registrationCategory, partnerGenderValue)
+        !isGenderEligibleForCategory(entryCategory, partnerGenderValue)
       )
         throw new Error(
-          `The selected partner's gender is not eligible for ${categoryLabel(registrationCategory)}.`,
+          `The selected partner's gender is not eligible for ${categoryLabel(entryCategory)}.`,
         );
       if (
         effectiveRegistrationMode === 'pair' &&
         useNewPartner &&
-        !isGenderEligibleForCategory(registrationCategory, partnerGenderValue)
+        !isGenderEligibleForCategory(entryCategory, partnerGenderValue)
       )
         throw new Error(
-          `The partner's gender is not eligible for ${categoryLabel(registrationCategory)}.`,
+          `The partner's gender is not eligible for ${categoryLabel(entryCategory)}.`,
         );
       if (
-        registrationCategory === 'mixed' &&
+        entryCategory === 'mixed' &&
         effectiveRegistrationMode === 'pair' &&
         ['male', 'female'].includes(entrantGenderValue || '') &&
         ['male', 'female'].includes(partnerGenderValue || '') &&
@@ -561,7 +670,7 @@ export function TournamentPublicView({
         );
       const { data, error: registrationError } = await db.rpc('register_tournament_entry', {
         p_event_id: eventId,
-        p_category: registrationCategory,
+        p_category: entryCategory,
         p_display_name: entrantName.trim() || null,
         p_email: entrantEmail.trim() || null,
         p_phone: entrantPhone.trim() || null,
@@ -639,6 +748,106 @@ export function TournamentPublicView({
       );
     } finally {
       setRegistrationBusy(false);
+    }
+  }
+  async function registerLeagueTeam() {
+    if (!ownLeagueTeamId || !currentUserId) return;
+    setRegistrationBusy(true);
+    setRegistrationError('');
+    setRegistrationMessage('');
+    try {
+      const { data, error } = await db.rpc('register_league_event_team', {
+        p_event_id: eventId,
+        p_member_id: currentUserId,
+      });
+      if (error) throw new Error(error.message);
+      const result = data as {
+        participantId?: string;
+        partnerParticipantId?: string;
+        amountCents?: number;
+        paymentStatus?: string;
+      };
+      const amountDue = (result.amountCents ?? priceCents) > 0;
+      setRegistrationMessage(
+        amountDue
+          ? 'Your team is registered. Payment is pending; you can pay for both players together.'
+          : 'Your team is registered.',
+      );
+      setNewEntryParticipantId(result.participantId ?? null);
+      setNewPartnerParticipantId(result.partnerParticipantId ?? null);
+      setPaymentParticipantIds(
+        amountDue && result.participantId && result.partnerParticipantId
+          ? [result.participantId, result.partnerParticipantId]
+          : [],
+      );
+      setRegistrationRefresh((value) => value + 1);
+    } catch (error) {
+      setRegistrationError(
+        error instanceof Error ? error.message : 'Could not register your League team.',
+      );
+    } finally {
+      setRegistrationBusy(false);
+    }
+  }
+  async function registerLeagueSingle() {
+    if (!currentUserId) return;
+    setRegistrationBusy(true);
+    setRegistrationError('');
+    setRegistrationMessage('');
+    try {
+      const { data, error } = await db.rpc('register_league_single_event_entry', {
+        p_event_id: eventId,
+      });
+      if (error) throw new Error(error.message);
+      const result = data as { participantId?: string; amountCents?: number };
+      const amountDue = (result.amountCents ?? priceCents) > 0;
+      setRegistrationMessage(
+        amountDue
+          ? 'You are registered as a single player. Payment is pending.'
+          : 'You are registered as a single player. An organizer can pair you with a League team.',
+      );
+      setNewEntryParticipantId(result.participantId ?? null);
+      setPaymentParticipantIds(amountDue && result.participantId ? [result.participantId] : []);
+      setRegistrationRefresh((value) => value + 1);
+    } catch (error) {
+      setRegistrationError(
+        error instanceof Error ? error.message : 'Could not register for this League event.',
+      );
+    } finally {
+      setRegistrationBusy(false);
+    }
+  }
+  async function confirmLeagueTeamWithdrawal() {
+    if (!leagueWithdrawTarget) return;
+    setLeagueWithdrawBusy(true);
+    setLeagueWithdrawError('');
+    try {
+      const paymentResponse = await fetch('/api/payments/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          participantIds: [
+            leagueWithdrawTarget.participantId,
+            leagueWithdrawTarget.partnerParticipantId,
+          ],
+        }),
+      });
+      const paymentResult = await paymentResponse.json().catch(() => ({}));
+      if (!paymentResponse.ok)
+        throw new Error(paymentResult.error || 'Could not safely cancel the pending team payment.');
+      const { error } = await db.rpc('withdraw_league_event_team', {
+        p_participant_id: leagueWithdrawTarget.participantId,
+      });
+      if (error) throw new Error(error.message);
+      setLeagueWithdrawTarget(null);
+      setRegistrationMessage('You and your League partner have been withdrawn from this event.');
+      setRegistrationRefresh((value) => value + 1);
+    } catch (error) {
+      setLeagueWithdrawError(
+        error instanceof Error ? error.message : 'Could not withdraw your League team.',
+      );
+    } finally {
+      setLeagueWithdrawBusy(false);
     }
   }
   function tournamentPaymentActionKey(
@@ -958,6 +1167,60 @@ export function TournamentPublicView({
         ownParticipantIds.includes(pair.player_two_id))
     );
   };
+  async function saveLeagueScore(match: Match) {
+    if (Date.now() < new Date(startsAt).getTime()) {
+      window.alert('Scores cannot be entered before the event start time.');
+      return;
+    }
+    if (
+      !canManageLeagueScores &&
+      Date.now() - new Date(startsAt).getTime() > 2 * 24 * 60 * 60 * 1000
+    ) {
+      window.alert('Scores can only be entered within two days of the event.');
+      return;
+    }
+    const draft = leagueScoreDrafts[match.id] ?? { one: '', two: '' };
+    const ownOnOne = canManageLeagueScores
+      ? leagueScoreTeamSide === '1'
+      : isOwnPair(match.pair_one_id);
+    const existingOne = match.score_sets?.[0]?.[ownOnOne ? 'one' : 'two'];
+    const existingTwo = match.score_sets?.[0]?.[ownOnOne ? 'two' : 'one'];
+    const enteredOwnScore = Number(draft.one || (match.status === 'completed' ? existingOne : ''));
+    const enteredOpponentScore = Number(
+      draft.two || (match.status === 'completed' ? existingTwo : ''),
+    );
+    const one = ownOnOne ? enteredOwnScore : enteredOpponentScore;
+    const two = ownOnOne ? enteredOpponentScore : enteredOwnScore;
+    if (!Number.isInteger(one) || !Number.isInteger(two) || one < 0 || two < 0 || one === two) {
+      window.alert('Enter two different non-negative scores.');
+      return;
+    }
+    setSavingLeagueScore(match.id);
+    const { error } = await db.rpc('submit_league_match_score', {
+      p_match_id: match.id,
+      p_score_one: one,
+      p_score_two: two,
+    });
+    setSavingLeagueScore(null);
+    if (error) {
+      window.alert(error.message);
+      return;
+    }
+    setMatches((current) =>
+      current.map((item) =>
+        item.id === match.id
+          ? {
+              ...item,
+              score_sets: [{ one, two }],
+              winner_side: one > two ? 1 : 2,
+              status: 'completed',
+            }
+          : item,
+      ),
+    );
+    setLeagueScoreDrafts((current) => ({ ...current, [match.id]: { one: '', two: '' } }));
+    router.refresh();
+  }
   const isOwnCompetitionEntry = (entryId: string) =>
     format === 'team' ? ownTeamIds.includes(entryId) : isOwnPair(entryId);
   const knockoutMatches = categoryVisibleMatches
@@ -1046,6 +1309,7 @@ export function TournamentPublicView({
     }
   };
   const canViewCompetition = detailsPublic || (!!currentUserId && ownParticipantIds.length > 0);
+  const leagueRegistrationCategory = leagueGender === 'male' ? 'men' : 'women';
   const registrationGender = currentUserId ? profileGender : entrantGender || null;
   const enabledDoublesCategories = (config?.categories ?? ['mixed', 'men', 'women']).filter(
     (category: string) => ['mixed', 'men', 'women'].includes(category),
@@ -1056,25 +1320,34 @@ export function TournamentPublicView({
       isGenderEligibleForCategory(category, registrationGender),
     );
   const availableCategories = (
-    format === 'team'
-      ? ['team']
-      : (config?.categories ?? ['mixed', 'men', 'women']).filter(
-          (category: string) =>
-            !ownCategories.includes(category) &&
-            !(category === 'men' && ownCategories.includes('women')) &&
-            !(category === 'women' && ownCategories.includes('men')) &&
-            !(category === 'men' && registrationGender !== null && registrationGender !== 'male') &&
-            !(
-              category === 'women' &&
-              registrationGender !== null &&
-              registrationGender !== 'female'
-            ) &&
-            !(
-              category === 'mixed' &&
-              registrationGender !== null &&
-              !['male', 'female'].includes(registrationGender)
-            ),
-        )
+    leagueTournament
+      ? ownCategories.includes(leagueRegistrationCategory) ||
+        !isGenderEligibleForCategory(leagueRegistrationCategory, registrationGender)
+        ? []
+        : [leagueRegistrationCategory]
+      : format === 'team'
+        ? ['team']
+        : (config?.categories ?? ['mixed', 'men', 'women']).filter(
+            (category: string) =>
+              !ownCategories.includes(category) &&
+              !(category === 'men' && ownCategories.includes('women')) &&
+              !(category === 'women' && ownCategories.includes('men')) &&
+              !(
+                category === 'men' &&
+                registrationGender !== null &&
+                registrationGender !== 'male'
+              ) &&
+              !(
+                category === 'women' &&
+                registrationGender !== null &&
+                registrationGender !== 'female'
+              ) &&
+              !(
+                category === 'mixed' &&
+                registrationGender !== null &&
+                !['male', 'female'].includes(registrationGender)
+              ),
+          )
   ).filter(() => !currentUserId || ownCategories.length < (format === 'team' ? 1 : 2));
   const registrationOpen =
     eventStatus === 'published' &&
@@ -1082,7 +1355,7 @@ export function TournamentPublicView({
     Date.now() < new Date(registrationClosesAt || startsAt).getTime();
   const registrationModeConfig = config?.registration_mode ?? 'both';
   const effectiveRegistrationMode =
-    registrationModeConfig === 'single'
+    leagueTournament || registrationModeConfig === 'single'
       ? 'individual'
       : registrationModeConfig === 'doubles'
         ? 'pair'
@@ -1624,8 +1897,103 @@ export function TournamentPublicView({
     set_difference: 'Set diff.',
     game_difference: 'Game diff.',
   };
+  const activeLeaguePairs = pairs.filter(
+    (pair) => pair.category === activeCategory && pair.status !== 'withdrawn',
+  );
+  const unpairedLeagueParticipants = participants.filter(
+    (participant) =>
+      participant.category === activeCategory &&
+      participant.status === 'registered' &&
+      !activeLeaguePairs.some(
+        (pair) => pair.player_one_id === participant.id || pair.player_two_id === participant.id,
+      ),
+  );
+  const leagueScheduledMatches = matches.filter((match) => match.court_number);
+  const leagueTimeSlots = Array.from(
+    new Set(leagueScheduledMatches.map((match) => match.scheduled_at || 'unscheduled')),
+  ).sort((a, b) => {
+    if (a === 'unscheduled') return 1;
+    if (b === 'unscheduled') return -1;
+    return a.localeCompare(b);
+  });
+  const leaguePairs = pairs.filter((pair) => pair.status !== 'withdrawn');
+  const courtTotal = Math.min(4, Math.max(1, courtCount));
+  const leagueCourtCounts = leagueCourtDraft.reduce((counts, assignment) => {
+    const key = `${assignment.segment_order}:${assignment.court_number}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+    return counts;
+  }, new Map<string, number>());
+  const leagueCourtWarnings = [...leagueCourtCounts.entries()]
+    .filter(([, count]) => count > 2)
+    .map(([key, count]) => {
+      const [session, court] = key.split(':').map(Number);
+      return { session, court, count };
+    });
+  function openLeagueCourtModal() {
+    setLeagueCourtDraft(leagueCourtAssignments.map((assignment) => ({ ...assignment })));
+    setLeagueCourtSessionCount(
+      Math.max(1, ...leagueCourtAssignments.map((assignment) => assignment.segment_order)),
+    );
+    setLeagueCourtError('');
+    setLeagueCourtModalOpen(true);
+  }
+  function moveLeaguePairToCourt(pairId: string, court: number, session: number) {
+    setLeagueCourtDraft((current) => {
+      const retained = current.filter(
+        (assignment) => assignment.pair_id !== pairId || assignment.segment_order !== session,
+      );
+      return [...retained, { pair_id: pairId, court_number: court, segment_order: session }];
+    });
+    setLeagueCourtError('');
+    setLeagueCourtDragging(null);
+  }
+  function unassignLeaguePair(pairId: string, session: number) {
+    setLeagueCourtDraft((current) =>
+      current.filter(
+        (assignment) => assignment.pair_id !== pairId || assignment.segment_order !== session,
+      ),
+    );
+    setLeagueCourtDragging(null);
+  }
+  async function saveLeagueCourtAssignments(skipWarnings = false) {
+    const incomplete = Array.from(
+      { length: leagueCourtSessionCount },
+      (_, index) => index + 1,
+    ).some((session) =>
+      leaguePairs.some(
+        (pair) =>
+          leagueCourtDraft.filter(
+            (assignment) => assignment.pair_id === pair.id && assignment.segment_order === session,
+          ).length !== 1,
+      ),
+    );
+    if (incomplete) {
+      setLeagueCourtError('Assign every League team once in each sub-session.');
+      return;
+    }
+    if (leagueCourtWarnings.length && !skipWarnings) {
+      setLeagueCourtConfirmation(true);
+      return;
+    }
+    setLeagueCourtSaving(true);
+    setLeagueCourtError('');
+    const { error } = await db.rpc('save_league_event_court_assignments', {
+      p_event_id: eventId,
+      p_assignments: leagueCourtDraft,
+    });
+    if (error) {
+      setLeagueCourtError(error.message);
+      setLeagueCourtSaving(false);
+      return;
+    }
+    setLeagueCourtAssignments(leagueCourtDraft);
+    setRegistrationRefresh((value) => value + 1);
+    setLeagueCourtModalOpen(false);
+    setLeagueCourtSaving(false);
+    router.refresh();
+  }
   return (
-    <section className="space-y-5">
+    <section className={leagueTournament ? 'space-y-8' : 'space-y-5'}>
       {(registrationError || registrationMessage) && (
         <div
           className="pointer-events-none fixed right-4 top-4 z-[100] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2"
@@ -1699,12 +2067,19 @@ export function TournamentPublicView({
                     [
                       ['overview', 'Overview'],
                       ...(hasRules ? ([['rules', 'Rules']] as Array<[typeof tab, string]>) : []),
-                      ['competition', 'Groups, Schedule & Results'],
+                      [
+                        'competition',
+                        leagueTournament ? 'Schedule & Results' : 'Groups, Schedule & Results',
+                      ],
                       ...(adminContent
                         ? [
                             ['participants', 'Participants'],
-                            ['matches', 'Matches'],
-                            ['audit', 'Audit log'],
+                            ...(!leagueTournament
+                              ? ([['matches', 'Matches']] as Array<[typeof tab, string]>)
+                              : []),
+                            ...(!leagueTournament
+                              ? ([['audit', 'Audit log']] as Array<[typeof tab, string]>)
+                              : []),
                           ]
                         : []),
                     ] as Array<[typeof tab, string]>
@@ -1770,6 +2145,15 @@ export function TournamentPublicView({
                       ))}
                   </div>
                 )}
+              {leagueTournament && adminContent && (
+                <button
+                  type="button"
+                  onClick={openLeagueCourtModal}
+                  className="ml-auto h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                >
+                  Assign courts
+                </button>
+              )}
             </div>
           )}
           {overrideEditor && adminContent && (
@@ -1911,7 +2295,9 @@ export function TournamentPublicView({
               </section>
             </div>
           )}
-          {['participants', 'matches', 'audit'].includes(tab) && adminContent ? (
+          {['participants', 'matches', 'audit'].includes(tab) &&
+          adminContent &&
+          (!leagueTournament || !['matches', 'audit'].includes(tab)) ? (
             adminContent
           ) : loading ? (
             <div
@@ -1933,21 +2319,79 @@ export function TournamentPublicView({
               />
             </section>
           ) : tab === 'overview' ? (
-            <div className="space-y-5">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <section className="rounded-lg border border-border p-4">
-                  <h3 className="font-semibold">Tournament</h3>
+            <div className={leagueTournament ? 'flex flex-col gap-5' : 'space-y-5'}>
+              {leagueTournament && (
+                <div className="order-1 flex flex-wrap items-center gap-3">
+                  <span className="text-sm text-muted-foreground">
+                    {priceCents === 0
+                      ? 'Free for members'
+                      : `${new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(priceCents / 100)} per person`}
+                  </span>
+                  {Date.now() >= new Date(startsAt).getTime() &&
+                    Date.now() <= new Date(endsAt || startsAt).getTime() && (
+                      <span className="rounded-full bg-emerald-600/15 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                        In progress
+                      </span>
+                    )}
+                  {genderRestriction && (
+                    <span className="rounded-full bg-secondary px-3 py-1 text-xs">
+                      {genderRestriction === 'male'
+                        ? 'Male participants only'
+                        : 'Female participants only'}
+                    </span>
+                  )}
+                </div>
+              )}
+              {leagueTournament && eventDescription?.trim() && (
+                <p className="order-1 max-w-3xl whitespace-pre-line text-sm leading-7 text-muted-foreground">
+                  {eventDescription.trim()}
+                </p>
+              )}
+              <div
+                className={
+                  leagueTournament
+                    ? 'order-1 grid gap-3 sm:grid-cols-2'
+                    : 'grid gap-3 sm:grid-cols-2'
+                }
+              >
+                <section className="rounded-xl border border-border p-4">
+                  {leagueTournament ? (
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Event</p>
+                  ) : (
+                    <h3 className="font-semibold">Tournament</h3>
+                  )}
                   <p className="mt-2 text-sm">
-                    {dateLabel(startsAt)}
-                    {endsAt ? ` – ${dateLabel(endsAt)}` : ''}
+                    {leagueTournament
+                      ? `${dateLabel(startsAt)} · Until ${dateLabel(endsAt)}`
+                      : `${dateLabel(startsAt)}${endsAt ? ` – ${dateLabel(endsAt)}` : ''}`}
                   </p>
+                  {leagueTournament && (
+                    <p className="mt-2 text-sm text-muted-foreground">{locationQuery}</p>
+                  )}
                 </section>
-                <section className="rounded-lg border border-border p-4">
-                  <h3 className="font-semibold">Registration</h3>
-                  <p className="mt-2 text-sm">Opens: {dateLabel(registrationOpensAt)}</p>
-                  <p className="mt-1 text-sm">
-                    Closes: {dateLabel(registrationClosesAt || startsAt)}
+                <section className="rounded-xl border border-border p-4">
+                  {leagueTournament ? (
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                      Registration
+                    </p>
+                  ) : (
+                    <h3 className="font-semibold">Registration</h3>
+                  )}
+                  <p className="mt-2 text-sm">
+                    {leagueTournament
+                      ? `Opens ${dateLabel(registrationOpensAt)}`
+                      : `Opens: ${dateLabel(registrationOpensAt)}`}
                   </p>
+                  <p className="text-sm">
+                    {leagueTournament
+                      ? `Cutoff ${registrationClosesAt ? dateLabel(registrationClosesAt) : 'Not set'}`
+                      : `Closes: ${dateLabel(registrationClosesAt || startsAt)}`}
+                  </p>
+                  {leagueTournament && (
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      Active, paid membership required
+                    </p>
+                  )}
                 </section>
               </div>
               {canViewCompetition &&
@@ -1962,121 +2406,440 @@ export function TournamentPublicView({
                       (pair) => pair.category === activeCategory && pair.status !== 'withdrawn',
                     )) && (
                   <section
-                    className="rounded-lg border border-border p-4"
-                    aria-label="Registered entries"
+                    className={
+                      leagueTournament ? 'order-4 space-y-4' : 'rounded-lg border border-border p-4'
+                    }
+                    aria-label={leagueTournament ? 'Players and courts' : 'Registered entries'}
                   >
-                    <h3 className="font-semibold">Registered entries</h3>
-                    {format === 'team' ? (
-                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                        {teams.map((team) => (
-                          <div
-                            key={team.id}
-                            className={`rounded-md border p-3 text-sm ${ownTeamIds.includes(team.id) ? 'border-primary/40 bg-primary/[0.04]' : 'border-border'}`}
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h3
+                          className={leagueTournament ? 'text-xl font-semibold' : 'font-semibold'}
+                        >
+                          {leagueTournament ? 'Players and courts' : 'Registered entries'}
+                        </h3>
+                        {leagueTournament && (
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            Court assignments are shown for each sub-session.
+                          </p>
+                        )}
+                      </div>
+                      {leagueTournament && (
+                        <div
+                          className="flex gap-1 rounded-lg border border-border p-1"
+                          role="group"
+                          aria-label="Players and courts view"
+                        >
+                          <button
+                            type="button"
+                            aria-pressed={leagueCourtView === 'courts'}
+                            onClick={() => setLeagueCourtView('courts')}
+                            className={`rounded px-2 py-1.5 text-sm ${leagueCourtView === 'courts' ? 'bg-secondary' : ''}`}
                           >
-                            <p className="font-medium">
-                              {team.name}
-                              {ownTeamIds.includes(team.id) && (
-                                <span className="ml-2 inline-flex rounded-full bg-primary/10 px-1.5 py-0.5 align-middle text-[10px] font-medium text-primary">
-                                  You
-                                </span>
-                              )}
-                            </p>
-                            <ul className="mt-2 space-y-1 text-muted-foreground">
-                              {participants
-                                .filter((participant) => participant.team_id === team.id)
-                                .map((participant) => (
-                                  <li key={participant.id} className="flex items-center gap-2">
-                                    <span>{participant.display_name}</span>
+                            Court view
+                          </button>
+                          <button
+                            type="button"
+                            aria-pressed={leagueCourtView === 'list'}
+                            onClick={() => setLeagueCourtView('list')}
+                            className={`rounded px-2 py-1.5 text-sm ${leagueCourtView === 'list' ? 'bg-secondary' : ''}`}
+                          >
+                            List view
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    {leagueTournament && format !== 'team' ? (
+                      leagueCourtView === 'list' ? (
+                        <div className="mt-3 overflow-x-auto rounded-xl border border-border">
+                          <table className="w-full text-left text-sm">
+                            <thead className="bg-muted">
+                              <tr>
+                                <th className="px-3 py-2">#</th>
+                                <th className="px-3 py-2">Player 1</th>
+                                <th className="px-3 py-2">Player 2</th>
+                                <th className="px-3 py-2">Status</th>
+                                <th className="px-3 py-2">Court assignments</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {activeLeaguePairs.map((pair, index) => {
+                                const assignedMatches = matches
+                                  .filter(
+                                    (match) =>
+                                      match.pair_one_id === pair.id ||
+                                      match.pair_two_id === pair.id,
+                                  )
+                                  .filter((match) => match.scheduled_at || match.court_number);
+                                const assignedCourts = leagueCourtAssignments.filter(
+                                  (assignment) => assignment.pair_id === pair.id,
+                                );
+                                const pairParticipants = participants.filter(
+                                  (participant) =>
+                                    participant.id === pair.player_one_id ||
+                                    participant.id === pair.player_two_id,
+                                );
+                                return (
+                                  <tr key={pair.id} className="border-t border-border">
+                                    <td className="px-3 py-2">{index + 1}</td>
+                                    <td className="px-3 py-2">
+                                      {pair.player_one_name || 'Member'}
+                                      {pair.player_one_skill_level != null && (
+                                        <span className="ml-2 text-xs text-muted-foreground">
+                                          {pair.player_one_skill_level}
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td className="px-3 py-2">
+                                      {pair.player_two_name || 'Member'}
+                                      {pair.player_two_skill_level != null && (
+                                        <span className="ml-2 text-xs text-muted-foreground">
+                                          {pair.player_two_skill_level}
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td className="px-3 py-2">
+                                      {pairParticipants.some(
+                                        (participant) => participant.status === 'registered',
+                                      )
+                                        ? 'Registered'
+                                        : '—'}
+                                    </td>
+                                    <td className="px-3 py-2">
+                                      {assignedCourts.length
+                                        ? assignedCourts
+                                            .sort((a, b) => a.segment_order - b.segment_order)
+                                            .map((assignment) => `Court ${assignment.court_number}`)
+                                            .join(' → ')
+                                        : assignedMatches.length
+                                          ? assignedMatches
+                                              .map(
+                                                (match) =>
+                                                  `${match.court_number ? `Court ${match.court_number}` : 'Court TBD'}${match.scheduled_at ? ` · ${dateLabel(match.scheduled_at)}` : ''}`,
+                                              )
+                                              .join(' / ')
+                                          : 'Not assigned'}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                              {unpairedLeagueParticipants.map((participant, index) => (
+                                <tr key={participant.id} className="border-t border-border">
+                                  <td className="px-3 py-2">
+                                    {activeLeaguePairs.length + index + 1}
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    {participant.display_name}
                                     {participant.tennis_skill_level != null && (
-                                      <span className="inline-flex rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                                      <span className="ml-2 text-xs text-muted-foreground">
                                         {participant.tennis_skill_level}
                                       </span>
                                     )}
-                                  </li>
-                                ))}
-                            </ul>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                        <>
-                          {pairs
-                            .filter(
-                              (pair) =>
-                                pair.category === activeCategory && pair.status !== 'withdrawn',
-                            )
-                            .map((pair) => (
-                              <div
-                                key={pair.id}
-                                className={`rounded-md border p-3 text-sm ${isOwnPair(pair.id) ? 'border-primary/40 bg-primary/[0.04]' : 'border-border'}`}
-                              >
-                                <span>{pair.player_one_name}</span>
-                                {pair.player_one_skill_level != null && (
-                                  <span className="ml-1 inline-flex rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                                    {pair.player_one_skill_level}
-                                  </span>
-                                )}{' '}
-                                + <span>{pair.player_two_name}</span>
-                                {pair.player_two_skill_level != null && (
-                                  <span className="ml-1 inline-flex rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                                    {pair.player_two_skill_level}
-                                  </span>
-                                )}
-                                {isOwnPair(pair.id) && (
+                                  </td>
+                                  <td className="px-3 py-2 text-muted-foreground">—</td>
+                                  <td className="px-3 py-2">Registered</td>
+                                  <td className="px-3 py-2">Not assigned</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div className="mt-4 space-y-6">
+                          {leagueCourtAssignments.length > 0 && (
+                            <section>
+                              <h4 className="mb-3 text-lg font-semibold">Team court assignments</h4>
+                              <div className="space-y-4">
+                                {Array.from(
+                                  new Set(leagueCourtAssignments.map((item) => item.segment_order)),
+                                )
+                                  .sort((a, b) => a - b)
+                                  .map((slot) => (
+                                    <div key={slot}>
+                                      <h5 className="mb-2 font-medium">Sub-session {slot}</h5>
+                                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                                        {Array.from({ length: courtTotal }, (_, index) => index + 1)
+                                          .map((court) => ({
+                                            court,
+                                            pairs: leagueCourtAssignments
+                                              .filter(
+                                                (assignment) =>
+                                                  assignment.segment_order === slot &&
+                                                  assignment.court_number === court,
+                                              )
+                                              .map((assignment) =>
+                                                leaguePairs.find(
+                                                  (pair) => pair.id === assignment.pair_id,
+                                                ),
+                                              )
+                                              .filter((pair): pair is Pair => !!pair),
+                                          }))
+                                          .map(({ court, pairs: courtPairs }) => (
+                                            <div
+                                              key={court}
+                                              className="rounded-xl border border-border p-3"
+                                            >
+                                              <h6 className="font-semibold">Court {court}</h6>
+                                              <div className="mt-2 space-y-2 text-sm">
+                                                {courtPairs.map((pair) => (
+                                                  <p key={pair.id}>
+                                                    {pair.player_one_name} + {pair.player_two_name}
+                                                  </p>
+                                                ))}
+                                              </div>
+                                            </div>
+                                          ))}
+                                      </div>
+                                    </div>
+                                  ))}
+                              </div>
+                            </section>
+                          )}
+                          {!leagueTimeSlots.length && !leagueCourtAssignments.length && (
+                            <p className="text-sm text-muted-foreground">
+                              No court assignments yet.
+                            </p>
+                          )}
+                          {leagueTimeSlots.map((slot) => {
+                            const slotMatches = leagueScheduledMatches.filter(
+                              (match) => (match.scheduled_at || 'unscheduled') === slot,
+                            );
+                            const courts = Array.from(
+                              new Set(slotMatches.map((match) => match.court_number)),
+                            ).sort((a, b) => Number(a) - Number(b));
+                            return (
+                              <section key={slot}>
+                                <h4 className="mb-3 text-lg font-semibold">
+                                  Sub-session{' '}
+                                  {slot === 'unscheduled' ? 'to be announced' : dateLabel(slot)}
+                                </h4>
+                                <div className="grid gap-4 sm:grid-cols-2">
+                                  {courts.map((court) => (
+                                    <div
+                                      key={court}
+                                      className="rounded-xl border border-border p-4"
+                                    >
+                                      <h5 className="font-semibold">Court {court}</h5>
+                                      <div className="mt-3 space-y-2">
+                                        {slotMatches
+                                          .filter((match) => match.court_number === court)
+                                          .map((match) => (
+                                            <div
+                                              key={match.id}
+                                              className="rounded-md bg-muted/40 px-3 py-2 text-sm"
+                                            >
+                                              <span className="mr-1 text-xs text-muted-foreground">
+                                                {match.match_number}.
+                                              </span>
+                                              <span className="font-medium">
+                                                {match.player_one_name || 'Team 1'}
+                                              </span>
+                                              <span> vs </span>
+                                              <span className="font-medium">
+                                                {match.opponent_one_name || 'Team 2'}
+                                              </span>
+                                            </div>
+                                          ))}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </section>
+                            );
+                          })}
+                          {unpairedLeagueParticipants.length > 0 && (
+                            <section className="rounded-md border border-dashed border-border p-3 sm:col-span-2">
+                              <h4 className="font-medium">Players without an assigned team</h4>
+                              <p className="mt-2 text-sm text-muted-foreground">
+                                {unpairedLeagueParticipants
+                                  .map((participant) => participant.display_name)
+                                  .join(', ')}
+                              </p>
+                            </section>
+                          )}
+                        </div>
+                      )
+                    ) : null}
+                    {!leagueTournament &&
+                      (format === 'team' ? (
+                        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                          {teams.map((team) => (
+                            <div
+                              key={team.id}
+                              className={`rounded-md border p-3 text-sm ${ownTeamIds.includes(team.id) ? 'border-primary/40 bg-primary/[0.04]' : 'border-border'}`}
+                            >
+                              <p className="font-medium">
+                                {team.name}
+                                {ownTeamIds.includes(team.id) && (
                                   <span className="ml-2 inline-flex rounded-full bg-primary/10 px-1.5 py-0.5 align-middle text-[10px] font-medium text-primary">
                                     You
                                   </span>
                                 )}
-                              </div>
-                            ))}
-                          {participants
-                            .filter(
-                              (participant) =>
-                                participant.category === activeCategory &&
-                                participant.status === 'registered' &&
-                                !pairs.some(
-                                  (pair) =>
-                                    pair.status !== 'withdrawn' &&
-                                    pair.category === activeCategory &&
-                                    (pair.player_one_id === participant.id ||
-                                      pair.player_two_id === participant.id),
-                                ),
-                            )
-                            .map((participant) => (
-                              <div
-                                key={participant.id}
-                                className={`rounded-md border p-3 text-sm ${ownParticipantIds.includes(participant.id) ? 'border-primary/40 bg-primary/[0.04]' : 'border-border'}`}
-                              >
-                                <span>{participant.display_name}</span>
-                                {participant.tennis_skill_level != null && (
-                                  <span className="ml-1 inline-flex rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                                    {participant.tennis_skill_level}
-                                  </span>
-                                )}
-                                {ownParticipantIds.includes(participant.id) && (
-                                  <span className="ml-2 inline-flex rounded-full bg-primary/10 px-1.5 py-0.5 align-middle text-[10px] font-medium text-primary">
-                                    You
-                                  </span>
-                                )}
-                              </div>
-                            ))}
-                        </>
+                              </p>
+                              <ul className="mt-2 space-y-1 text-muted-foreground">
+                                {participants
+                                  .filter((participant) => participant.team_id === team.id)
+                                  .map((participant) => (
+                                    <li key={participant.id} className="flex items-center gap-2">
+                                      <span>{participant.display_name}</span>
+                                      {participant.tennis_skill_level != null && (
+                                        <span className="inline-flex rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                                          {participant.tennis_skill_level}
+                                        </span>
+                                      )}
+                                    </li>
+                                  ))}
+                              </ul>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                          <>
+                            {pairs
+                              .filter(
+                                (pair) =>
+                                  pair.category === activeCategory && pair.status !== 'withdrawn',
+                              )
+                              .map((pair) => (
+                                <div
+                                  key={pair.id}
+                                  className={`rounded-md border p-3 text-sm ${isOwnPair(pair.id) ? 'border-primary/40 bg-primary/[0.04]' : 'border-border'}`}
+                                >
+                                  <span>{pair.player_one_name}</span>
+                                  {pair.player_one_skill_level != null && (
+                                    <span className="ml-1 inline-flex rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                                      {pair.player_one_skill_level}
+                                    </span>
+                                  )}{' '}
+                                  + <span>{pair.player_two_name}</span>
+                                  {pair.player_two_skill_level != null && (
+                                    <span className="ml-1 inline-flex rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                                      {pair.player_two_skill_level}
+                                    </span>
+                                  )}
+                                  {isOwnPair(pair.id) && (
+                                    <span className="ml-2 inline-flex rounded-full bg-primary/10 px-1.5 py-0.5 align-middle text-[10px] font-medium text-primary">
+                                      You
+                                    </span>
+                                  )}
+                                </div>
+                              ))}
+                            {participants
+                              .filter(
+                                (participant) =>
+                                  participant.category === activeCategory &&
+                                  participant.status === 'registered' &&
+                                  !pairs.some(
+                                    (pair) =>
+                                      pair.status !== 'withdrawn' &&
+                                      pair.category === activeCategory &&
+                                      (pair.player_one_id === participant.id ||
+                                        pair.player_two_id === participant.id),
+                                  ),
+                              )
+                              .map((participant) => (
+                                <div
+                                  key={participant.id}
+                                  className={`rounded-md border p-3 text-sm ${ownParticipantIds.includes(participant.id) ? 'border-primary/40 bg-primary/[0.04]' : 'border-border'}`}
+                                >
+                                  <span>{participant.display_name}</span>
+                                  {participant.tennis_skill_level != null && (
+                                    <span className="ml-1 inline-flex rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                                      {participant.tennis_skill_level}
+                                    </span>
+                                  )}
+                                  {ownParticipantIds.includes(participant.id) && (
+                                    <span className="ml-2 inline-flex rounded-full bg-primary/10 px-1.5 py-0.5 align-middle text-[10px] font-medium text-primary">
+                                      You
+                                    </span>
+                                  )}
+                                </div>
+                              ))}
+                          </>
+                        </div>
+                      ))}
+                    {leagueTournament && canViewCompetition && (
+                      <div className="mt-5 rounded-xl border border-border p-4">
+                        <h3 className="font-semibold">Waitlist</h3>
+                        {participants.some(
+                          (participant) =>
+                            participant.category === activeCategory &&
+                            participant.status === 'waitlisted',
+                        ) ? (
+                          <ol className="mt-2 list-inside list-decimal space-y-1 text-sm">
+                            {participants
+                              .filter(
+                                (participant) =>
+                                  participant.category === activeCategory &&
+                                  participant.status === 'waitlisted',
+                              )
+                              .map((participant) => (
+                                <li key={participant.id}>{participant.display_name}</li>
+                              ))}
+                          </ol>
+                        ) : (
+                          <p className="mt-2 text-sm text-muted-foreground">
+                            No one is on the waitlist.
+                          </p>
+                        )}
                       </div>
                     )}
                   </section>
                 )}
-              {!winnerSummaries.length && (
-                <EventWeather
-                  startsAt={startsAt}
-                  endsAt={endsAt || undefined}
-                  location={locationQuery}
-                  eventLabel="tournament"
-                />
+              {(!winnerSummaries.length || leagueTournament) && (
+                <div className={leagueTournament ? 'order-2' : undefined}>
+                  <EventWeather
+                    startsAt={startsAt}
+                    endsAt={endsAt || undefined}
+                    location={locationQuery}
+                    eventLabel="tournament"
+                  />
+                </div>
               )}
               {tab === 'overview' && (
-                <div className="rounded-lg border border-border p-4">
-                  <h3 className="font-semibold">Tournament registration</h3>
+                <div
+                  className={
+                    leagueTournament
+                      ? 'order-3 rounded-xl border border-border p-5'
+                      : 'rounded-lg border border-border p-4'
+                  }
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h3 className={leagueTournament ? 'text-xl font-semibold' : 'font-semibold'}>
+                      {leagueTournament ? 'Registration' : 'Tournament registration'}
+                    </h3>
+                    {leagueTournament &&
+                      registrationOpen &&
+                      !ownEntries.some((entry) => entry.category === leagueRegistrationCategory) &&
+                      !loading &&
+                      currentUserId &&
+                      (ownLeagueTeamId ? (
+                        <button
+                          type="button"
+                          disabled={registrationBusy}
+                          onClick={() => void registerLeagueTeam()}
+                          className="h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
+                        >
+                          {registrationBusy ? (
+                            <TennisLoader compact label="Registering team" />
+                          ) : (
+                            'Register my team'
+                          )}
+                        </button>
+                      ) : (
+                        availableCategories.length > 0 && (
+                          <button
+                            type="button"
+                            disabled={registrationBusy}
+                            onClick={() => void registerLeagueSingle()}
+                            className="h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
+                          >
+                            {registrationBusy ? 'Registering…' : 'Register'}
+                          </button>
+                        )
+                      ))}
+                  </div>
                   {currentUserId && ownEntries.length > 0 && (
                     <div className="mt-3 space-y-3" aria-label="Your tournament registrations">
                       {ownEntries.map((entry) => {
@@ -2192,8 +2955,25 @@ export function TournamentPublicView({
                               {cutoffOpen && (
                                 <button
                                   type="button"
-                                  disabled={paymentBusy}
+                                  disabled={paymentBusy || leagueWithdrawBusy}
                                   onClick={async () => {
+                                    if (leagueTournament) {
+                                      if (!entryPair) {
+                                        setRegistrationError(
+                                          'The League team pair could not be found. Contact the organizer before withdrawing.',
+                                        );
+                                        return;
+                                      }
+                                      setLeagueWithdrawTarget({
+                                        participantId: entry.id,
+                                        partnerParticipantId:
+                                          entryPair.player_one_id === entry.id
+                                            ? entryPair.player_two_id
+                                            : entryPair.player_one_id,
+                                      });
+                                      setLeagueWithdrawError('');
+                                      return;
+                                    }
                                     const cancelResponse = await fetch('/api/payments/cancel', {
                                       method: 'POST',
                                       headers: { 'Content-Type': 'application/json' },
@@ -2240,9 +3020,24 @@ export function TournamentPublicView({
                     <p className="mt-3 text-sm text-muted-foreground">
                       Registration is not currently open.
                     </p>
-                  ) : !currentUserId && !allowNonMemberRegistration ? (
+                  ) : !currentUserId && (leagueTournament || !allowNonMemberRegistration) ? (
                     <p className="mt-3 text-sm">
                       Sign in with an approved member account to register.
+                    </p>
+                  ) : leagueTournament && ownLeagueTeamId ? (
+                    ownEntries.some((entry) => entry.category === leagueRegistrationCategory) ? (
+                      <p className="mt-3 text-sm text-muted-foreground">
+                        Your League team is already registered for this event.
+                      </p>
+                    ) : (
+                      <p className="mt-4 text-sm text-muted-foreground">
+                        Your confirmed League partner will be registered with you.
+                      </p>
+                    )
+                  ) : leagueTournament ? (
+                    <p className="mt-4 text-sm text-muted-foreground">
+                      You can register as a single player. An organizer can pair you with a League
+                      team.
                     </p>
                   ) : availableCategories.length === 0 ? (
                     <p className="mt-3 text-sm text-muted-foreground">
@@ -2255,42 +3050,46 @@ export function TournamentPublicView({
                   ) : (
                     <form onSubmit={submitRegistration} className="mt-4 space-y-3">
                       <div className="grid gap-3 sm:grid-cols-2">
-                        <label className="text-sm">
-                          Category
-                          <select
-                            className="mt-1 block h-10 w-full rounded-md border border-input bg-background px-3"
-                            value={registrationCategory}
-                            onChange={(e) => {
-                              setRegistrationCategory(e.target.value);
-                              setPartnerChoice('');
-                            }}
-                            required
-                          >
-                            {availableCategories.map((category: string) => (
-                              <option key={category} value={category}>
-                                {categoryLabel(category)}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        {format === 'doubles' && registrationModeConfig === 'both' && (
+                        {!leagueTournament && (
                           <label className="text-sm">
-                            Registration type
+                            Category
                             <select
                               className="mt-1 block h-10 w-full rounded-md border border-input bg-background px-3"
-                              value={registrationMode}
+                              value={registrationCategory}
                               onChange={(e) => {
-                                setRegistrationMode(e.target.value as 'individual' | 'pair');
+                                setRegistrationCategory(e.target.value);
                                 setPartnerChoice('');
                               }}
+                              required
                             >
-                              <option value="individual">
-                                Register individually; organizer can pair me later
-                              </option>
-                              <option value="pair">Register with a partner</option>
+                              {availableCategories.map((category: string) => (
+                                <option key={category} value={category}>
+                                  {categoryLabel(category)}
+                                </option>
+                              ))}
                             </select>
                           </label>
                         )}
+                        {!leagueTournament &&
+                          format === 'doubles' &&
+                          registrationModeConfig === 'both' && (
+                            <label className="text-sm">
+                              Registration type
+                              <select
+                                className="mt-1 block h-10 w-full rounded-md border border-input bg-background px-3"
+                                value={registrationMode}
+                                onChange={(e) => {
+                                  setRegistrationMode(e.target.value as 'individual' | 'pair');
+                                  setPartnerChoice('');
+                                }}
+                              >
+                                <option value="individual">
+                                  Register individually; organizer can pair me later
+                                </option>
+                                <option value="pair">Register with a partner</option>
+                              </select>
+                            </label>
+                          )}
                       </div>
                       {!currentUserId && (
                         <div className="grid gap-3 sm:grid-cols-2">
@@ -2488,13 +3287,15 @@ export function TournamentPublicView({
                             )}
                         </div>
                       )}
-                      <button
-                        type="submit"
-                        disabled={registrationBusy}
-                        className="h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
-                      >
-                        {registrationBusy ? 'Registering…' : 'Register for tournament'}
-                      </button>
+                      {!leagueTournament && (
+                        <button
+                          type="submit"
+                          disabled={registrationBusy}
+                          className="h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
+                        >
+                          {registrationBusy ? 'Registering…' : 'Register for tournament'}
+                        </button>
+                      )}
                     </form>
                   )}
                   {!currentUserId && paymentParticipantIds.length > 0 && (
@@ -2575,8 +3376,11 @@ export function TournamentPublicView({
                   )}
                 </div>
               )}
-              {ownNextMatch && (
-                <div role="status" className="rounded-lg border border-primary/40 bg-primary/5 p-4">
+              {!leagueTournament && ownNextMatch && (
+                <div
+                  role="status"
+                  className={`rounded-lg border border-primary/40 bg-primary/5 p-4 ${leagueTournament ? 'order-3' : ''}`}
+                >
                   <p className="text-xs font-semibold uppercase tracking-wide text-primary">
                     Your next match
                   </p>
@@ -2592,9 +3396,331 @@ export function TournamentPublicView({
                   </p>
                 </div>
               )}
+              {leagueTournament &&
+                (() => {
+                  const leagueMatches = matches.filter(
+                    (match) =>
+                      match.phase === 'round_robin' && match.pair_one_id && match.pair_two_id,
+                  );
+                  const scoreableMatches = leagueMatches.filter(
+                    (match) =>
+                      match.status !== 'cancelled' &&
+                      (canManageLeagueScores ||
+                        isOwnPair(match.pair_one_id) ||
+                        isOwnPair(match.pair_two_id)),
+                  );
+                  const selectedMatch = leagueMatches.find(
+                    (match) => match.id === leagueScoreMatchId,
+                  );
+                  const selectedDraft = selectedMatch
+                    ? (leagueScoreDrafts[selectedMatch.id] ?? { one: '', two: '' })
+                    : { one: '', two: '' };
+                  const pairName = (pairId: string | null) => {
+                    const pair = pairs.find((item) => item.id === pairId);
+                    return pair
+                      ? `${pair.player_one_name} / ${pair.player_two_name}`
+                      : 'League team';
+                  };
+                  const matchTimeLabel = (match: Match) => {
+                    return `Court ${match.court_number ?? 'TBD'} · Sub-session ${match.round_number}`;
+                  };
+                  return (
+                    <section className="order-5" aria-label="League match scores">
+                      <h3 className="text-xl font-semibold">Scores</h3>
+                      <div className="mt-3 space-y-2">
+                        {leagueMatches
+                          .filter((match) => match.status === 'completed')
+                          .map((match) => (
+                            <div
+                              key={match.id}
+                              className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-3 text-sm"
+                            >
+                              <span>
+                                {pairName(match.pair_one_id)}{' '}
+                                <strong>
+                                  {match.score_sets?.[0]?.one ?? 0} –{' '}
+                                  {match.score_sets?.[0]?.two ?? 0}
+                                </strong>{' '}
+                                {pairName(match.pair_two_id)}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                {match.scheduled_at
+                                  ? new Date(match.scheduled_at).toLocaleDateString('en-CA')
+                                  : ''}
+                              </span>
+                            </div>
+                          ))}
+                        {!leagueMatches.some((match) => match.status === 'completed') && (
+                          <p className="text-sm text-muted-foreground">
+                            No scores have been entered.
+                          </p>
+                        )}
+                      </div>
+                      {currentUserId && canManageLeagueScores && !leagueEventStarted && (
+                        <p className="mt-5 text-sm text-muted-foreground">
+                          Score entry opens when the event starts.
+                        </p>
+                      )}
+                      {currentUserId &&
+                        leagueEventStarted &&
+                        (canManageLeagueScores ||
+                          (scoreableMatches.length > 0 && leagueScoresOpen)) && (
+                          <form
+                            className="mt-5 rounded-xl border border-border p-4"
+                            onSubmit={(event) => {
+                              event.preventDefault();
+                              if (selectedMatch) void saveLeagueScore(selectedMatch);
+                            }}
+                          >
+                            <h4 className="font-semibold">Add a score</h4>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {canManageLeagueScores
+                                ? 'Select the court/time slot and league team. The opposing team is assigned automatically.'
+                                : 'Your league team and its opponents are assigned automatically from your court/time slot.'}
+                            </p>
+                            <div
+                              className={`mt-3 grid gap-3 sm:grid-cols-2 ${canManageLeagueScores ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}
+                            >
+                              <label className="space-y-1 text-sm">
+                                Court / sub-session
+                                <select
+                                  required
+                                  value={leagueScoreMatchId}
+                                  onChange={(event) => {
+                                    const match = leagueMatches.find(
+                                      (item) => item.id === event.target.value,
+                                    );
+                                    setLeagueScoreMatchId(event.target.value);
+                                    setLeagueScoreTeamSide('1');
+                                    if (match?.status === 'completed') {
+                                      const ownOnOne =
+                                        canManageLeagueScores || isOwnPair(match.pair_one_id);
+                                      setLeagueScoreDrafts((current) => ({
+                                        ...current,
+                                        [match.id]: {
+                                          one: String(
+                                            match.score_sets?.[0]?.[ownOnOne ? 'one' : 'two'] ?? '',
+                                          ),
+                                          two: String(
+                                            match.score_sets?.[0]?.[ownOnOne ? 'two' : 'one'] ?? '',
+                                          ),
+                                        },
+                                      }));
+                                    }
+                                  }}
+                                  className="block h-10 w-full rounded-md border border-input bg-background px-3"
+                                >
+                                  <option value="">Select assignment</option>
+                                  {scoreableMatches.map((match) => (
+                                    <option key={match.id} value={match.id}>
+                                      {matchTimeLabel(match)}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              {canManageLeagueScores && selectedMatch && (
+                                <label className="space-y-1 text-sm">
+                                  Team
+                                  <select
+                                    required
+                                    value={leagueScoreTeamSide}
+                                    onChange={(event) => {
+                                      const side = event.target.value as '1' | '2';
+                                      setLeagueScoreTeamSide(side);
+                                      const match = selectedMatch;
+                                      if (match.status === 'completed') {
+                                        const teamOneSelected = side === '1';
+                                        setLeagueScoreDrafts((current) => ({
+                                          ...current,
+                                          [match.id]: {
+                                            one: String(
+                                              match.score_sets?.[0]?.[
+                                                teamOneSelected ? 'one' : 'two'
+                                              ] ?? '',
+                                            ),
+                                            two: String(
+                                              match.score_sets?.[0]?.[
+                                                teamOneSelected ? 'two' : 'one'
+                                              ] ?? '',
+                                            ),
+                                          },
+                                        }));
+                                      }
+                                    }}
+                                    className="block h-10 w-full rounded-md border border-input bg-background px-3"
+                                  >
+                                    <option value="1">{pairName(selectedMatch.pair_one_id)}</option>
+                                    <option value="2">{pairName(selectedMatch.pair_two_id)}</option>
+                                  </select>
+                                </label>
+                              )}
+                              <label className="space-y-1 text-sm">
+                                {canManageLeagueScores ? 'Team score' : 'Your team score'}
+                                <input
+                                  required
+                                  type="number"
+                                  min="0"
+                                  value={selectedDraft.one}
+                                  onChange={(event) =>
+                                    selectedMatch &&
+                                    setLeagueScoreDrafts((current) => ({
+                                      ...current,
+                                      [selectedMatch.id]: {
+                                        ...selectedDraft,
+                                        one: event.target.value,
+                                      },
+                                    }))
+                                  }
+                                  className="block h-10 w-full rounded-md border border-input bg-background px-3"
+                                />
+                              </label>
+                              <label className="space-y-1 text-sm">
+                                {canManageLeagueScores ? 'Opposing team score' : 'Opponents’ score'}
+                                <input
+                                  required
+                                  type="number"
+                                  min="0"
+                                  value={selectedDraft.two}
+                                  onChange={(event) =>
+                                    selectedMatch &&
+                                    setLeagueScoreDrafts((current) => ({
+                                      ...current,
+                                      [selectedMatch.id]: {
+                                        ...selectedDraft,
+                                        two: event.target.value,
+                                      },
+                                    }))
+                                  }
+                                  className="block h-10 w-full rounded-md border border-input bg-background px-3"
+                                />
+                              </label>
+                              <div className="flex items-end">
+                                <button
+                                  type="submit"
+                                  disabled={
+                                    !selectedMatch || savingLeagueScore === selectedMatch.id
+                                  }
+                                  className="h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
+                                >
+                                  {selectedMatch && savingLeagueScore === selectedMatch.id
+                                    ? 'Saving…'
+                                    : 'Save score'}
+                                </button>
+                              </div>
+                            </div>
+                          </form>
+                        )}
+                    </section>
+                  );
+                })()}
             </div>
           ) : (
             <div className="space-y-6">
+              {leagueTournament &&
+                (() => {
+                  const standings =
+                    leagueStandingsMode === 'after' ? leagueStandingsAfter : leagueStandingsBefore;
+                  const beforePositions = new Map(
+                    leagueStandingsBefore.map((row) => [String(row.team_id), Number(row.position)]),
+                  );
+                  return (
+                    <section
+                      className="overflow-x-auto rounded-lg border border-border p-4"
+                      aria-label="League standings"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <h2 className="text-lg font-semibold">League standings</h2>
+                        <div
+                          className="inline-flex rounded-md border border-border p-1"
+                          role="group"
+                          aria-label="Standings period"
+                        >
+                          <button
+                            type="button"
+                            aria-pressed={leagueStandingsMode === 'before'}
+                            onClick={() => setLeagueStandingsMode('before')}
+                            className={`rounded px-3 py-1.5 text-sm ${leagueStandingsMode === 'before' ? 'bg-primary text-primary-foreground' : ''}`}
+                          >
+                            Before this event
+                          </button>
+                          <button
+                            type="button"
+                            aria-pressed={leagueStandingsMode === 'after'}
+                            onClick={() => setLeagueStandingsMode('after')}
+                            className={`rounded px-3 py-1.5 text-sm ${leagueStandingsMode === 'after' ? 'bg-primary text-primary-foreground' : ''}`}
+                          >
+                            After this event
+                          </button>
+                        </div>
+                      </div>
+                      {leagueStandingsMode === 'after' && !leagueHasResults ? (
+                        <p className="mt-4 text-sm text-muted-foreground">
+                          No results are available for this event yet.
+                        </p>
+                      ) : !standings.length ? (
+                        <p className="mt-4 text-sm text-muted-foreground">No records yet.</p>
+                      ) : (
+                        <table className="mt-3 w-full text-left text-sm">
+                          <thead>
+                            <tr>
+                              <th className="p-2">Rank</th>
+                              <th className="p-2">Team</th>
+                              <th className="p-2">Played</th>
+                              <th className="p-2">Wins</th>
+                              <th className="p-2">Points</th>
+                              <th className="p-2">Sets</th>
+                              <th className="p-2">Games</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {standings.map((row, index) => {
+                              const oldPosition = beforePositions.get(String(row.team_id));
+                              const delta =
+                                leagueStandingsMode === 'after' && oldPosition !== undefined
+                                  ? oldPosition - Number(row.position ?? index + 1)
+                                  : 0;
+                              return (
+                                <tr
+                                  key={String(row.team_id ?? index)}
+                                  className="border-t border-border"
+                                >
+                                  <td className="p-2">{String(row.position ?? index + 1)}</td>
+                                  <td className="p-2">
+                                    {String(row.team_name ?? '')}
+                                    {delta !== 0 && (
+                                      <span
+                                        aria-label={`${delta > 0 ? 'Moved up' : 'Moved down'} ${Math.abs(delta)} ${Math.abs(delta) === 1 ? 'place' : 'places'}`}
+                                        title={`${delta > 0 ? 'Moved up' : 'Moved down'} ${Math.abs(delta)} ${Math.abs(delta) === 1 ? 'place' : 'places'}`}
+                                        className={`ml-2 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-semibold ${delta > 0 ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100' : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100'}`}
+                                      >
+                                        <Triangle
+                                          aria-hidden="true"
+                                          size={11}
+                                          fill="currentColor"
+                                          className={delta < 0 ? 'rotate-180' : undefined}
+                                        />
+                                        {Math.abs(delta)}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="p-2">{String(row.matches_played ?? 0)}</td>
+                                  <td className="p-2">{String(row.wins ?? 0)}</td>
+                                  <td className="p-2">{String(row.points ?? 0)}</td>
+                                  <td className="p-2">
+                                    {String(row.sets_won ?? 0)}–{String(row.sets_lost ?? 0)}
+                                  </td>
+                                  <td className="p-2">
+                                    {String(row.games_won ?? 0)}–{String(row.games_lost ?? 0)}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      )}
+                    </section>
+                  );
+                })()}
               {knockoutMatches.length > 0 && (
                 <details open className="space-y-3">
                   <summary className="cursor-pointer text-lg font-semibold">
@@ -2952,27 +4078,28 @@ export function TournamentPublicView({
                     <summary className="cursor-pointer text-lg font-semibold">
                       Match schedule and results
                     </summary>
-                    {categoryVisibleMatches.some((match) =>
-                      match.phase.includes('round_robin'),
-                    ) && (
-                      <div
-                        className="inline-flex rounded-md border border-border p-1"
-                        role="group"
-                        aria-label="Group round-robin matches by"
-                      >
-                        {(['group', 'round'] as const).map((mode) => (
-                          <button
-                            key={mode}
-                            type="button"
-                            aria-pressed={competitionMatchGrouping === mode}
-                            onClick={() => setCompetitionMatchGrouping(mode)}
-                            className={`rounded px-3 py-2 text-sm ${competitionMatchGrouping === mode ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary'}`}
-                          >
-                            By {mode}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                    {!leagueTournament &&
+                      categoryVisibleMatches.some((match) =>
+                        match.phase.includes('round_robin'),
+                      ) && (
+                        <div
+                          className="inline-flex rounded-md border border-border p-1"
+                          role="group"
+                          aria-label="Group round-robin matches by"
+                        >
+                          {(['group', 'round'] as const).map((mode) => (
+                            <button
+                              key={mode}
+                              type="button"
+                              aria-pressed={competitionMatchGrouping === mode}
+                              onClick={() => setCompetitionMatchGrouping(mode)}
+                              className={`rounded px-3 py-2 text-sm ${competitionMatchGrouping === mode ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary'}`}
+                            >
+                              By {mode}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     {([format === 'team' ? 'team' : activeCategory] as const)
                       .filter((category) =>
                         categoryVisibleMatches.some((m) => m.category === category),
@@ -2993,7 +4120,9 @@ export function TournamentPublicView({
                             )
                             .map((phase) => (
                               <div key={phase}>
-                                <h4 className="font-medium">{phaseLabel(phase)}</h4>
+                                {!leagueTournament && (
+                                  <h4 className="font-medium">{phaseLabel(phase)}</h4>
+                                )}
                                 {(() => {
                                   const phaseMatches = categoryVisibleMatches
                                     .filter((m) => m.category === category && m.phase === phase)
@@ -3060,7 +4189,7 @@ export function TournamentPublicView({
                                     <div className="mt-2 space-y-4">
                                       {grouped.map((group) => (
                                         <section key={group.title || phase} className="space-y-2">
-                                          {group.title && (
+                                          {!leagueTournament && group.title && (
                                             <h5 className="text-sm font-semibold text-muted-foreground">
                                               {group.title}
                                             </h5>
@@ -3157,11 +4286,13 @@ export function TournamentPublicView({
                                                       : null,
                                                     m.phase.includes('knockout')
                                                       ? `${knockoutStageLabel(m.round_number, Math.max(1, ...categoryVisibleMatches.filter((item) => item.phase === m.phase).map((item) => item.round_number)))} ${m.match_number}`
-                                                      : `Round ${roundRobinRoundByMatch.get(m.id) ?? m.round_number}`,
+                                                      : `${leagueTournament ? 'Sub-session' : 'Round'} ${roundRobinRoundByMatch.get(m.id) ?? m.round_number}`,
                                                     m.status === 'bye'
                                                       ? null
                                                       : dateLabel(m.scheduled_at),
-                                                    m.status !== 'bye' && m.scheduled_at
+                                                    m.status !== 'bye' &&
+                                                    m.scheduled_at &&
+                                                    !leagueTournament
                                                       ? `Ends ${formatTime(new Date(new Date(m.scheduled_at).getTime() + Math.max(30, Number(config?.schedule?.match_minutes ?? 60)) * 60000))}`
                                                       : null,
                                                     m.court_number
@@ -3342,6 +4473,258 @@ export function TournamentPublicView({
             </div>
           )}
         </>
+      )}
+      {leagueCourtModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="league-assign-courts-title"
+        >
+          <div className="my-4 w-full max-w-6xl rounded-xl border border-border bg-background p-5 shadow-xl">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 id="league-assign-courts-title" className="text-xl font-semibold">
+                  Assign courts
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Drag each League team to a court or back to Unassigned teams. Each team uses two
+                  player places.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLeagueCourtModalOpen(false)}
+                className="rounded-md border border-border px-3 py-2 text-sm"
+              >
+                Close
+              </button>
+            </div>
+            <div className="mt-5 space-y-6">
+              {Array.from({ length: leagueCourtSessionCount }, (_, index) => index + 1).map(
+                (session) => (
+                  <section key={session} className="rounded-lg border border-border p-3">
+                    <div className="mb-3 flex items-center justify-between">
+                      <h3 className="font-semibold">Sub-session {session}</h3>
+                      {session > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLeagueCourtDraft((current) =>
+                              current
+                                .filter((item) => item.segment_order !== session)
+                                .map((item) => ({
+                                  ...item,
+                                  segment_order:
+                                    item.segment_order > session
+                                      ? item.segment_order - 1
+                                      : item.segment_order,
+                                })),
+                            );
+                            setLeagueCourtSessionCount((count) => count - 1);
+                          }}
+                          className="rounded-md border border-border px-3 py-1.5 text-sm"
+                        >
+                          Remove sub-session
+                        </button>
+                      )}
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                      {Array.from({ length: courtTotal }, (_, index) => index + 1).map((court) => {
+                        const assigned = leagueCourtDraft.filter(
+                          (item) => item.segment_order === session && item.court_number === court,
+                        );
+                        return (
+                          <div
+                            key={court}
+                            onDragOver={(event) => event.preventDefault()}
+                            onDrop={(event) => {
+                              event.preventDefault();
+                              const pairId = event.dataTransfer.getData(
+                                'application/x-pctc-league-pair',
+                              );
+                              if (pairId) moveLeaguePairToCourt(pairId, court, session);
+                            }}
+                            className="min-h-44 rounded-lg border-2 border-dashed border-border bg-muted/20 p-3"
+                          >
+                            <h4 className="mb-3 text-sm font-semibold">
+                              Court {court}{' '}
+                              <span className="font-normal text-muted-foreground">
+                                ({assigned.length} teams / {assigned.length * 2} player places)
+                              </span>
+                            </h4>
+                            <div className="space-y-2">
+                              {assigned.map((assignment) => {
+                                const pair = leaguePairs.find(
+                                  (item) => item.id === assignment.pair_id,
+                                );
+                                if (!pair) return null;
+                                return (
+                                  <div
+                                    key={assignment.pair_id}
+                                    draggable
+                                    onDragStart={(event) => {
+                                      event.dataTransfer.setData(
+                                        'application/x-pctc-league-pair',
+                                        assignment.pair_id,
+                                      );
+                                      event.dataTransfer.effectAllowed = 'move';
+                                      setLeagueCourtDragging(assignment.pair_id);
+                                    }}
+                                    onDragEnd={() => setLeagueCourtDragging(null)}
+                                    className={`flex cursor-grab items-center gap-2 rounded-lg border border-border bg-background p-2 shadow-sm active:cursor-grabbing ${leagueCourtDragging === assignment.pair_id ? 'opacity-50' : ''}`}
+                                  >
+                                    <div className="min-w-0">
+                                      <p className="truncate text-sm font-medium">
+                                        {pair.player_one_name} + {pair.player_two_name}
+                                      </p>
+                                      <p className="text-xs text-muted-foreground">
+                                        Two player places
+                                      </p>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div
+                      className="mt-3 min-h-20 rounded-lg border-2 border-dashed border-border bg-muted/30 p-3"
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        const pairId = event.dataTransfer.getData('application/x-pctc-league-pair');
+                        if (pairId) unassignLeaguePair(pairId, session);
+                      }}
+                    >
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Unassigned teams
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {leaguePairs
+                          .filter(
+                            (pair) =>
+                              !leagueCourtDraft.some(
+                                (item) =>
+                                  item.pair_id === pair.id && item.segment_order === session,
+                              ),
+                          )
+                          .map((pair) => (
+                            <div
+                              key={pair.id}
+                              draggable
+                              onDragStart={(event) => {
+                                event.dataTransfer.setData(
+                                  'application/x-pctc-league-pair',
+                                  pair.id,
+                                );
+                                event.dataTransfer.effectAllowed = 'move';
+                                setLeagueCourtDragging(pair.id);
+                              }}
+                              onDragEnd={() => setLeagueCourtDragging(null)}
+                              className="flex cursor-grab items-center gap-2 rounded-lg border border-border bg-background p-2"
+                            >
+                              <div>
+                                <p className="text-sm font-medium">
+                                  {pair.player_one_name} + {pair.player_two_name}
+                                </p>
+                                <p className="text-xs text-muted-foreground">Two player places</p>
+                              </div>
+                            </div>
+                          ))}
+                        {!leaguePairs.length && (
+                          <p className="text-sm text-muted-foreground">
+                            No paired League teams yet.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </section>
+                ),
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  const next = leagueCourtSessionCount + 1;
+                  const copied = leagueCourtDraft
+                    .filter((item) => item.segment_order === 1)
+                    .map((item) => ({ ...item, segment_order: next }));
+                  setLeagueCourtDraft((current) => [...current, ...copied]);
+                  setLeagueCourtSessionCount(next);
+                }}
+                className="rounded-md border border-border px-3 py-2 text-sm"
+              >
+                Add sub-session
+              </button>
+            </div>
+            {leagueCourtError && (
+              <p role="alert" className="mt-3 text-sm text-destructive">
+                {leagueCourtError}
+              </p>
+            )}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={leagueCourtSaving}
+                onClick={() => setLeagueCourtModalOpen(false)}
+                className="rounded-md border border-border px-4 py-2 text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={leagueCourtSaving || !leaguePairs.length}
+                onClick={() => void saveLeagueCourtAssignments()}
+                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+              >
+                {leagueCourtSaving ? 'Saving…' : 'Save assignments'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {leagueWithdrawTarget && (
+        <ConfirmDialog
+          open
+          title="Withdraw your League team?"
+          description={
+            <>
+              <p>
+                Withdrawing will remove you and your confirmed partner from this event. Both players
+                will be withdrawn together.
+              </p>
+              {leagueWithdrawError && (
+                <p role="alert" className="mt-3 text-destructive">
+                  {leagueWithdrawError}
+                </p>
+              )}
+            </>
+          }
+          confirmLabel="Withdraw team"
+          destructive
+          busy={leagueWithdrawBusy}
+          onCancel={() => {
+            setLeagueWithdrawTarget(null);
+            setLeagueWithdrawError('');
+          }}
+          onConfirm={() => void confirmLeagueTeamWithdrawal()}
+        />
+      )}
+      {leagueCourtConfirmation && (
+        <ConfirmDialog
+          open
+          title="Court assignment warnings"
+          description={`${leagueCourtWarnings.map(({ session, court, count }) => `Sub-session ${session}, Court ${court} has ${count} teams (${count * 2} player places; maximum 4).`).join('\n')}\n\nSave these assignments anyway?`}
+          confirmLabel="Save anyway"
+          busy={leagueCourtSaving}
+          onCancel={() => setLeagueCourtConfirmation(false)}
+          onConfirm={() => {
+            setLeagueCourtConfirmation(false);
+            void saveLeagueCourtAssignments(true);
+          }}
+        />
       )}
     </section>
   );

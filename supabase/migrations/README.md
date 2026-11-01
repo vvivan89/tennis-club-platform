@@ -18,3 +18,16 @@ Chat notification preferences are stored as `all`, `mentions`, or `none`. Mentio
 
 
 - `0046_interac_configuration.sql` — configurable Interac e-Transfer instructions and admin RLS.
+- `0062_integrated_league_tournaments.sql`: adds League as a shared series mode on the existing doubles tournament and ladder identity, fixes confirmed pairs across events, and stores historical and current standings.
+- `0063_league_after_event_standings.sql`: stores post-event League standings including results and teams from the current event.
+- `0064_league_overview_scores.sql`: lets fixed League team members submit their match scores through the event Overview.
+- `0065_fix_league_pair_creation_search_path.sql`: fixes League pair creation by qualifying both participant table references in the trigger function.
+- `0066_league_teams_fixed_on_pair_creation.sql`: creates fixed League teams with the first pair and lets event managers replace a team member across later event pairs while retaining completed match-player records.
+- `0067_league_team_court_assignments.sql`: adds a court assignment modal backend that assigns fixed League pairs in time slots, with two teams (four player places) per court.
+- `0068_league_pair_membership_eligibility.sql`: requires active paid membership for League pair creation and exposes eligibility to the League admin interface.
+- `0069_league_participant_member_selector_eligibility.sql`: exposes eligibility for all members in the League admin participant selector, including members not yet registered for the event.
+- `0070_allow_overfull_league_courts_with_warning.sql`: allows saving League assignments above four player places after the admin confirms the court warning.
+- `0073_atomic_league_event_team_registration.sql`: registers both members of an established League team and creates their event pair in one authorized, idempotent transaction.
+- `0074_atomic_league_event_team_withdrawal.sql`: withdraws both members and their League event pair atomically.
+- `0075_league_single_player_registration.sql`: lets approved active members without a confirmed League partner register singly for a League event.
+- `0076_league_event_score_start_guard.sql`: blocks all League score entry before the event starts and publishes court assignments for Realtime updates.

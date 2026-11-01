@@ -20,8 +20,26 @@ const mocks = vi.hoisted(() => ({
       organizer_id: 'admin-1',
       event_type: 'tournament',
       tournament_format: 'doubles',
+      social_doubles_ladder_id: null,
+    },
+    {
+      id: 'league-event-1',
+      slug: 'league-event-1',
+      title: 'Summer League Event',
+      starts_at: '2027-06-08T18:00:00Z',
+      ends_at: '2027-06-08T20:00:00Z',
+      status: 'published',
+      capacity: 16,
+      price_cents: 0,
+      series_id: 'series-1',
+      created_by: 'admin-1',
+      organizer_id: 'admin-1',
+      event_type: 'tournament',
+      tournament_format: 'doubles',
+      social_doubles_ladder_id: 'league-1',
     },
   ],
+  competitions: [{ id: 'league-1', competition_type: 'league' }],
 }));
 
 vi.mock('next/navigation', () => ({
@@ -40,7 +58,7 @@ vi.mock('@/lib/supabase-server', () => ({
     auth: { getUser: async () => ({ data: { user: mocks.user } }) },
     from: (table: string) => {
       const query: Record<string, unknown> = {};
-      for (const method of ['select', 'eq', 'or', 'order']) query[method] = () => query;
+      for (const method of ['select', 'eq', 'or', 'order', 'in']) query[method] = () => query;
       query.maybeSingle = async () => ({
         data:
           table === 'profiles'
@@ -49,10 +67,15 @@ vi.mock('@/lib/supabase-server', () => ({
         error: null,
       });
       query.then = (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) =>
-        Promise.resolve({ data: table === 'events' ? mocks.events : [], error: null }).then(
-          resolve,
-          reject,
-        );
+        Promise.resolve({
+          data:
+            table === 'events'
+              ? mocks.events
+              : table === 'social_doubles_ladders'
+                ? mocks.competitions
+                : [],
+          error: null,
+        }).then(resolve, reject);
       return query;
     },
   }),
@@ -71,6 +94,8 @@ describe('admin events page', () => {
     expect(screen.getByRole('heading', { name: 'Events' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Type' })).toBeInTheDocument();
     expect(screen.getByRole('cell', { name: 'Doubles tournament' })).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: 'League' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'League' })).toBeInTheDocument();
     expect(screen.getByLabelText('Search events by name')).toBeInTheDocument();
   });
 

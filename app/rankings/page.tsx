@@ -8,13 +8,14 @@ import { TournamentPublicView } from '@/components/tournament-public-view';
 import { RankingsCompetitionSelector } from '@/components/rankings-competition-selector';
 import type { TournamentConfig } from '@/lib/tournament-config';
 import { calculateLadderSession, type LadderMetric } from '@/lib/social-doubles-ladder';
-import { calculatePlayerStats, getSeasonYear, isInSeason } from '@/lib/player-rankings';
+import { calculatePlayerStats, getSeasonYear, isInSeason, medal } from '@/lib/player-rankings';
 
 type Props = {
   searchParams?: {
     season?: string | string[];
     ladder?: string | string[];
     tournament?: string | string[];
+    league?: string | string[];
   };
 };
 const formatPoints = (value: number) => {
@@ -48,7 +49,7 @@ export default async function RankingsPage({ searchParams }: Props) {
   const { data: laddersRaw } = await db
     .from('social_doubles_ladders')
     .select(
-      'id,name,gender,position_points,ranking_priority,starts_at,ends_at,carryover_mode,previous_ladder_id',
+      'id,name,gender,position_points,ranking_priority,starts_at,ends_at,carryover_mode,previous_ladder_id,competition_type',
     )
     .order('ends_at', { ascending: false, nullsFirst: false });
   const ladders = (laddersRaw ?? []) as Array<{
@@ -61,7 +62,10 @@ export default async function RankingsPage({ searchParams }: Props) {
     ends_at: string | null;
     carryover_mode: 'none' | 'position' | 'full';
     previous_ladder_id: string | null;
+    competition_type: string;
   }>;
+  const leagues = ladders.filter((item) => item.competition_type === 'league');
+  const regularLadders = ladders.filter((item) => item.competition_type !== 'league');
   const { data: tournamentsRaw } = await db
     .from('events')
     .select(
@@ -69,6 +73,7 @@ export default async function RankingsPage({ searchParams }: Props) {
     )
     .eq('event_type', 'tournament')
     .eq('tournament_format', 'doubles')
+    .is('social_doubles_ladder_id', null)
     .in('status', ['published', 'cancelled'])
     .order('starts_at', { ascending: false });
   const tournamentEvents = (tournamentsRaw ?? []) as Array<{
@@ -124,12 +129,25 @@ export default async function RankingsPage({ searchParams }: Props) {
     ? requestedLadderRaw[0]
     : requestedLadderRaw;
   const selectedLadderId =
-    requestedLadder && ladders.some((l) => l.id === requestedLadder)
+    requestedLadder && regularLadders.some((l) => l.id === requestedLadder)
       ? requestedLadder
       : requested?.startsWith('ladder:') && ladders.some((l) => l.id === requested.slice(7))
         ? requested.slice(7)
         : null;
-  const selectedLadder = ladders.find((l) => l.id === selectedLadderId) ?? null;
+  const selectedLadder = regularLadders.find((l) => l.id === selectedLadderId) ?? null;
+  const rawLeague = searchParams?.league;
+  const requestedLeague = Array.isArray(rawLeague) ? rawLeague[0] : rawLeague;
+  const selectedLeague = leagues.find((l) => l.id === requestedLeague) ?? null;
+  const { data: leagueCurrent } = selectedLeague
+    ? await db
+        .from('league_current_standings')
+        .select('standings')
+        .eq('league_id', selectedLeague.id)
+        .maybeSingle()
+    : { data: null };
+  const leagueStandings = Array.isArray(leagueCurrent?.standings)
+    ? (leagueCurrent.standings as Array<Record<string, unknown>>)
+    : [];
   const rawTournament = searchParams?.tournament;
   const requestedTournament = Array.isArray(rawTournament) ? rawTournament[0] : rawTournament;
   const selectedTournament = tournaments.find((t) => t.id === requestedTournament) ?? null;
@@ -219,9 +237,13 @@ export default async function RankingsPage({ searchParams }: Props) {
     ...[...new Set([defaultYear, ...allSeasonYears])]
       .sort((a, b) => b - a)
       .map((year) => ({ value: String(year), label: `Full ${year} season` })),
-    ...ladders.map((ladder) => ({
+    ...regularLadders.map((ladder) => ({
       value: `ladder:${ladder.id}`,
       label: `${ladder.name} (${ladder.gender === 'male' ? "Men's" : "Women's"} ladder)`,
+    })),
+    ...leagues.map((league) => ({
+      value: `league:${league.id}`,
+      label: `${league.name} (${league.gender === 'male' ? "Men's" : "Women's"} league)`,
     })),
     ...tournaments.map((tournament) => ({
       value: `tournament:${tournament.id}`,
@@ -245,7 +267,89 @@ export default async function RankingsPage({ searchParams }: Props) {
           </div>
         </div>
         <div className="mt-7">
-          {selectedTournament ? (
+          {selectedLeague ? (
+            <section className="space-y-4">
+              <RankingsCompetitionSelector
+                value={`league:${selectedLeague.id}`}
+                options={competitionOptions}
+              />
+              <div>
+                <h2 className="text-xl font-semibold">{selectedLeague.name} standings</h2>
+                <p className="text-sm text-muted-foreground">
+                  Current cumulative standings across completed league events.
+                </p>
+              </div>
+              <div className="overflow-x-auto rounded-lg border border-border">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-muted">
+                    <tr>
+                      <th className="whitespace-nowrap px-4 py-3 text-left font-medium">Rank</th>
+                      <th className="px-4 py-3 text-left font-medium">Team</th>
+                      <th className="whitespace-nowrap px-4 py-3 text-right font-medium">Played</th>
+                      <th className="whitespace-nowrap px-4 py-3 text-right font-medium">Wins</th>
+                      <th className="whitespace-nowrap px-4 py-3 text-right font-medium">Points</th>
+                      <th className="whitespace-nowrap px-4 py-3 text-right font-medium">Sets</th>
+                      <th className="whitespace-nowrap px-4 py-3 text-right font-medium">Games</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {leagueStandings.map((row, index) => {
+                      const rank = Number(row.position ?? index + 1);
+                      const isMe = row.player_one_id === user.id || row.player_two_id === user.id;
+                      const rankMedal = medal(rank);
+                      return (
+                        <tr
+                          key={String(row.team_id ?? index)}
+                          className={`border-t border-border ${isMe ? 'bg-primary/10 font-medium' : ''}`}
+                        >
+                          <td className="whitespace-nowrap px-4 py-3">
+                            <span className="inline-flex min-w-8 items-center gap-1.5">
+                              {rankMedal && (
+                                <span
+                                  aria-label={`Rank ${rank}`}
+                                  title={`Rank ${rank}`}
+                                  className="text-base"
+                                >
+                                  {rankMedal}
+                                </span>
+                              )}
+                              <span>{rank}</span>
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            {String(row.team_name ?? '')}
+                            {isMe && (
+                              <span className="ml-2 rounded-full bg-primary/15 px-2 py-0.5 text-xs text-primary">
+                                You
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            {String(row.matches_played ?? 0)}
+                          </td>
+                          <td className="px-4 py-3 text-right">{String(row.wins ?? 0)}</td>
+                          <td className="px-4 py-3 text-right">{String(row.points ?? 0)}</td>
+                          <td className="px-4 py-3 text-right">
+                            {String(row.sets_won ?? 0)}–{String(row.sets_lost ?? 0)}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            {String(row.games_won ?? 0)}–{String(row.games_lost ?? 0)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {!leagueStandings.length && (
+                      <tr>
+                        <td className="p-4 text-muted-foreground" colSpan={7}>
+                          No league standings are available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ) : selectedTournament ? (
             <TournamentPublicView
               key={selectedTournament.id}
               eventTitle={selectedTournament.title}

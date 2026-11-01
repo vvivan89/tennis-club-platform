@@ -55,6 +55,25 @@ export default async function EditEventPage({ params }: { params: { slug: string
   if (event.slug && params.slug !== event.slug) redirect(eventEditPath(event));
   if (profile?.role === 'organizer' && (event.organizer_id ?? event.created_by) !== user.id)
     redirect('/admin/events');
+  const { data: leagueConfig } = event.social_doubles_ladder_id
+    ? await db
+        .from('social_doubles_ladders')
+        .select('id,name,competition_type,tournament_config,tournament_rules_html,gender')
+        .eq('id', event.social_doubles_ladder_id)
+        .maybeSingle()
+    : { data: null };
+  const eventForForm =
+    leagueConfig?.competition_type === 'league'
+      ? {
+          ...event,
+          is_league_tournament: true,
+          league_name: leagueConfig.name,
+          ladder_name: leagueConfig.name,
+          ladder_gender: leagueConfig.gender,
+          tournament_config: leagueConfig.tournament_config,
+          tournament_rules_html: leagueConfig.tournament_rules_html,
+        }
+      : event;
   const [{ data: creator }, { data: organizers }] = await Promise.all([
     event.created_by
       ? db.from('profiles').select('role').eq('id', event.created_by).maybeSingle()
@@ -79,7 +98,7 @@ export default async function EditEventPage({ params }: { params: { slug: string
           this page edits only this session.
         </p>
         <EventManagementForm
-          event={event}
+          event={eventForForm}
           currentUserId={user.id}
           organizerOptions={organizers ?? []}
           showOrganizerField={showOrganizerField}

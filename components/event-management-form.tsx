@@ -42,6 +42,8 @@ type EventFormValues = {
   ladder_previous_id: string;
   ladder_existing_id: string;
   ladder_name: string;
+  league_existing_id: string;
+  is_league_tournament: boolean;
 };
 const localValue = (value?: string | null) =>
   value
@@ -94,6 +96,8 @@ const initial: EventFormValues = {
   ladder_previous_id: '',
   ladder_existing_id: '',
   ladder_name: '',
+  league_existing_id: '',
+  is_league_tournament: false,
 };
 function generateRulesText(v: EventFormValues): string {
   const format = v.tournament_format === 'team' ? 'Team tournament' : 'Doubles tournament';
@@ -180,6 +184,8 @@ export function EventManagementForm({
     id?: string;
     created_by?: string | null;
     social_doubles_ladder_id?: string | null;
+    is_league_tournament?: boolean;
+    league_name?: string | null;
     ladder_gender?: 'male' | 'female' | null;
     ladder_position_points?: number[] | null;
     ladder_ranking_priority?: string[] | null;
@@ -193,6 +199,9 @@ export function EventManagementForm({
     ...initial,
     ...event,
     ladder_existing_id: event?.ladder_existing_id ?? event?.social_doubles_ladder_id ?? '',
+    league_existing_id: event?.is_league_tournament ? (event?.social_doubles_ladder_id ?? '') : '',
+    is_league_tournament: event?.is_league_tournament ?? false,
+    ladder_name: event?.ladder_name ?? event?.league_name ?? '',
     ladder_gender:
       event?.ladder_gender ?? (event?.gender_restriction === 'female' ? 'female' : 'male'),
     ladder_points: (event?.ladder_points ??
@@ -227,13 +236,18 @@ export function EventManagementForm({
       ends_at: string | null;
       position_points: number[];
       ranking_priority: string[];
+      competition_type?: string;
+      tournament_config?: TournamentConfig | null;
+      tournament_rules_html?: string | null;
     }>
   >([]);
   useEffect(() => {
     const db = createSupabaseBrowserClient();
     void db
       .from('social_doubles_ladders')
-      .select('id,name,gender,ends_at,position_points,ranking_priority')
+      .select(
+        'id,name,gender,ends_at,position_points,ranking_priority,competition_type,tournament_config,tournament_rules_html',
+      )
       .order('ends_at', { ascending: false, nullsFirst: false })
       .then(({ data }) =>
         setAvailableLadders(
@@ -244,6 +258,8 @@ export function EventManagementForm({
             ends_at: string | null;
             position_points: number[];
             ranking_priority: string[];
+            tournament_config?: TournamentConfig | null;
+            tournament_rules_html?: string | null;
           }>,
         ),
       );
@@ -262,6 +278,27 @@ export function EventManagementForm({
       selected.ranking_priority ?? ['games_won', 'sets_won', 'games_difference'],
     );
   }, [v.ladder_existing_id, availableLadders]);
+  useEffect(() => {
+    const selected = availableLadders.find(
+      (league) => league.id === v.league_existing_id && league.competition_type === 'league',
+    );
+    if (!selected) return;
+    setV((previous) => ({
+      ...previous,
+      ladder_gender: selected.gender as 'male' | 'female',
+      gender_restriction: selected.gender,
+      ladder_name: selected.name,
+      tournament_config: {
+        ...(selected.tournament_config ?? previous.tournament_config),
+        categories: [selected.gender === 'male' ? 'men' : 'women'],
+        phases: { round_robin: true },
+        group_count: 1,
+        teams_per_group: 4,
+        registration_mode: 'both',
+      },
+      tournament_rules_html: '',
+    }));
+  }, [v.league_existing_id, availableLadders]);
   const [recurring, setRecurring] = useState(false);
   const [frequency, setFrequency] = useState('weekly');
   const [until, setUntil] = useState('');
@@ -342,7 +379,7 @@ export function EventManagementForm({
         throw new Error('Choose a start date for the event series.');
       if (!(ends > starts)) throw new Error('The event end must be after the start time.');
       if (v.event_type === 'tournament' && recurring)
-        throw new Error('Tournament events cannot be recurring.');
+        if (!v.is_league_tournament) throw new Error('Tournament events cannot be recurring.');
       if (
         v.event_type === 'tournament' &&
         v.tournament_format !== 'team' &&
@@ -387,6 +424,12 @@ export function EventManagementForm({
           if (selected && selected.gender !== v.ladder_gender)
             throw new Error('A ladder cannot mix gender categories.');
         }
+      }
+      if (v.is_league_tournament && v.event_type === 'tournament') {
+        if (!['male', 'female'].includes(v.ladder_gender))
+          throw new Error('Choose a league gender.');
+        if (!v.league_existing_id && !v.ladder_name.trim())
+          throw new Error('Enter a name for this league.');
       }
       if (v.event_type !== 'tournament' && v.capacity < 1)
         throw new Error('Maximum attendees must be at least 1.');
@@ -434,11 +477,13 @@ export function EventManagementForm({
                     : null,
               }
             : {},
-        tournament_rules_html: v.event_type === 'tournament' ? v.tournament_rules_html : '',
+        tournament_rules_html:
+          v.event_type === 'tournament' && !v.is_league_tournament ? v.tournament_rules_html : '',
         allow_non_member_registration:
           v.event_type === 'tournament' ? v.allow_non_member_registration : false,
         tournament_details_public:
           v.event_type === 'tournament' ? v.tournament_details_public : false,
+        social_doubles_ladder_id: v.is_league_tournament ? v.league_existing_id || null : undefined,
         organizer_id: showOrganizerField
           ? v.organizer_id || currentUserId
           : v.organizer_id || event?.created_by || currentUserId,
@@ -472,6 +517,25 @@ export function EventManagementForm({
             .update({ ...common, ...datesOnly })
             .eq('id', v.id);
           if (error) throw error;
+        }
+        if (v.is_league_tournament && v.league_existing_id) {
+          const { error: leagueError } = await db
+            .from('social_doubles_ladders')
+            .update({
+              name: v.ladder_name.trim() || event?.league_name || v.title.trim(),
+              gender: v.ladder_gender,
+              tournament_config: {
+                ...v.tournament_config,
+                categories: [v.ladder_gender === 'male' ? 'men' : 'women'],
+                phases: { round_robin: true },
+                group_count: 1,
+                teams_per_group: 4,
+                registration_mode: 'both',
+              },
+              tournament_rules_html: '',
+            })
+            .eq('id', v.league_existing_id);
+          if (leagueError) throw leagueError;
         }
         if (v.status === 'cancelled') {
           try {
@@ -772,6 +836,77 @@ export function EventManagementForm({
           );
         if (linkError) throw linkError;
       }
+      if (v.is_league_tournament && created?.length) {
+        let leagueId = v.league_existing_id;
+        if (!leagueId) {
+          const { data: league, error: leagueError } = await db
+            .from('social_doubles_ladders')
+            .insert({
+              name: v.ladder_name.trim() || v.title.trim(),
+              gender: v.ladder_gender,
+              position_points: [0, 0, 0, 0],
+              ranking_priority: v.tournament_config.ranking_priority ?? [
+                'matches_won',
+                'sets_won',
+                'games_won',
+              ],
+              starts_at: starts.toISOString(),
+              ends_at: rows[rows.length - 1]?.ends_at ?? ends.toISOString(),
+              created_by: user.id,
+              competition_type: 'league',
+              season: String(starts.getFullYear()),
+              tournament_config: {
+                ...v.tournament_config,
+                categories: [v.ladder_gender === 'male' ? 'men' : 'women'],
+                phases: { round_robin: true },
+                group_count: 1,
+                teams_per_group: 4,
+                registration_mode: 'both',
+              },
+              tournament_rules_html: '',
+            })
+            .select('id')
+            .single();
+          if (leagueError) throw leagueError;
+          leagueId = league.id;
+        }
+        const { error: sharedConfigError } = await db
+          .from('social_doubles_ladders')
+          .update({
+            gender: v.ladder_gender,
+            tournament_config: {
+              ...v.tournament_config,
+              categories: [v.ladder_gender === 'male' ? 'men' : 'women'],
+              phases: { round_robin: true },
+              group_count: 1,
+              teams_per_group: 4,
+              registration_mode: 'both',
+            },
+            tournament_rules_html: '',
+          })
+          .eq('id', leagueId);
+        if (sharedConfigError) throw sharedConfigError;
+        const { error: linkError } = await db
+          .from('events')
+          .update({
+            social_doubles_ladder_id: leagueId,
+            gender_restriction: v.ladder_gender,
+            tournament_format: 'doubles',
+            tournament_config: {
+              ...v.tournament_config,
+              categories: [v.ladder_gender === 'male' ? 'men' : 'women'],
+              phases: { round_robin: true },
+              group_count: 1,
+              teams_per_group: 4,
+              registration_mode: 'both',
+            },
+          })
+          .in(
+            'id',
+            created.map((x) => x.id),
+          );
+        if (linkError) throw linkError;
+      }
       void fetch('/api/notifications/dispatch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -866,19 +1001,41 @@ export function EventManagementForm({
           <select
             value={
               v.event_type === 'tournament'
-                ? v.tournament_format === 'team'
-                  ? 'team_tournament'
-                  : 'doubles_tournament'
+                ? v.is_league_tournament
+                  ? 'league_tournament'
+                  : v.tournament_format === 'team'
+                    ? 'team_tournament'
+                    : 'doubles_tournament'
                 : v.event_type === 'social_doubles_ladder'
                   ? 'social_doubles_ladder'
                   : 'social'
             }
             onChange={(e) => {
               const value = e.target.value;
+              change('is_league_tournament', value === 'league_tournament');
               change(
                 'event_type',
                 value === 'social' || value === 'social_doubles_ladder' ? value : 'tournament',
               );
+              if (value === 'league_tournament') {
+                change('tournament_format', 'doubles');
+                change('members_only', false);
+                change('tournament_config', {
+                  ...v.tournament_config,
+                  categories: [v.ladder_gender === 'male' ? 'men' : 'women'],
+                  phases: { round_robin: true },
+                  group_count: 1,
+                  teams_per_group: 4,
+                  registration_mode: 'both',
+                });
+                setRecurring(true);
+                if (v.starts_at) {
+                  setSeriesStartDate(v.starts_at.slice(0, 10));
+                  setDayOfWeek(String(new Date(v.starts_at).getDay()));
+                  setSeriesStartTime(v.starts_at.slice(11, 16));
+                }
+                if (v.ends_at) setSeriesEndTime(v.ends_at.slice(11, 16));
+              }
               if (value === 'social_doubles_ladder') {
                 change('gender_restriction', v.ladder_gender);
                 change('members_only', true);
@@ -890,7 +1047,11 @@ export function EventManagementForm({
                 }
                 if (v.ends_at) setSeriesEndTime(v.ends_at.slice(11, 16));
               }
-              if (value !== 'social' && value !== 'social_doubles_ladder') {
+              if (
+                value !== 'social' &&
+                value !== 'social_doubles_ladder' &&
+                value !== 'league_tournament'
+              ) {
                 change('members_only', false);
                 change('tournament_format', value === 'team_tournament' ? 'team' : 'doubles');
                 if (value === 'team_tournament') {
@@ -915,9 +1076,10 @@ export function EventManagementForm({
             }}
             className="block h-10 w-full rounded-md border border-input bg-background px-3"
           >
+            <option value="doubles_tournament">Doubles tournament</option>
+            <option value="league_tournament">League</option>
             <option value="social">Social event</option>
             <option value="social_doubles_ladder">Social Doubles Ladder</option>
-            <option value="doubles_tournament">Doubles tournament</option>
             <option value="team_tournament">Team tournament</option>
           </select>
         </label>
@@ -947,7 +1109,7 @@ export function EventManagementForm({
             <option value="cancelled">Cancelled</option>
           </select>
         </label>
-        {v.event_type !== 'tournament' && (
+        {(v.event_type !== 'tournament' || v.is_league_tournament) && (
           <label className="space-y-1 text-sm font-medium sm:col-span-2">
             Description
             <textarea
@@ -970,16 +1132,22 @@ export function EventManagementForm({
           />
         </label>
         <label className="space-y-1 text-sm font-medium">
-          {v.event_type === 'tournament'
+          {v.event_type === 'tournament' && !v.is_league_tournament
             ? 'Total tournament capacity (optional)'
             : 'Maximum attendees'}
           <Input
             type="number"
             min="1"
             max="1000"
-            required={v.event_type !== 'tournament'}
-            value={v.event_type === 'tournament' && v.capacity >= 1000000 ? '' : v.capacity || ''}
-            placeholder={v.event_type === 'tournament' ? 'Unlimited' : undefined}
+            required={v.event_type !== 'tournament' || v.is_league_tournament}
+            value={
+              v.event_type === 'tournament' && !v.is_league_tournament && v.capacity >= 1000000
+                ? ''
+                : v.capacity || ''
+            }
+            placeholder={
+              v.event_type === 'tournament' && !v.is_league_tournament ? 'Unlimited' : undefined
+            }
             onChange={(e) => change('capacity', e.target.value === '' ? 0 : Number(e.target.value))}
           />
         </label>
@@ -1031,14 +1199,93 @@ export function EventManagementForm({
       {v.event_type === 'tournament' && (
         <section className="space-y-5 rounded-xl border border-border p-5">
           <div>
-            <h2 className="text-lg font-semibold">Tournament configuration</h2>
+            <h2 className="text-lg font-semibold">
+              {v.is_league_tournament ? 'League configuration' : 'Tournament configuration'}
+            </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Tournament participants, draws, match schedules and results are managed on the event
-              page.
+              {v.is_league_tournament
+                ? 'These settings belong to the whole League and are shared by all its events.'
+                : 'Tournament participants, draws, match schedules and results are managed on the event page.'}
             </p>
           </div>
+          {v.is_league_tournament && (
+            <>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="space-y-1 text-sm font-medium">
+                  League gender
+                  <select
+                    value={v.ladder_gender}
+                    onChange={(e) => {
+                      const gender = e.target.value as 'male' | 'female';
+                      change('ladder_gender', gender);
+                      change('gender_restriction', gender);
+                      if (
+                        v.league_existing_id &&
+                        availableLadders.find((league) => league.id === v.league_existing_id)
+                          ?.gender !== gender
+                      )
+                        change('league_existing_id', '');
+                      change('tournament_config', {
+                        ...v.tournament_config,
+                        categories: [gender === 'male' ? 'men' : 'women'],
+                      });
+                    }}
+                    className="block h-10 w-full rounded-md border border-input bg-background px-3"
+                  >
+                    <option value="male">Men&apos;s</option>
+                    <option value="female">Women&apos;s</option>
+                  </select>
+                </label>
+                <label className="space-y-1 text-sm font-medium">
+                  Associate with existing league (optional)
+                  <select
+                    value={v.league_existing_id}
+                    onChange={(e) => change('league_existing_id', e.target.value)}
+                    className="block h-10 w-full rounded-md border border-input bg-background px-3"
+                  >
+                    <option value="">Create a new league</option>
+                    {availableLadders
+                      .filter(
+                        (x) => x.competition_type === 'league' && x.gender === v.ladder_gender,
+                      )
+                      .map((league) => (
+                        <option key={league.id} value={league.id}>
+                          {league.name}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+              </div>
+              {!v.league_existing_id && (
+                <div className="space-y-1">
+                  <label className="block text-sm font-medium">
+                    League name
+                    <Input
+                      value={v.ladder_name}
+                      onChange={(e) => change('ladder_name', e.target.value)}
+                      maxLength={160}
+                      required
+                    />
+                  </label>
+                  <span className="text-xs font-normal text-muted-foreground">
+                    This is a unique name. It will aggregate results of all events associated with
+                    this league
+                  </span>
+                </div>
+              )}
+              {v.league_existing_id && (
+                <p className="text-sm text-muted-foreground">
+                  Using existing league:{' '}
+                  <strong>
+                    {availableLadders.find((league) => league.id === v.league_existing_id)?.name}
+                  </strong>
+                  . The event title remains independent.
+                </p>
+              )}
+            </>
+          )}
           <div className="grid gap-4 md:grid-cols-2">
-            {v.tournament_format !== 'team' && (
+            {v.tournament_format !== 'team' && !v.is_league_tournament && (
               <fieldset className="space-y-3 rounded-md border border-border p-3">
                 <legend className="text-sm font-medium">
                   Enabled doubles categories and capacity
@@ -1188,153 +1435,157 @@ export function EventManagementForm({
               </fieldset>
             )}
           </div>
-          <fieldset className="space-y-2">
-            <legend className="text-sm font-medium">
-              Competition phases and scoring templates
-            </legend>
-            <div className="space-y-3">
-              {(v.tournament_format === 'team'
-                ? ([
-                    ['team_round_robin', 'Team round robin'],
-                    ['team_knockout', 'Team knockout'],
-                  ] as const)
-                : ([
-                    ['preliminary_knockout', 'Preliminary knockout (requires round robin)'],
-                    ['round_robin', 'Round robin'],
-                    ['final_knockout', 'Final knockout'],
-                  ] as const)
-              ).map(([key, label]) => {
-                const enabled = !!v.tournament_config.phases?.[key];
-                return (
-                  <div
-                    key={key}
-                    className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(12rem,18rem)] sm:items-center"
-                  >
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={enabled}
-                        disabled={
-                          key === 'preliminary_knockout' && !v.tournament_config.phases?.round_robin
-                        }
-                        onChange={(e) =>
-                          change('tournament_config', {
-                            ...v.tournament_config,
-                            phases: {
-                              ...v.tournament_config.phases,
-                              [key]: e.target.checked,
-                              ...(key === 'round_robin' && !e.target.checked
-                                ? { preliminary_knockout: false }
-                                : {}),
-                            },
-                          })
-                        }
-                      />
-                      {label}
-                    </label>
-                    {enabled && (
-                      <label className="block space-y-1 text-sm">
-                        <span className="sr-only">{label} scoring template</span>
-                        <select
-                          aria-label={label}
-                          value={
-                            v.tournament_config.scoring_templates?.[
-                              key as keyof NonNullable<TournamentConfig['scoring_templates']>
-                            ] ??
-                            v.tournament_config.scoring_template ??
-                            'best_of_three'
+          {!v.is_league_tournament && (
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-medium">
+                Competition phases and scoring templates
+              </legend>
+              <div className="space-y-3">
+                {(v.tournament_format === 'team'
+                  ? ([
+                      ['team_round_robin', 'Team round robin'],
+                      ['team_knockout', 'Team knockout'],
+                    ] as const)
+                  : ([
+                      ['preliminary_knockout', 'Preliminary knockout (requires round robin)'],
+                      ['round_robin', 'Round robin'],
+                      ['final_knockout', 'Final knockout'],
+                    ] as const)
+                ).map(([key, label]) => {
+                  const enabled = !!v.tournament_config.phases?.[key];
+                  return (
+                    <div
+                      key={key}
+                      className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(12rem,18rem)] sm:items-center"
+                    >
+                      <label className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={enabled}
+                          disabled={
+                            key === 'preliminary_knockout' &&
+                            !v.tournament_config.phases?.round_robin
                           }
                           onChange={(e) =>
                             change('tournament_config', {
                               ...v.tournament_config,
-                              scoring_templates: {
-                                ...v.tournament_config.scoring_templates,
-                                [key]: e.target.value,
+                              phases: {
+                                ...v.tournament_config.phases,
+                                [key]: e.target.checked,
+                                ...(key === 'round_robin' && !e.target.checked
+                                  ? { preliminary_knockout: false }
+                                  : {}),
                               },
                             })
                           }
-                          className="block h-10 w-full rounded-md border border-input bg-background px-3"
-                        >
-                          <option value="one_set">One set</option>
-                          <option value="best_of_three">Best of three sets</option>
-                          {v.tournament_format === 'team' && (
-                            <option value="team_two_sets_bonus_third">
-                              Two sets; if split, third set awards team points
-                            </option>
-                          )}
-                        </select>
+                        />
+                        {label}
                       </label>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Each phase uses its own scoring rules for score validation and generated tournament
-              rules.
-            </p>
-          </fieldset>
-          {(v.tournament_format === 'team'
-            ? v.tournament_config.phases?.team_round_robin
-            : v.tournament_config.phases?.round_robin) && (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <label className="space-y-1 text-sm">
-                Group count
-                <Input
-                  type="number"
-                  min="1"
-                  max="32"
-                  value={v.tournament_config.group_count ?? 2}
-                  onChange={(e) =>
-                    change('tournament_config', {
-                      ...v.tournament_config,
-                      group_count: Math.max(1, Number(e.target.value) || 1),
-                    })
-                  }
-                />
-              </label>
-              <label className="space-y-1 text-sm">
-                Teams per group
-                <Input
-                  type="number"
-                  min="2"
-                  max="32"
-                  value={v.tournament_config.teams_per_group ?? 4}
-                  onChange={(e) =>
-                    change('tournament_config', {
-                      ...v.tournament_config,
-                      teams_per_group: Math.max(2, Number(e.target.value) || 2),
-                    })
-                  }
-                />
-              </label>
-              {(v.tournament_format === 'team'
-                ? v.tournament_config.phases?.team_knockout
-                : v.tournament_config.phases?.final_knockout) && (
+                      {enabled && (
+                        <label className="block space-y-1 text-sm">
+                          <span className="sr-only">{label} scoring template</span>
+                          <select
+                            aria-label={label}
+                            value={
+                              v.tournament_config.scoring_templates?.[
+                                key as keyof NonNullable<TournamentConfig['scoring_templates']>
+                              ] ??
+                              v.tournament_config.scoring_template ??
+                              'best_of_three'
+                            }
+                            onChange={(e) =>
+                              change('tournament_config', {
+                                ...v.tournament_config,
+                                scoring_templates: {
+                                  ...v.tournament_config.scoring_templates,
+                                  [key]: e.target.value,
+                                },
+                              })
+                            }
+                            className="block h-10 w-full rounded-md border border-input bg-background px-3"
+                          >
+                            <option value="one_set">One set</option>
+                            <option value="best_of_three">Best of three sets</option>
+                            {v.tournament_format === 'team' && (
+                              <option value="team_two_sets_bonus_third">
+                                Two sets; if split, third set awards team points
+                              </option>
+                            )}
+                          </select>
+                        </label>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Each phase uses its own scoring rules for score validation and generated tournament
+                rules.
+              </p>
+            </fieldset>
+          )}
+          {!v.is_league_tournament &&
+            (v.tournament_format === 'team'
+              ? v.tournament_config.phases?.team_round_robin
+              : v.tournament_config.phases?.round_robin) && (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 <label className="space-y-1 text-sm">
-                  Teams promoted from each group
+                  Group count
                   <Input
                     type="number"
                     min="1"
-                    max={Math.max(1, Number(v.tournament_config.teams_per_group ?? 4))}
-                    value={v.tournament_config.promoted_teams_per_group ?? 2}
+                    max="32"
+                    value={v.tournament_config.group_count ?? 2}
                     onChange={(e) =>
                       change('tournament_config', {
                         ...v.tournament_config,
-                        promoted_teams_per_group: Math.max(1, Number(e.target.value) || 1),
+                        group_count: Math.max(1, Number(e.target.value) || 1),
                       })
                     }
                   />
-                  <span className="block text-xs text-muted-foreground">
-                    The highest-ranked teams from each group advance to the knockout stage.
-                  </span>
                 </label>
-              )}
-            </div>
-          )}
+                <label className="space-y-1 text-sm">
+                  Teams per group
+                  <Input
+                    type="number"
+                    min="2"
+                    max="32"
+                    value={v.tournament_config.teams_per_group ?? 4}
+                    onChange={(e) =>
+                      change('tournament_config', {
+                        ...v.tournament_config,
+                        teams_per_group: Math.max(2, Number(e.target.value) || 2),
+                      })
+                    }
+                  />
+                </label>
+                {(v.tournament_format === 'team'
+                  ? v.tournament_config.phases?.team_knockout
+                  : v.tournament_config.phases?.final_knockout) && (
+                  <label className="space-y-1 text-sm">
+                    Teams promoted from each group
+                    <Input
+                      type="number"
+                      min="1"
+                      max={Math.max(1, Number(v.tournament_config.teams_per_group ?? 4))}
+                      value={v.tournament_config.promoted_teams_per_group ?? 2}
+                      onChange={(e) =>
+                        change('tournament_config', {
+                          ...v.tournament_config,
+                          promoted_teams_per_group: Math.max(1, Number(e.target.value) || 1),
+                        })
+                      }
+                    />
+                    <span className="block text-xs text-muted-foreground">
+                      The highest-ranked teams from each group advance to the knockout stage.
+                    </span>
+                  </label>
+                )}
+              </div>
+            )}
           {(v.tournament_format === 'team'
             ? v.tournament_config.phases?.team_round_robin
-            : v.tournament_config.phases?.round_robin) && (
+            : v.is_league_tournament || v.tournament_config.phases?.round_robin) && (
             <fieldset className="space-y-2">
               <legend className="text-sm font-medium">
                 Group ranking priority (drag to reorder; highest priority first)
@@ -1545,25 +1796,27 @@ export function EventManagementForm({
               })()}
             </fieldset>
           )}
-          <div className="space-y-2 text-sm">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <label className="font-medium">Tournament rules</label>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-8"
-                onClick={() => change('tournament_rules_html', generateRulesText(v))}
-              >
-                Generate rules text
-              </Button>
+          {!v.is_league_tournament && (
+            <div className="space-y-2 text-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label className="font-medium">Tournament rules</label>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8"
+                  onClick={() => change('tournament_rules_html', generateRulesText(v))}
+                >
+                  Generate rules text
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">Add text version of the rules here.</p>
+              <TournamentRulesEditor
+                value={v.tournament_rules_html}
+                onChange={(html) => change('tournament_rules_html', html)}
+              />
             </div>
-            <p className="text-xs text-muted-foreground">Add text version of the rules here.</p>
-            <TournamentRulesEditor
-              value={v.tournament_rules_html}
-              onChange={(html) => change('tournament_rules_html', html)}
-            />
-          </div>
+          )}
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -1580,7 +1833,7 @@ export function EventManagementForm({
             />
             Publish tournament participants, teams, schedule, and results publicly
           </label>
-          {v.event_type === 'tournament' && recurring && (
+          {v.event_type === 'tournament' && recurring && !v.is_league_tournament && (
             <p role="alert" className="text-sm text-destructive">
               Tournament events cannot be recurring. Turn off repeat-event to continue.
             </p>
@@ -1625,19 +1878,21 @@ export function EventManagementForm({
             </label>
           </div>
           {!v.ladder_existing_id && (
-            <label className="block space-y-1 text-sm font-medium">
-              Ladder name
-              <Input
-                value={v.ladder_name}
-                onChange={(e) => change('ladder_name', e.target.value)}
-                maxLength={160}
-                required
-              />
+            <div className="space-y-1">
+              <label className="block text-sm font-medium">
+                Ladder name
+                <Input
+                  value={v.ladder_name}
+                  onChange={(e) => change('ladder_name', e.target.value)}
+                  maxLength={160}
+                  required
+                />
+              </label>
               <span className="text-xs font-normal text-muted-foreground">
-                Must be unique. This identifies the ladder across its events and seasons; it does
-                not change the event title.
+                This is a unique name. It will aggregate results of all events associated with this
+                ladder
               </span>
-            </label>
+            </div>
           )}
           {v.ladder_existing_id && (
             <p className="text-sm text-muted-foreground">
@@ -1885,60 +2140,64 @@ export function EventManagementForm({
           <div>
             <h2 className="text-lg font-semibold">Scheduling</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Set event times and registration availability.
+              {v.is_league_tournament
+                ? 'Schedule connected League events using the existing event series controls.'
+                : 'Set event times and registration availability.'}
             </p>
           </div>
-          {!v.id && ['social', 'social_doubles_ladder'].includes(v.event_type) && (
-            <div
-              className="inline-flex shrink-0 rounded-md border border-border p-1"
-              role="group"
-              aria-label="Event scheduling type"
-            >
-              {[
-                ['single', 'Single event'],
-                ['series', 'Series of events'],
-              ].map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  aria-pressed={recurring === (value === 'series')}
-                  onClick={() => {
-                    const seriesMode = value === 'series';
-                    if (seriesMode) {
-                      if (v.starts_at) {
-                        setSeriesStartDate(v.starts_at.slice(0, 10));
-                        setDayOfWeek(String(new Date(v.starts_at).getDay()));
-                        setSeriesStartTime(v.starts_at.slice(11, 16));
+          {!v.id &&
+            (['social', 'social_doubles_ladder'].includes(v.event_type) ||
+              (v.event_type === 'tournament' && v.is_league_tournament)) && (
+              <div
+                className="inline-flex shrink-0 rounded-md border border-border p-1"
+                role="group"
+                aria-label="Event scheduling type"
+              >
+                {[
+                  ['single', 'Single event'],
+                  ['series', 'Series of events'],
+                ].map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-pressed={recurring === (value === 'series')}
+                    onClick={() => {
+                      const seriesMode = value === 'series';
+                      if (seriesMode) {
+                        if (v.starts_at) {
+                          setSeriesStartDate(v.starts_at.slice(0, 10));
+                          setDayOfWeek(String(new Date(v.starts_at).getDay()));
+                          setSeriesStartTime(v.starts_at.slice(11, 16));
+                        }
+                        if (v.ends_at) setSeriesEndTime(v.ends_at.slice(11, 16));
+                      } else if (firstSeriesDate) {
+                        const sessionDate = firstSeriesDate.toISOString().slice(0, 10);
+                        change('starts_at', `${sessionDate}T${seriesStartTime}`);
+                        change('ends_at', `${sessionDate}T${seriesEndTime}`);
+                        const openDate = new Date(firstSeriesDate);
+                        openDate.setDate(openDate.getDate() - Number(openDays));
+                        const closeDate = new Date(firstSeriesDate);
+                        closeDate.setDate(closeDate.getDate() - Number(closeDays));
+                        change(
+                          'registration_opens_at',
+                          `${openDate.toISOString().slice(0, 10)}T${openTime}`,
+                        );
+                        change(
+                          'registration_closes_at',
+                          `${closeDate.toISOString().slice(0, 10)}T${closeTime}`,
+                        );
                       }
-                      if (v.ends_at) setSeriesEndTime(v.ends_at.slice(11, 16));
-                    } else if (firstSeriesDate) {
-                      const sessionDate = firstSeriesDate.toISOString().slice(0, 10);
-                      change('starts_at', `${sessionDate}T${seriesStartTime}`);
-                      change('ends_at', `${sessionDate}T${seriesEndTime}`);
-                      const openDate = new Date(firstSeriesDate);
-                      openDate.setDate(openDate.getDate() - Number(openDays));
-                      const closeDate = new Date(firstSeriesDate);
-                      closeDate.setDate(closeDate.getDate() - Number(closeDays));
-                      change(
-                        'registration_opens_at',
-                        `${openDate.toISOString().slice(0, 10)}T${openTime}`,
-                      );
-                      change(
-                        'registration_closes_at',
-                        `${closeDate.toISOString().slice(0, 10)}T${closeTime}`,
-                      );
-                    }
-                    setRecurring(seriesMode);
-                  }}
-                  className={`rounded px-3 py-2 text-sm ${recurring === (value === 'series') ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary'}`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
+                      setRecurring(seriesMode);
+                    }}
+                    className={`rounded px-3 py-2 text-sm ${recurring === (value === 'series') ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
         </div>
-        {v.event_type === 'tournament' && (
+        {v.event_type === 'tournament' && !v.is_league_tournament && (
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="space-y-1 text-sm">
               Approximate match length for scheduling (minutes)
@@ -1981,7 +2240,9 @@ export function EventManagementForm({
         {!recurring ? (
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="space-y-1 text-sm font-medium">
-              {v.event_type === 'tournament' ? 'Tournament starts' : 'Event starts'}
+              {v.event_type === 'tournament' && !v.is_league_tournament
+                ? 'Tournament starts'
+                : 'Event starts'}
               <Input
                 type="datetime-local"
                 required
@@ -1990,7 +2251,9 @@ export function EventManagementForm({
               />
             </label>
             <label className="space-y-1 text-sm font-medium">
-              {v.event_type === 'tournament' ? 'Tournament ends' : 'Event ends'}
+              {v.event_type === 'tournament' && !v.is_league_tournament
+                ? 'Tournament ends'
+                : 'Event ends'}
               <Input
                 type="datetime-local"
                 required
@@ -2155,6 +2418,8 @@ export function EventManagementForm({
           'Save event changes'
         ) : recurring ? (
           'Create events'
+        ) : v.is_league_tournament ? (
+          'Create event'
         ) : v.event_type === 'tournament' ? (
           'Create tournament'
         ) : (

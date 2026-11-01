@@ -31,7 +31,9 @@ export function RankingsCompetitionSelector({
                   ? `/rankings?tournament=${encodeURIComponent(id)}`
                   : type === 'ladder'
                     ? `/rankings?ladder=${encodeURIComponent(id)}`
-                    : `/rankings?season=${encodeURIComponent(id)}`,
+                    : type === 'league'
+                      ? `/rankings?league=${encodeURIComponent(id)}`
+                      : `/rankings?season=${encodeURIComponent(id)}`,
                 { scroll: false },
               ),
             );

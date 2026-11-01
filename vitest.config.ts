@@ -14,8 +14,17 @@ export default defineConfig({
   },
   test: {
     include: ['tests/unit/**/*.test.ts', 'tests/unit/**/*.test.tsx'],
-    environment: 'jsdom',
+    environment: 'node',
+    environmentMatchGlobs: [['tests/unit/**/*.test.tsx', 'jsdom']],
     setupFiles: ['./tests/setup.ts'],
+    minWorkers: 1,
+    maxWorkers: 1,
+    pool: 'vmForks',
+    poolOptions: {
+      vmForks: {
+        memoryLimit: '512MB',
+      },
+    },
     coverage: {
       provider: 'v8',
       all: true,

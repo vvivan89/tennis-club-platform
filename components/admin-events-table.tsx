@@ -23,9 +23,12 @@ type AdminEvent = {
   organizer_id?: string | null;
   event_type?: string | null;
   tournament_format?: string | null;
+  social_doubles_ladder_id?: string | null;
+  is_league_tournament?: boolean;
 };
 
 function typeLabel(event: AdminEvent) {
+  if (event.is_league_tournament) return 'League';
   if (event.event_type === 'social_doubles_ladder' || event.event_type === 'ladder')
     return 'Social doubles ladder';
   if (event.event_type !== 'tournament') return 'Social event';
@@ -81,8 +84,9 @@ export function AdminEventsTable({ events }: { events: AdminEvent[] }) {
       events
         .filter((event) => {
           if ((period === 'future') !== isFuture(event)) return false;
-          const eventType =
-            event.event_type === 'social_doubles_ladder' || event.event_type === 'ladder'
+          const eventType = event.is_league_tournament
+            ? 'league'
+            : event.event_type === 'social_doubles_ladder' || event.event_type === 'ladder'
               ? 'ladder'
               : event.event_type !== 'tournament'
                 ? 'social'
@@ -161,6 +165,7 @@ export function AdminEventsTable({ events }: { events: AdminEvent[] }) {
             <option value="all">All types</option>
             <option value="social">Social event</option>
             <option value="ladder">Social doubles ladder</option>
+            <option value="league">League</option>
             <option value="doubles">Doubles tournament</option>
             <option value="team">Team tournament</option>
           </select>

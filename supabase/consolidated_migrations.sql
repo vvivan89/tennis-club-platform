@@ -6439,3 +6439,1392 @@ CREATE POLICY "Admins and score authors delete recent scores" ON public.event_sc
 GRANT UPDATE, DELETE ON public.event_scores TO authenticated;
 COMMIT;
 -- END MIGRATION: 0061_profile_and_score_permissions.sql
+
+-- BEGIN MIGRATION: 0062_integrated_league_tournaments.sql
+-- League tournaments use the existing ladder identity as their shared series configuration,
+-- and existing doubles tournament events, registrations, pairs, matches, and scores.
+BEGIN;
+ALTER TABLE public.social_doubles_ladders
+  ADD COLUMN IF NOT EXISTS competition_type text NOT NULL DEFAULT 'ladder',
+  ADD COLUMN IF NOT EXISTS season text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS description text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS tournament_config jsonb NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS tournament_rules_html text NOT NULL DEFAULT '';
+DO $$ BEGIN
+  ALTER TABLE public.social_doubles_ladders ADD CONSTRAINT social_doubles_ladders_competition_type_check CHECK (competition_type IN ('ladder','league'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+CREATE TABLE IF NOT EXISTS public.league_teams (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  league_id uuid NOT NULL REFERENCES public.social_doubles_ladders(id) ON DELETE CASCADE,
+  player_one_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE RESTRICT,
+  player_two_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE RESTRICT,
+  status text NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive')),
+  confirmed_at timestamptz NOT NULL DEFAULT now(),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CHECK (player_one_id <> player_two_id),
+  UNIQUE (league_id,id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS league_teams_pair_unique ON public.league_teams(league_id,least(player_one_id,player_two_id),greatest(player_one_id,player_two_id)) WHERE status='active';
+CREATE UNIQUE INDEX IF NOT EXISTS league_teams_player_one_unique ON public.league_teams(league_id,player_one_id) WHERE status='active';
+CREATE UNIQUE INDEX IF NOT EXISTS league_teams_player_two_unique ON public.league_teams(league_id,player_two_id) WHERE status='active';
+ALTER TABLE public.tournament_pairs ADD COLUMN IF NOT EXISTS league_team_id uuid REFERENCES public.league_teams(id) ON DELETE RESTRICT;
+CREATE UNIQUE INDEX IF NOT EXISTS tournament_pairs_league_team_event_unique ON public.tournament_pairs(event_id,league_team_id) WHERE league_team_id IS NOT NULL AND status='active';
+
+CREATE OR REPLACE FUNCTION public.prevent_league_gender_change_after_confirmation()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+BEGIN
+  IF OLD.competition_type='league' AND (NEW.gender IS DISTINCT FROM OLD.gender OR NEW.competition_type IS DISTINCT FROM OLD.competition_type)
+    AND EXISTS (SELECT 1 FROM public.league_teams t WHERE t.league_id=OLD.id AND t.status='active') THEN
+    RAISE EXCEPTION 'League gender cannot change after teams are confirmed';
+  END IF;
+  RETURN NEW;
+END; $$;
+DROP TRIGGER IF EXISTS prevent_league_gender_change_after_confirmation ON public.social_doubles_ladders;
+CREATE TRIGGER prevent_league_gender_change_after_confirmation BEFORE UPDATE OF gender,competition_type ON public.social_doubles_ladders FOR EACH ROW EXECUTE FUNCTION public.prevent_league_gender_change_after_confirmation();
+
+CREATE TABLE IF NOT EXISTS public.league_standings_snapshots (
+  event_id uuid PRIMARY KEY REFERENCES public.events(id) ON DELETE CASCADE,
+  league_id uuid NOT NULL REFERENCES public.social_doubles_ladders(id) ON DELETE CASCADE,
+  standings jsonb NOT NULL DEFAULT '[]'::jsonb,
+  calculated_at timestamptz NOT NULL DEFAULT now(),
+  configuration_version text NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS public.league_current_standings (
+  league_id uuid PRIMARY KEY REFERENCES public.social_doubles_ladders(id) ON DELETE CASCADE,
+  standings jsonb NOT NULL DEFAULT '[]'::jsonb,
+  calculated_at timestamptz NOT NULL DEFAULT now(),
+  configuration_version text NOT NULL DEFAULT ''
+);
+
+CREATE OR REPLACE FUNCTION public.validate_league_tournament_pair()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE v_league uuid; v_gender text; v_one uuid; v_two uuid; v_member_team public.league_teams%rowtype;
+BEGIN
+  SELECT e.social_doubles_ladder_id,l.gender INTO v_league,v_gender
+  FROM public.events e JOIN public.social_doubles_ladders l ON l.id=e.social_doubles_ladder_id AND l.competition_type='league'
+  WHERE e.id=NEW.event_id AND e.event_type='tournament' AND e.tournament_format='doubles';
+  IF v_league IS NULL THEN RETURN NEW; END IF;
+  IF NEW.category <> (CASE WHEN v_gender='male' THEN 'men' ELSE 'women' END) THEN
+    RAISE EXCEPTION 'League pairs must use the league gender category';
+  END IF;
+  SELECT p1.user_id,p2.user_id INTO v_one,v_two
+  FROM public.tournament_participants p1,tournament_participants p2
+  WHERE p1.id=NEW.player_one_id AND p2.id=NEW.player_two_id;
+  IF v_one IS NULL OR v_two IS NULL THEN RAISE EXCEPTION 'League teams require two approved member accounts'; END IF;
+  IF EXISTS (SELECT 1 FROM public.profiles p WHERE p.id IN (v_one,v_two) AND p.application_status<>'approved') THEN
+    RAISE EXCEPTION 'League participants must be approved members';
+  END IF;
+  SELECT * INTO v_member_team FROM public.league_teams t WHERE t.league_id=v_league AND t.status='active'
+    AND (t.player_one_id IN (v_one,v_two) OR t.player_two_id IN (v_one,v_two)) LIMIT 1;
+  IF FOUND THEN
+    IF NOT ((v_member_team.player_one_id=v_one AND v_member_team.player_two_id=v_two) OR (v_member_team.player_one_id=v_two AND v_member_team.player_two_id=v_one)) THEN
+      RAISE EXCEPTION 'League partners are fixed after team confirmation';
+    END IF;
+    NEW.league_team_id := v_member_team.id;
+  ELSIF NEW.league_team_id IS NOT NULL THEN
+    IF NOT EXISTS (SELECT 1 FROM public.league_teams t WHERE t.id=NEW.league_team_id AND t.league_id=v_league
+      AND ((t.player_one_id=v_one AND t.player_two_id=v_two) OR (t.player_one_id=v_two AND t.player_two_id=v_one))) THEN
+      RAISE EXCEPTION 'League team does not match this event pair';
+    END IF;
+  END IF;
+  RETURN NEW;
+END; $$;
+DROP TRIGGER IF EXISTS validate_league_tournament_pair ON public.tournament_pairs;
+CREATE TRIGGER validate_league_tournament_pair BEFORE INSERT OR UPDATE OF player_one_id,player_two_id,league_team_id ON public.tournament_pairs FOR EACH ROW EXECUTE FUNCTION public.validate_league_tournament_pair();
+
+CREATE OR REPLACE FUNCTION public.require_established_league_pair()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE v_league uuid; v_gender text;
+BEGIN
+  IF NEW.user_id IS NULL OR NEW.status NOT IN ('registered','provisional') THEN RETURN NEW; END IF;
+  SELECT e.social_doubles_ladder_id,l.gender INTO v_league,v_gender FROM public.events e
+    JOIN public.social_doubles_ladders l ON l.id=e.social_doubles_ladder_id AND l.competition_type='league'
+    WHERE e.id=NEW.event_id AND e.event_type='tournament';
+  IF v_league IS NULL THEN RETURN NEW; END IF;
+  IF NEW.category <> (CASE WHEN v_gender='male' THEN 'men' ELSE 'women' END) THEN
+    RAISE EXCEPTION 'League registrations must use the league gender category';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.league_teams t WHERE t.league_id=v_league AND t.status='active'
+    AND NEW.user_id IN (t.player_one_id,t.player_two_id)) THEN RETURN NEW; END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.tournament_pairs pair
+    JOIN public.tournament_participants p1 ON p1.id=pair.player_one_id
+    JOIN public.tournament_participants p2 ON p2.id=pair.player_two_id
+    JOIN public.league_teams t ON t.league_id=v_league AND t.status='active'
+      AND ((t.player_one_id=p1.user_id AND t.player_two_id=p2.user_id) OR (t.player_one_id=p2.user_id AND t.player_two_id=p1.user_id))
+    WHERE pair.event_id=NEW.event_id AND pair.category=NEW.category AND pair.status='active' AND NEW.user_id IN (p1.user_id,p2.user_id)
+  ) THEN RAISE EXCEPTION 'Established league members must register with their confirmed partner'; END IF;
+  RETURN NEW;
+END; $$;
+DROP TRIGGER IF EXISTS require_established_league_pair ON public.tournament_participants;
+CREATE CONSTRAINT TRIGGER require_established_league_pair AFTER INSERT OR UPDATE ON public.tournament_participants DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.require_established_league_pair();
+
+CREATE OR REPLACE FUNCTION public.confirm_league_tournament_teams(p_event_id uuid)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE v_league uuid; v_count integer;
+BEGIN
+  SELECT e.social_doubles_ladder_id INTO v_league FROM public.events e
+    JOIN public.social_doubles_ladders l ON l.id=e.social_doubles_ladder_id AND l.competition_type='league'
+    WHERE e.id=p_event_id AND e.event_type='tournament' AND e.tournament_format='doubles';
+  IF v_league IS NULL OR NOT public.is_event_manager() OR NOT EXISTS (
+    SELECT 1 FROM public.events e WHERE e.id=p_event_id AND (public.is_admin() OR e.organizer_id=auth.uid() OR e.created_by=auth.uid())
+  ) THEN RAISE EXCEPTION 'League event manager access required'; END IF;
+  WITH new_pairs AS (
+    SELECT DISTINCT ON (least(p1.user_id,p2.user_id),greatest(p1.user_id,p2.user_id))
+      pair.id AS pair_id,p1.user_id AS one_id,p2.user_id AS two_id
+    FROM public.tournament_pairs pair
+    JOIN public.tournament_participants p1 ON p1.id=pair.player_one_id
+    JOIN public.tournament_participants p2 ON p2.id=pair.player_two_id
+    WHERE pair.event_id=p_event_id AND pair.status='active' AND p1.status='registered' AND p2.status='registered'
+      AND p1.user_id IS NOT NULL AND p2.user_id IS NOT NULL
+    ORDER BY least(p1.user_id,p2.user_id),greatest(p1.user_id,p2.user_id),pair.created_at,pair.id
+  ), created AS (
+    INSERT INTO public.league_teams(league_id,player_one_id,player_two_id)
+    SELECT v_league,one_id,two_id FROM new_pairs np
+    WHERE NOT EXISTS (SELECT 1 FROM public.league_teams t WHERE t.league_id=v_league AND t.status='active'
+      AND ((t.player_one_id=np.one_id AND t.player_two_id=np.two_id) OR (t.player_one_id=np.two_id AND t.player_two_id=np.one_id)))
+    RETURNING id
+  ) SELECT count(*) INTO v_count FROM created;
+  UPDATE public.tournament_pairs pair SET league_team_id=t.id
+  FROM public.tournament_participants p1, public.tournament_participants p2, public.league_teams t
+  WHERE pair.event_id=p_event_id AND pair.status='active' AND p1.id=pair.player_one_id AND p2.id=pair.player_two_id
+    AND t.league_id=v_league AND t.status='active' AND ((t.player_one_id=p1.user_id AND t.player_two_id=p2.user_id) OR (t.player_one_id=p2.user_id AND t.player_two_id=p1.user_id));
+  RETURN coalesce(v_count,0);
+END; $$;
+REVOKE ALL ON FUNCTION public.confirm_league_tournament_teams(uuid) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.confirm_league_tournament_teams(uuid) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.league_standings_json(p_league_id uuid,p_before timestamptz DEFAULT NULL,p_before_event uuid DEFAULT NULL)
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+  WITH config AS (
+    SELECT coalesce(tournament_config,'{}'::jsonb) AS cfg FROM public.social_doubles_ladders WHERE id=p_league_id AND competition_type='league'
+  ), appearances AS (
+    SELECT m.id AS match_id,m.status,m.winner_side,m.score_sets,m.event_id,
+      CASE WHEN m.pair_one_id=pair.id THEN 1 ELSE 2 END AS side,pair.league_team_id AS team_id
+    FROM public.tournament_matches m
+    JOIN public.events e ON e.id=m.event_id AND e.social_doubles_ladder_id=p_league_id
+    JOIN public.tournament_pairs pair ON pair.id IN (m.pair_one_id,m.pair_two_id) AND pair.league_team_id IS NOT NULL
+    WHERE m.status IN ('completed','bye') AND (p_before IS NULL OR (e.starts_at,e.id)<(p_before,p_before_event))
+  ), scored AS (
+    SELECT a.*,
+      coalesce((SELECT count(*) FROM jsonb_array_elements(a.score_sets) s WHERE CASE WHEN a.side=1 THEN (s->>'one')::integer>(s->>'two')::integer ELSE (s->>'two')::integer>(s->>'one')::integer END),0)::integer AS sets_won,
+      coalesce((SELECT count(*) FROM jsonb_array_elements(a.score_sets) s WHERE CASE WHEN a.side=1 THEN (s->>'one')::integer<(s->>'two')::integer ELSE (s->>'two')::integer<(s->>'one')::integer END),0)::integer AS sets_lost,
+      coalesce((SELECT sum(CASE WHEN a.side=1 THEN (s->>'one')::integer ELSE (s->>'two')::integer END) FROM jsonb_array_elements(a.score_sets) s),0)::integer AS games_won,
+      coalesce((SELECT sum(CASE WHEN a.side=1 THEN (s->>'two')::integer ELSE (s->>'one')::integer END) FROM jsonb_array_elements(a.score_sets) s),0)::integer AS games_lost
+    FROM appearances a
+  ), stats AS (
+    SELECT t.id AS team_id,t.player_one_id,t.player_two_id,
+      coalesce(sum(CASE WHEN s.status='bye' THEN coalesce((config.cfg->'league_points'->>'bye')::integer,0)
+        WHEN s.status='completed' AND s.winner_side IS NULL THEN coalesce((config.cfg->'league_points'->>'draw')::integer,0)
+        WHEN s.status='completed' AND s.winner_side=s.side THEN coalesce((config.cfg->'league_points'->>'win')::integer,3)
+        WHEN s.status='completed' THEN coalesce((config.cfg->'league_points'->>'loss')::integer,0) ELSE 0 END),0)::integer AS points,
+      count(*) FILTER (WHERE s.status='completed')::integer AS played,
+      count(*) FILTER (WHERE s.status='completed' AND s.winner_side=s.side)::integer AS wins,
+      count(*) FILTER (WHERE s.status='completed' AND s.winner_side IS NOT NULL AND s.winner_side<>s.side)::integer AS losses,
+      coalesce(sum(s.sets_won),0)::integer AS sets_won,coalesce(sum(s.sets_lost),0)::integer AS sets_lost,
+      coalesce(sum(s.games_won),0)::integer AS games_won,coalesce(sum(s.games_lost),0)::integer AS games_lost
+    FROM public.league_teams t CROSS JOIN config LEFT JOIN scored s ON s.team_id=t.id
+    WHERE t.league_id=p_league_id AND t.status='active' AND t.confirmed_at IS NOT NULL
+      AND (p_before IS NULL OR t.confirmed_at<p_before)
+    GROUP BY t.id,t.player_one_id,t.player_two_id,config.cfg
+  ), ordered AS (
+    SELECT stats.*, ARRAY(SELECT CASE metric
+      WHEN 'points' THEN stats.points WHEN 'matches_won' THEN stats.wins WHEN 'matches_played' THEN stats.played
+      WHEN 'sets_won' THEN stats.sets_won WHEN 'sets_lost' THEN stats.sets_lost WHEN 'set_difference' THEN stats.sets_won-stats.sets_lost
+      WHEN 'games_won' THEN stats.games_won WHEN 'game_difference' THEN stats.games_won-stats.games_lost ELSE 0 END
+      FROM unnest((SELECT coalesce(array_agg(value),ARRAY['matches_won','sets_won','games_won']) FROM config c CROSS JOIN LATERAL jsonb_array_elements_text(c.cfg->'ranking_priority') value)) WITH ORDINALITY p(metric,ord) ORDER BY ord) AS rank_values
+    FROM stats
+  ), ranked AS (SELECT ordered.*,row_number() OVER (ORDER BY rank_values DESC,team_id) AS position FROM ordered)
+  SELECT coalesce(jsonb_agg(jsonb_build_object('team_id',r.team_id,'player_one_id',r.player_one_id,'player_two_id',r.player_two_id,
+    'team_name',coalesce(nullif(a.full_name,''),'Player')||' + '||coalesce(nullif(b.full_name,''),'Player'),
+    'position',r.position,'points',r.points,'matches_played',r.played,'wins',r.wins,'losses',r.losses,
+    'sets_won',r.sets_won,'sets_lost',r.sets_lost,'games_won',r.games_won,'games_lost',r.games_lost) ORDER BY r.position),'[]'::jsonb)
+  FROM ranked r LEFT JOIN public.profiles a ON a.id=r.player_one_id LEFT JOIN public.profiles b ON b.id=r.player_two_id;
+$$;
+
+CREATE OR REPLACE FUNCTION public.recalculate_league_tournament_standings(p_league_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE v_event record; v_config text; v_current jsonb;
+BEGIN
+  SELECT md5(row_to_json(l)::text) INTO v_config FROM public.social_doubles_ladders l WHERE l.id=p_league_id AND l.competition_type='league';
+  IF v_config IS NULL THEN RETURN; END IF;
+  FOR v_event IN SELECT id,starts_at FROM public.events WHERE social_doubles_ladder_id=p_league_id ORDER BY starts_at,id LOOP
+    INSERT INTO public.league_standings_snapshots(event_id,league_id,standings,configuration_version)
+    VALUES(v_event.id,p_league_id,public.league_standings_json(p_league_id,v_event.starts_at,v_event.id),v_config)
+    ON CONFLICT(event_id) DO UPDATE SET standings=EXCLUDED.standings,calculated_at=now(),configuration_version=EXCLUDED.configuration_version;
+  END LOOP;
+  v_current := public.league_standings_json(p_league_id,NULL,NULL);
+  INSERT INTO public.league_current_standings(league_id,standings,configuration_version)
+  VALUES(p_league_id,v_current,v_config)
+  ON CONFLICT(league_id) DO UPDATE SET standings=EXCLUDED.standings,calculated_at=now(),configuration_version=EXCLUDED.configuration_version;
+END; $$;
+REVOKE ALL ON FUNCTION public.league_standings_json(uuid,timestamptz,uuid) FROM PUBLIC,anon;
+REVOKE ALL ON FUNCTION public.recalculate_league_tournament_standings(uuid) FROM PUBLIC,anon,authenticated;
+
+CREATE OR REPLACE FUNCTION public.refresh_league_tournament_standings()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE v_league uuid;
+BEGIN
+  IF TG_TABLE_NAME='social_doubles_ladders' THEN v_league := coalesce((to_jsonb(NEW)->>'id')::uuid,(to_jsonb(OLD)->>'id')::uuid);
+  ELSIF TG_TABLE_NAME='events' THEN v_league := coalesce((to_jsonb(NEW)->>'social_doubles_ladder_id')::uuid,(to_jsonb(OLD)->>'social_doubles_ladder_id')::uuid);
+  ELSIF TG_TABLE_NAME='league_teams' THEN v_league := coalesce((to_jsonb(NEW)->>'league_id')::uuid,(to_jsonb(OLD)->>'league_id')::uuid);
+  ELSE
+    SELECT e.social_doubles_ladder_id INTO v_league FROM public.events e WHERE e.id=coalesce((to_jsonb(NEW)->>'event_id')::uuid,(to_jsonb(OLD)->>'event_id')::uuid);
+  END IF;
+  IF v_league IS NOT NULL THEN PERFORM public.recalculate_league_tournament_standings(v_league); END IF;
+  IF TG_OP='DELETE' THEN RETURN OLD; END IF; RETURN NEW;
+END; $$;
+DROP TRIGGER IF EXISTS refresh_league_standings_from_matches ON public.tournament_matches;
+CREATE TRIGGER refresh_league_standings_from_matches AFTER INSERT OR UPDATE OR DELETE ON public.tournament_matches FOR EACH ROW EXECUTE FUNCTION public.refresh_league_tournament_standings();
+DROP TRIGGER IF EXISTS refresh_league_standings_from_pairs ON public.tournament_pairs;
+CREATE TRIGGER refresh_league_standings_from_pairs AFTER INSERT OR UPDATE OR DELETE ON public.tournament_pairs FOR EACH ROW EXECUTE FUNCTION public.refresh_league_tournament_standings();
+DROP TRIGGER IF EXISTS refresh_league_standings_from_teams ON public.league_teams;
+CREATE TRIGGER refresh_league_standings_from_teams AFTER INSERT OR UPDATE OR DELETE ON public.league_teams FOR EACH ROW EXECUTE FUNCTION public.refresh_league_tournament_standings();
+DROP TRIGGER IF EXISTS refresh_league_standings_from_events ON public.events;
+CREATE TRIGGER refresh_league_standings_from_events AFTER INSERT OR UPDATE OR DELETE ON public.events FOR EACH ROW EXECUTE FUNCTION public.refresh_league_tournament_standings();
+DROP TRIGGER IF EXISTS refresh_league_standings_from_config ON public.social_doubles_ladders;
+CREATE TRIGGER refresh_league_standings_from_config AFTER UPDATE OF tournament_config,gender,starts_at,ends_at ON public.social_doubles_ladders FOR EACH ROW EXECUTE FUNCTION public.refresh_league_tournament_standings();
+
+CREATE OR REPLACE FUNCTION public.sync_league_config_to_events()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+BEGIN
+  IF NEW.competition_type='league' AND (OLD.tournament_config IS DISTINCT FROM NEW.tournament_config OR OLD.gender IS DISTINCT FROM NEW.gender OR OLD.tournament_rules_html IS DISTINCT FROM NEW.tournament_rules_html) THEN
+    UPDATE public.events SET tournament_config=NEW.tournament_config,tournament_rules_html=NEW.tournament_rules_html,gender_restriction=NEW.gender
+      WHERE social_doubles_ladder_id=NEW.id AND event_type='tournament';
+  END IF;
+  RETURN NEW;
+END; $$;
+DROP TRIGGER IF EXISTS sync_league_config_to_events ON public.social_doubles_ladders;
+CREATE TRIGGER sync_league_config_to_events AFTER UPDATE ON public.social_doubles_ladders FOR EACH ROW EXECUTE FUNCTION public.sync_league_config_to_events();
+
+ALTER TABLE public.league_teams ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.league_standings_snapshots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.league_current_standings ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Approved members view league teams" ON public.league_teams FOR SELECT TO authenticated USING (EXISTS (SELECT 1 FROM public.profiles p WHERE p.id=auth.uid() AND p.application_status='approved'));
+CREATE POLICY "Approved members view league snapshots" ON public.league_standings_snapshots FOR SELECT TO authenticated USING (EXISTS (SELECT 1 FROM public.profiles p WHERE p.id=auth.uid() AND p.application_status='approved'));
+CREATE POLICY "Public view published league snapshots" ON public.league_standings_snapshots FOR SELECT TO anon USING (EXISTS (SELECT 1 FROM public.events e WHERE e.id=league_standings_snapshots.event_id AND e.status='published' AND e.tournament_details_public=true));
+CREATE POLICY "Approved members view league current standings" ON public.league_current_standings FOR SELECT TO authenticated USING (EXISTS (SELECT 1 FROM public.profiles p WHERE p.id=auth.uid() AND p.application_status='approved'));
+GRANT SELECT ON public.league_teams,public.league_standings_snapshots,public.league_current_standings TO authenticated;
+GRANT SELECT ON public.league_standings_snapshots TO anon;
+GRANT SELECT,INSERT,UPDATE,DELETE ON public.social_doubles_ladders TO authenticated;
+COMMIT;
+
+-- BEGIN MIGRATION: 0063_league_after_event_standings.sql
+-- Store both pre-event and post-event standings for League event pages.
+BEGIN;
+ALTER TABLE public.league_standings_snapshots ADD COLUMN IF NOT EXISTS standings_after jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+CREATE OR REPLACE FUNCTION public.league_standings_json(p_league_id uuid,p_before timestamptz,p_before_event uuid,p_include_event boolean)
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+  WITH config AS (
+    SELECT coalesce(tournament_config,'{}'::jsonb) AS cfg FROM public.social_doubles_ladders WHERE id=p_league_id AND competition_type='league'
+  ), appearances AS (
+    SELECT m.id AS match_id,m.status,m.winner_side,m.score_sets,m.event_id,
+      CASE WHEN m.pair_one_id=pair.id THEN 1 ELSE 2 END AS side,pair.league_team_id AS team_id
+    FROM public.tournament_matches m
+    JOIN public.events e ON e.id=m.event_id AND e.social_doubles_ladder_id=p_league_id
+    JOIN public.tournament_pairs pair ON pair.id IN (m.pair_one_id,m.pair_two_id) AND pair.league_team_id IS NOT NULL
+    WHERE m.status IN ('completed','bye') AND ((p_before IS NULL OR (e.starts_at,e.id)<(p_before,p_before_event)) OR (p_include_event AND e.id=p_before_event))
+  ), scored AS (
+    SELECT a.*,
+      coalesce((SELECT count(*) FROM jsonb_array_elements(a.score_sets) s WHERE CASE WHEN a.side=1 THEN (s->>'one')::integer>(s->>'two')::integer ELSE (s->>'two')::integer>(s->>'one')::integer END),0)::integer AS sets_won,
+      coalesce((SELECT count(*) FROM jsonb_array_elements(a.score_sets) s WHERE CASE WHEN a.side=1 THEN (s->>'one')::integer<(s->>'two')::integer ELSE (s->>'two')::integer<(s->>'one')::integer END),0)::integer AS sets_lost,
+      coalesce((SELECT sum(CASE WHEN a.side=1 THEN (s->>'one')::integer ELSE (s->>'two')::integer END) FROM jsonb_array_elements(a.score_sets) s),0)::integer AS games_won,
+      coalesce((SELECT sum(CASE WHEN a.side=1 THEN (s->>'two')::integer ELSE (s->>'one')::integer END) FROM jsonb_array_elements(a.score_sets) s),0)::integer AS games_lost
+    FROM appearances a
+  ), stats AS (
+    SELECT t.id AS team_id,t.player_one_id,t.player_two_id,
+      coalesce(sum(CASE WHEN s.status='bye' THEN coalesce((config.cfg->'league_points'->>'bye')::integer,0)
+        WHEN s.status='completed' AND s.winner_side IS NULL THEN coalesce((config.cfg->'league_points'->>'draw')::integer,0)
+        WHEN s.status='completed' AND s.winner_side=s.side THEN coalesce((config.cfg->'league_points'->>'win')::integer,3)
+        WHEN s.status='completed' THEN coalesce((config.cfg->'league_points'->>'loss')::integer,0) ELSE 0 END),0)::integer AS points,
+      count(*) FILTER (WHERE s.status='completed')::integer AS played,
+      count(*) FILTER (WHERE s.status='completed' AND s.winner_side=s.side)::integer AS wins,
+      count(*) FILTER (WHERE s.status='completed' AND s.winner_side IS NOT NULL AND s.winner_side<>s.side)::integer AS losses,
+      coalesce(sum(s.sets_won),0)::integer AS sets_won,coalesce(sum(s.sets_lost),0)::integer AS sets_lost,
+      coalesce(sum(s.games_won),0)::integer AS games_won,coalesce(sum(s.games_lost),0)::integer AS games_lost
+    FROM public.league_teams t CROSS JOIN config LEFT JOIN scored s ON s.team_id=t.id
+    WHERE t.league_id=p_league_id AND t.status='active' AND t.confirmed_at IS NOT NULL
+      AND (p_before IS NULL OR t.confirmed_at<p_before OR (p_include_event AND EXISTS (SELECT 1 FROM public.tournament_pairs p WHERE p.event_id=p_before_event AND p.league_team_id=t.id AND p.status='active')))
+    GROUP BY t.id,t.player_one_id,t.player_two_id,config.cfg
+  ), ordered AS (
+    SELECT stats.*, ARRAY(SELECT CASE metric
+      WHEN 'points' THEN stats.points WHEN 'matches_won' THEN stats.wins WHEN 'matches_played' THEN stats.played
+      WHEN 'sets_won' THEN stats.sets_won WHEN 'sets_lost' THEN stats.sets_lost WHEN 'set_difference' THEN stats.sets_won-stats.sets_lost
+      WHEN 'games_won' THEN stats.games_won WHEN 'game_difference' THEN stats.games_won-stats.games_lost ELSE 0 END
+      FROM unnest((SELECT coalesce(array_agg(value),ARRAY['matches_won','sets_won','games_won']) FROM config c CROSS JOIN LATERAL jsonb_array_elements_text(c.cfg->'ranking_priority') value)) WITH ORDINALITY p(metric,ord) ORDER BY ord) AS rank_values
+    FROM stats
+  ), ranked AS (SELECT ordered.*,row_number() OVER (ORDER BY rank_values DESC,team_id) AS position FROM ordered)
+  SELECT coalesce(jsonb_agg(jsonb_build_object('team_id',r.team_id,'player_one_id',r.player_one_id,'player_two_id',r.player_two_id,
+    'team_name',coalesce(nullif(a.full_name,''),'Player')||' + '||coalesce(nullif(b.full_name,''),'Player'),
+    'position',r.position,'points',r.points,'matches_played',r.played,'wins',r.wins,'losses',r.losses,
+    'sets_won',r.sets_won,'sets_lost',r.sets_lost,'games_won',r.games_won,'games_lost',r.games_lost) ORDER BY r.position),'[]'::jsonb)
+  FROM ranked r LEFT JOIN public.profiles a ON a.id=r.player_one_id LEFT JOIN public.profiles b ON b.id=r.player_two_id;
+$$;
+
+CREATE OR REPLACE FUNCTION public.league_standings_json(p_league_id uuid,p_before timestamptz DEFAULT NULL,p_before_event uuid DEFAULT NULL)
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+  SELECT public.league_standings_json(p_league_id,p_before,p_before_event,false);
+$$;
+
+REVOKE ALL ON FUNCTION public.league_standings_json(uuid,timestamptz,uuid,boolean) FROM PUBLIC,anon;
+
+CREATE OR REPLACE FUNCTION public.recalculate_league_tournament_standings(p_league_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE v_event record; v_config text; v_current jsonb;
+BEGIN
+  SELECT md5(row_to_json(l)::text) INTO v_config FROM public.social_doubles_ladders l WHERE l.id=p_league_id AND l.competition_type='league';
+  IF v_config IS NULL THEN RETURN; END IF;
+  FOR v_event IN SELECT id,starts_at FROM public.events WHERE social_doubles_ladder_id=p_league_id ORDER BY starts_at,id LOOP
+    INSERT INTO public.league_standings_snapshots(event_id,league_id,standings,standings_after,configuration_version)
+    VALUES(v_event.id,p_league_id,public.league_standings_json(p_league_id,v_event.starts_at,v_event.id),public.league_standings_json(p_league_id,v_event.starts_at,v_event.id,true),v_config)
+    ON CONFLICT(event_id) DO UPDATE SET standings=EXCLUDED.standings,standings_after=EXCLUDED.standings_after,calculated_at=now(),configuration_version=EXCLUDED.configuration_version;
+  END LOOP;
+  v_current := public.league_standings_json(p_league_id,NULL,NULL);
+  INSERT INTO public.league_current_standings(league_id,standings,configuration_version)
+  VALUES(p_league_id,v_current,v_config)
+  ON CONFLICT(league_id) DO UPDATE SET standings=EXCLUDED.standings,calculated_at=now(),configuration_version=EXCLUDED.configuration_version;
+END; $$;
+COMMIT;
+
+-- BEGIN MIGRATION: 0064_league_overview_scores.sql
+-- Allow fixed League team members to report the score of their scheduled match.
+BEGIN;
+
+CREATE OR REPLACE FUNCTION public.submit_league_match_score(
+  p_match_id uuid,
+  p_score_one integer,
+  p_score_two integer
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_event_id uuid;
+  v_starts_at timestamptz;
+  v_status text;
+  v_league_id uuid;
+  v_pair_one uuid;
+  v_pair_two uuid;
+BEGIN
+  IF auth.uid() IS NULL OR p_score_one IS NULL OR p_score_two IS NULL
+    OR p_score_one < 0 OR p_score_two < 0 OR p_score_one = p_score_two THEN
+    RAISE EXCEPTION 'Enter two different non-negative scores';
+  END IF;
+
+  SELECT e.id,e.starts_at,e.social_doubles_ladder_id,m.status,m.pair_one_id,m.pair_two_id
+    INTO v_event_id,v_starts_at,v_league_id,v_status,v_pair_one,v_pair_two
+  FROM public.tournament_matches m
+  JOIN public.events e ON e.id=m.event_id
+  JOIN public.social_doubles_ladders l ON l.id=e.social_doubles_ladder_id AND l.competition_type='league'
+  WHERE m.id=p_match_id AND e.event_type='tournament' AND e.tournament_format='doubles'
+    AND m.phase='round_robin' AND m.pair_one_id IS NOT NULL AND m.pair_two_id IS NOT NULL;
+  IF NOT FOUND THEN RAISE EXCEPTION 'League match not found'; END IF;
+  IF now() < v_starts_at OR now() - v_starts_at > interval '2 days' THEN
+    RAISE EXCEPTION 'Scores can only be entered within two days of the event start';
+  END IF;
+  IF v_status='cancelled' THEN RAISE EXCEPTION 'This match was cancelled'; END IF;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.tournament_pairs pair
+    JOIN public.league_teams team ON team.id=pair.league_team_id AND team.league_id=v_league_id AND team.status='active'
+    JOIN public.tournament_participants player ON player.id IN (pair.player_one_id,pair.player_two_id)
+    WHERE pair.id IN (v_pair_one,v_pair_two) AND pair.event_id=v_event_id AND pair.status='active'
+      AND player.user_id=auth.uid()
+      AND player.user_id IN (team.player_one_id,team.player_two_id)
+  ) THEN
+    RAISE EXCEPTION 'Only players in these fixed League teams can submit the match score';
+  END IF;
+
+  UPDATE public.tournament_matches
+  SET score_sets=jsonb_build_array(jsonb_build_object('one',p_score_one,'two',p_score_two)),
+      winner_side=CASE WHEN p_score_one > p_score_two THEN 1 ELSE 2 END,
+      status='completed',
+      team_points_one=CASE WHEN p_score_one > p_score_two THEN 3 ELSE 0 END,
+      team_points_two=CASE WHEN p_score_two > p_score_one THEN 3 ELSE 0 END,
+      entered_by=auth.uid(),
+      updated_at=now()
+  WHERE id=p_match_id;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.submit_league_match_score(uuid,integer,integer) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.submit_league_match_score(uuid,integer,integer) TO authenticated;
+
+COMMIT;
+
+-- BEGIN MIGRATION: 0065_fix_league_pair_creation_search_path.sql
+-- Qualify both participant tables because this trigger runs with an empty search_path.
+CREATE OR REPLACE FUNCTION public.validate_league_tournament_pair()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE v_league uuid; v_gender text; v_one uuid; v_two uuid; v_member_team public.league_teams%rowtype;
+BEGIN
+  SELECT e.social_doubles_ladder_id,l.gender INTO v_league,v_gender
+  FROM public.events e JOIN public.social_doubles_ladders l ON l.id=e.social_doubles_ladder_id AND l.competition_type='league'
+  WHERE e.id=NEW.event_id AND e.event_type='tournament' AND e.tournament_format='doubles';
+  IF v_league IS NULL THEN RETURN NEW; END IF;
+  IF NEW.category <> (CASE WHEN v_gender='male' THEN 'men' ELSE 'women' END) THEN
+    RAISE EXCEPTION 'League pairs must use the league gender category';
+  END IF;
+  SELECT p1.user_id,p2.user_id INTO v_one,v_two
+  FROM public.tournament_participants p1,public.tournament_participants p2
+  WHERE p1.id=NEW.player_one_id AND p2.id=NEW.player_two_id;
+  IF v_one IS NULL OR v_two IS NULL THEN RAISE EXCEPTION 'League teams require two approved member accounts'; END IF;
+  IF EXISTS (SELECT 1 FROM public.profiles p WHERE p.id IN (v_one,v_two) AND p.application_status<>'approved') THEN
+    RAISE EXCEPTION 'League participants must be approved members';
+  END IF;
+  SELECT * INTO v_member_team FROM public.league_teams t WHERE t.league_id=v_league AND t.status='active'
+    AND (t.player_one_id IN (v_one,v_two) OR t.player_two_id IN (v_one,v_two)) LIMIT 1;
+  IF FOUND THEN
+    IF NOT ((v_member_team.player_one_id=v_one AND v_member_team.player_two_id=v_two) OR (v_member_team.player_one_id=v_two AND v_member_team.player_two_id=v_one)) THEN
+      RAISE EXCEPTION 'League partners are fixed after team confirmation';
+    END IF;
+    NEW.league_team_id := v_member_team.id;
+  ELSIF NEW.league_team_id IS NOT NULL THEN
+    IF NOT EXISTS (SELECT 1 FROM public.league_teams t WHERE t.id=NEW.league_team_id AND t.league_id=v_league
+      AND ((t.player_one_id=v_one AND t.player_two_id=v_two) OR (t.player_one_id=v_two AND t.player_two_id=v_one))) THEN
+      RAISE EXCEPTION 'League team does not match this event pair';
+    END IF;
+  END IF;
+  RETURN NEW;
+END; $$;
+
+-- BEGIN MIGRATION: 0066_league_teams_fixed_on_pair_creation.sql
+-- League teams begin when the first pair is created; replacements update the team series-wide.
+BEGIN;
+
+CREATE OR REPLACE FUNCTION public.validate_league_tournament_pair()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE v_league uuid; v_gender text; v_one uuid; v_two uuid; v_member_team public.league_teams%rowtype;
+BEGIN
+  SELECT e.social_doubles_ladder_id,l.gender INTO v_league,v_gender
+  FROM public.events e JOIN public.social_doubles_ladders l ON l.id=e.social_doubles_ladder_id AND l.competition_type='league'
+  WHERE e.id=NEW.event_id AND e.event_type='tournament' AND e.tournament_format='doubles';
+  IF v_league IS NULL THEN RETURN NEW; END IF;
+  IF NEW.category <> (CASE WHEN v_gender='male' THEN 'men' ELSE 'women' END) THEN
+    RAISE EXCEPTION 'League pairs must use the league gender category';
+  END IF;
+  SELECT p1.user_id,p2.user_id INTO v_one,v_two
+  FROM public.tournament_participants p1,public.tournament_participants p2
+  WHERE p1.id=NEW.player_one_id AND p2.id=NEW.player_two_id;
+  IF v_one IS NULL OR v_two IS NULL THEN RAISE EXCEPTION 'League teams require two approved member accounts'; END IF;
+  IF EXISTS (SELECT 1 FROM public.profiles p WHERE p.id IN (v_one,v_two) AND p.application_status<>'approved') THEN
+    RAISE EXCEPTION 'League participants must be approved members';
+  END IF;
+  SELECT * INTO v_member_team FROM public.league_teams t WHERE t.league_id=v_league AND t.status='active'
+    AND (t.player_one_id IN (v_one,v_two) OR t.player_two_id IN (v_one,v_two)) LIMIT 1;
+  IF FOUND THEN
+    IF NOT ((v_member_team.player_one_id=v_one AND v_member_team.player_two_id=v_two) OR (v_member_team.player_one_id=v_two AND v_member_team.player_two_id=v_one)) THEN
+      RAISE EXCEPTION 'League partners are fixed after the pair is created';
+    END IF;
+    NEW.league_team_id := v_member_team.id;
+  ELSIF NEW.league_team_id IS NOT NULL THEN
+    IF NOT EXISTS (SELECT 1 FROM public.league_teams t WHERE t.id=NEW.league_team_id AND t.league_id=v_league
+      AND ((t.player_one_id=v_one AND t.player_two_id=v_two) OR (t.player_one_id=v_two AND t.player_two_id=v_one))) THEN
+      RAISE EXCEPTION 'League team does not match this event pair';
+    END IF;
+  ELSE
+    INSERT INTO public.league_teams(league_id,player_one_id,player_two_id)
+    VALUES(v_league,v_one,v_two) RETURNING * INTO v_member_team;
+    NEW.league_team_id := v_member_team.id;
+  END IF;
+  RETURN NEW;
+END; $$;
+
+-- Give existing unlinked League pairs the same fixed-team behavior after upgrade.
+INSERT INTO public.league_teams(league_id,player_one_id,player_two_id)
+SELECT DISTINCT ON (e.social_doubles_ladder_id,least(p1.user_id,p2.user_id),greatest(p1.user_id,p2.user_id))
+  e.social_doubles_ladder_id,p1.user_id,p2.user_id
+FROM public.tournament_pairs pair
+JOIN public.events e ON e.id=pair.event_id AND e.event_type='tournament' AND e.tournament_format='doubles'
+JOIN public.social_doubles_ladders league ON league.id=e.social_doubles_ladder_id AND league.competition_type='league'
+JOIN public.tournament_participants p1 ON p1.id=pair.player_one_id
+JOIN public.tournament_participants p2 ON p2.id=pair.player_two_id
+WHERE pair.status='active' AND pair.league_team_id IS NULL AND p1.user_id IS NOT NULL AND p2.user_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM public.league_teams t WHERE t.league_id=e.social_doubles_ladder_id AND t.status='active'
+    AND (t.player_one_id IN (p1.user_id,p2.user_id) OR t.player_two_id IN (p1.user_id,p2.user_id)))
+ORDER BY e.social_doubles_ladder_id,least(p1.user_id,p2.user_id),greatest(p1.user_id,p2.user_id),pair.created_at,pair.id;
+
+UPDATE public.tournament_pairs pair SET league_team_id=team.id
+FROM public.events e,public.tournament_participants p1,public.tournament_participants p2,public.league_teams team
+WHERE pair.league_team_id IS NULL AND pair.status='active' AND e.id=pair.event_id
+  AND e.social_doubles_ladder_id=team.league_id AND team.status='active'
+  AND p1.id=pair.player_one_id AND p2.id=pair.player_two_id
+  AND ((team.player_one_id=p1.user_id AND team.player_two_id=p2.user_id)
+    OR (team.player_one_id=p2.user_id AND team.player_two_id=p1.user_id));
+
+DROP FUNCTION IF EXISTS public.confirm_league_tournament_teams(uuid);
+
+CREATE OR REPLACE FUNCTION public.replace_league_team_member(
+  p_event_id uuid,
+  p_pair_id uuid,
+  p_side integer,
+  p_replacement_participant_id uuid
+)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE
+  v_league_id uuid;
+  v_team_id uuid;
+  v_event_start timestamptz;
+  v_old_user uuid;
+  v_new_user uuid;
+  v_category text;
+BEGIN
+  IF p_side NOT IN (1,2) THEN RAISE EXCEPTION 'Pair side must be 1 or 2'; END IF;
+  SELECT e.social_doubles_ladder_id,e.starts_at,p.league_team_id,p.category,
+    old_player.user_id,replacement.user_id
+  INTO v_league_id,v_event_start,v_team_id,v_category,v_old_user,v_new_user
+  FROM public.events e
+  JOIN public.tournament_pairs p ON p.event_id=e.id AND p.id=p_pair_id AND p.status='active'
+  JOIN public.tournament_participants old_player ON old_player.id=CASE WHEN p_side=1 THEN p.player_one_id ELSE p.player_two_id END
+  JOIN public.tournament_participants replacement ON replacement.id=p_replacement_participant_id AND replacement.event_id=e.id AND replacement.status='registered'
+  WHERE e.id=p_event_id AND e.event_type='tournament' AND e.tournament_format='doubles';
+
+  IF v_league_id IS NULL OR v_team_id IS NULL OR NOT public.is_event_manager() OR NOT EXISTS (
+    SELECT 1 FROM public.events e WHERE e.id=p_event_id
+      AND (public.is_admin() OR e.organizer_id=auth.uid() OR e.created_by=auth.uid())
+  ) THEN RAISE EXCEPTION 'League event manager access required'; END IF;
+  IF v_old_user IS NULL OR v_new_user IS NULL OR v_new_user=v_old_user THEN
+    RAISE EXCEPTION 'Select a different registered replacement player';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.profiles p WHERE p.id=v_new_user AND p.application_status='approved') THEN
+    RAISE EXCEPTION 'League participants must be approved members';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.league_teams t WHERE t.league_id=v_league_id AND t.status='active' AND t.id<>v_team_id
+    AND v_new_user IN (t.player_one_id,t.player_two_id)) THEN
+    RAISE EXCEPTION 'Replacement player already belongs to another active league team';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.tournament_pairs p
+    JOIN public.events e ON e.id=p.event_id AND e.social_doubles_ladder_id=v_league_id
+    JOIN public.tournament_participants member ON member.id IN (p.player_one_id,p.player_two_id)
+    WHERE p.status='active' AND p.league_team_id=v_team_id AND e.starts_at>=v_event_start
+      AND member.user_id=v_new_user AND p.id<>p_pair_id) THEN
+    RAISE EXCEPTION 'Replacement player is already assigned to another League pair';
+  END IF;
+
+  UPDATE public.league_teams
+  SET player_one_id=CASE WHEN p_side=1 THEN v_new_user ELSE player_one_id END,
+      player_two_id=CASE WHEN p_side=2 THEN v_new_user ELSE player_two_id END
+  WHERE id=v_team_id AND league_id=v_league_id AND status='active';
+
+  -- Update this and later event pairs where the replacement has a registration.
+  -- Completed match-player rows remain untouched, preserving each player's prior match history.
+  WITH replacement_rows AS (
+    SELECT pair.id AS pair_id,pair.event_id,replacement.id AS participant_id,old_member.id AS old_participant_id
+    FROM public.tournament_pairs pair
+    JOIN public.events e ON e.id=pair.event_id AND e.social_doubles_ladder_id=v_league_id AND e.starts_at>=v_event_start
+    JOIN public.tournament_participants old_member ON old_member.id=CASE WHEN p_side=1 THEN pair.player_one_id ELSE pair.player_two_id END
+    JOIN public.tournament_participants replacement ON replacement.event_id=pair.event_id AND replacement.user_id=v_new_user
+      AND replacement.category=v_category AND replacement.status='registered'
+    WHERE pair.league_team_id=v_team_id AND pair.status='active'
+      AND old_member.user_id=v_old_user
+  ), changed AS (
+    UPDATE public.tournament_pairs pair
+    SET player_one_id=CASE WHEN p_side=1 THEN replacement_rows.participant_id ELSE pair.player_one_id END,
+        player_two_id=CASE WHEN p_side=2 THEN replacement_rows.participant_id ELSE pair.player_two_id END
+    FROM replacement_rows WHERE pair.id=replacement_rows.pair_id
+    RETURNING pair.event_id,replacement_rows.old_participant_id,replacement_rows.participant_id
+  )
+  UPDATE public.tournament_participants old_participant
+  SET status='replaced',replaced_by=changed.participant_id,updated_at=now()
+  FROM changed WHERE old_participant.id=changed.old_participant_id;
+
+  UPDATE public.tournament_match_players match_player
+  SET participant_id=CASE WHEN p_side=1 THEN pair.player_one_id ELSE pair.player_two_id END
+  FROM public.tournament_matches match
+  JOIN public.tournament_pairs pair ON pair.event_id=match.event_id
+  JOIN public.events event ON event.id=pair.event_id AND event.social_doubles_ladder_id=v_league_id AND event.starts_at>=v_event_start
+  WHERE match_player.match_id=match.id AND match.status NOT IN ('completed','cancelled')
+    AND pair.league_team_id=v_team_id AND pair.status='active'
+    AND match_player.side=CASE WHEN match.pair_one_id=pair.id THEN 1 ELSE 2 END
+    AND (match.pair_one_id=pair.id OR match.pair_two_id=pair.id)
+    AND match_player.participant_id IN (
+      SELECT old_member.id FROM public.tournament_participants old_member
+      WHERE old_member.event_id=pair.event_id AND old_member.user_id=v_old_user
+    );
+END; $$;
+
+REVOKE ALL ON FUNCTION public.replace_league_team_member(uuid,uuid,integer,uuid) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.replace_league_team_member(uuid,uuid,integer,uuid) TO authenticated;
+
+COMMIT;
+
+-- BEGIN MIGRATION: 0067_league_team_court_assignments.sql
+-- Store court assignments as fixed League pairs (two players per team).
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS public.league_event_court_assignments (
+  event_id uuid NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+  pair_id uuid NOT NULL REFERENCES public.tournament_pairs(id) ON DELETE CASCADE,
+  court_number integer NOT NULL CHECK (court_number BETWEEN 1 AND 4),
+  segment_order integer NOT NULL DEFAULT 1 CHECK (segment_order BETWEEN 1 AND 4),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (event_id,pair_id,segment_order),
+  FOREIGN KEY (event_id,pair_id) REFERENCES public.tournament_pairs(event_id,id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS league_event_court_assignments_slot_idx
+  ON public.league_event_court_assignments(event_id,segment_order,court_number);
+ALTER TABLE public.league_event_court_assignments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "League court assignments are public" ON public.league_event_court_assignments;
+CREATE POLICY "League court assignments are public" ON public.league_event_court_assignments
+  FOR SELECT TO anon,authenticated USING (EXISTS (
+    SELECT 1 FROM public.events e WHERE e.id=league_event_court_assignments.event_id AND e.status='published'
+  ));
+DROP POLICY IF EXISTS "Event managers manage League court assignments" ON public.league_event_court_assignments;
+CREATE POLICY "Event managers manage League court assignments" ON public.league_event_court_assignments
+  FOR ALL TO authenticated USING (public.is_event_manager()) WITH CHECK (public.is_event_manager());
+GRANT SELECT ON public.league_event_court_assignments TO anon,authenticated;
+GRANT INSERT,UPDATE,DELETE ON public.league_event_court_assignments TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.save_league_event_court_assignments(p_event_id uuid,p_assignments jsonb)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE v_expected integer; v_count integer; v_invalid boolean;
+BEGIN
+  IF NOT public.is_event_manager() OR NOT EXISTS (
+    SELECT 1 FROM public.events e JOIN public.social_doubles_ladders l ON l.id=e.social_doubles_ladder_id
+    WHERE e.id=p_event_id AND e.event_type='tournament' AND e.tournament_format='doubles'
+      AND l.competition_type='league' AND (public.is_admin() OR e.organizer_id=auth.uid() OR e.created_by=auth.uid())
+  ) THEN RAISE EXCEPTION 'League event manager access required'; END IF;
+  IF jsonb_typeof(p_assignments)<>'array' THEN RAISE EXCEPTION 'Court assignments must be an array'; END IF;
+  SELECT count(*) INTO v_count FROM jsonb_array_elements(p_assignments);
+  SELECT EXISTS (
+    SELECT 1 FROM jsonb_array_elements(p_assignments) item
+    WHERE (item->>'court_number')::integer NOT BETWEEN 1 AND 4
+      OR (item->>'segment_order')::integer NOT BETWEEN 1 AND 4
+      OR NOT EXISTS (SELECT 1 FROM public.tournament_pairs pair
+        WHERE pair.id=(item->>'pair_id')::uuid AND pair.event_id=p_event_id AND pair.status='active'
+          AND pair.league_team_id IS NOT NULL)
+  ) INTO v_invalid;
+  IF v_invalid THEN RAISE EXCEPTION 'Assignments must use active League teams and valid courts'; END IF;
+  IF EXISTS (
+    SELECT 1 FROM jsonb_array_elements(p_assignments) item
+    GROUP BY (item->>'pair_id'),(item->>'segment_order') HAVING count(*)>1
+  ) THEN RAISE EXCEPTION 'A League team can only be assigned once per slot'; END IF;
+  IF EXISTS (
+    SELECT 1 FROM jsonb_array_elements(p_assignments) item
+    GROUP BY (item->>'segment_order'),(item->>'court_number') HAVING count(*)>2
+  ) THEN RAISE EXCEPTION 'Each court can hold two League teams per slot'; END IF;
+  SELECT count(*) INTO v_expected FROM public.tournament_pairs pair
+  WHERE pair.event_id=p_event_id AND pair.status='active' AND pair.league_team_id IS NOT NULL;
+  IF v_expected>0 AND (v_count=0 OR v_count % v_expected<>0) THEN
+    RAISE EXCEPTION 'Assign every active League team once in each slot';
+  END IF;
+  IF v_expected>0 AND EXISTS (
+    SELECT 1 FROM generate_series(1,greatest(1,(SELECT max((item->>'segment_order')::integer)
+      FROM jsonb_array_elements(p_assignments) item))) slots(slot)
+    CROSS JOIN public.tournament_pairs pair
+    WHERE pair.event_id=p_event_id AND pair.status='active' AND pair.league_team_id IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(p_assignments) item
+        WHERE (item->>'pair_id')::uuid=pair.id AND (item->>'segment_order')::integer=slots.slot)
+  ) THEN RAISE EXCEPTION 'Assign every active League team once in each slot'; END IF;
+
+  DELETE FROM public.league_event_court_assignments WHERE event_id=p_event_id;
+  INSERT INTO public.league_event_court_assignments(event_id,pair_id,court_number,segment_order)
+  SELECT p_event_id,(item->>'pair_id')::uuid,(item->>'court_number')::integer,(item->>'segment_order')::integer
+  FROM jsonb_array_elements(p_assignments) item;
+END; $$;
+
+REVOKE ALL ON FUNCTION public.save_league_event_court_assignments(uuid,jsonb) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.save_league_event_court_assignments(uuid,jsonb) TO authenticated;
+
+COMMIT;
+
+-- BEGIN MIGRATION: 0068_league_pair_membership_eligibility.sql
+-- Use active membership as the League pair eligibility rule and expose it to the admin selector.
+BEGIN;
+
+CREATE OR REPLACE FUNCTION public.validate_league_tournament_pair()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE v_league uuid; v_gender text; v_one uuid; v_two uuid; v_member_team public.league_teams%rowtype;
+BEGIN
+  SELECT e.social_doubles_ladder_id,l.gender INTO v_league,v_gender
+  FROM public.events e JOIN public.social_doubles_ladders l ON l.id=e.social_doubles_ladder_id AND l.competition_type='league'
+  WHERE e.id=NEW.event_id AND e.event_type='tournament' AND e.tournament_format='doubles';
+  IF v_league IS NULL THEN RETURN NEW; END IF;
+  IF NEW.category <> (CASE WHEN v_gender='male' THEN 'men' ELSE 'women' END) THEN
+    RAISE EXCEPTION 'League pairs must use the league gender category';
+  END IF;
+  SELECT p1.user_id,p2.user_id INTO v_one,v_two
+  FROM public.tournament_participants p1,public.tournament_participants p2
+  WHERE p1.id=NEW.player_one_id AND p2.id=NEW.player_two_id;
+  IF v_one IS NULL OR v_two IS NULL THEN RAISE EXCEPTION 'League teams require two approved member accounts'; END IF;
+  IF EXISTS (
+    SELECT 1 FROM public.profiles p WHERE p.id IN (v_one,v_two)
+      AND (p.application_status<>'approved' OR NOT public.has_active_paid_membership(p.id))
+  ) THEN
+    RAISE EXCEPTION 'League teams require players with active paid membership';
+  END IF;
+  SELECT * INTO v_member_team FROM public.league_teams t WHERE t.league_id=v_league AND t.status='active'
+    AND (t.player_one_id IN (v_one,v_two) OR t.player_two_id IN (v_one,v_two)) LIMIT 1;
+  IF FOUND THEN
+    IF NOT ((v_member_team.player_one_id=v_one AND v_member_team.player_two_id=v_two) OR (v_member_team.player_one_id=v_two AND v_member_team.player_two_id=v_one)) THEN
+      RAISE EXCEPTION 'League partners are fixed after the pair is created';
+    END IF;
+    NEW.league_team_id := v_member_team.id;
+  ELSIF NEW.league_team_id IS NOT NULL THEN
+    IF NOT EXISTS (SELECT 1 FROM public.league_teams t WHERE t.id=NEW.league_team_id AND t.league_id=v_league
+      AND ((t.player_one_id=v_one AND t.player_two_id=v_two) OR (t.player_one_id=v_two AND t.player_two_id=v_one))) THEN
+      RAISE EXCEPTION 'League team does not match this event pair';
+    END IF;
+  ELSE
+    INSERT INTO public.league_teams(league_id,player_one_id,player_two_id)
+    VALUES(v_league,v_one,v_two) RETURNING * INTO v_member_team;
+    NEW.league_team_id := v_member_team.id;
+  END IF;
+  RETURN NEW;
+END; $$;
+
+CREATE OR REPLACE FUNCTION public.league_event_pair_eligibility(p_event_id uuid)
+RETURNS TABLE(participant_id uuid,eligible boolean)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = '' AS $$
+BEGIN
+  IF NOT public.is_event_manager() OR NOT EXISTS (
+    SELECT 1 FROM public.events e JOIN public.social_doubles_ladders l ON l.id=e.social_doubles_ladder_id
+    WHERE e.id=p_event_id AND e.event_type='tournament' AND l.competition_type='league'
+      AND (public.is_admin() OR e.organizer_id=auth.uid() OR e.created_by=auth.uid())
+  ) THEN RAISE EXCEPTION 'League event manager access required'; END IF;
+  RETURN QUERY
+  SELECT participant.id,
+    (profile.application_status='approved' AND public.has_active_paid_membership(profile.id))
+  FROM public.tournament_participants participant
+  JOIN public.profiles profile ON profile.id=participant.user_id
+  WHERE participant.event_id=p_event_id AND participant.status='registered';
+END; $$;
+
+REVOKE ALL ON FUNCTION public.league_event_pair_eligibility(uuid) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.league_event_pair_eligibility(uuid) TO authenticated;
+
+COMMIT;
+
+-- BEGIN MIGRATION: 0069_league_participant_member_selector_eligibility.sql
+-- Return eligibility for every member in the admin participant selector, not only current entrants.
+BEGIN;
+
+DROP FUNCTION IF EXISTS public.league_event_pair_eligibility(uuid);
+CREATE FUNCTION public.league_event_pair_eligibility(p_event_id uuid)
+RETURNS TABLE(user_id uuid,eligible boolean)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = '' AS $$
+BEGIN
+  IF NOT public.is_event_manager() OR NOT EXISTS (
+    SELECT 1 FROM public.events e JOIN public.social_doubles_ladders l ON l.id=e.social_doubles_ladder_id
+    WHERE e.id=p_event_id AND e.event_type='tournament' AND l.competition_type='league'
+      AND (public.is_admin() OR e.organizer_id=auth.uid() OR e.created_by=auth.uid())
+  ) THEN RAISE EXCEPTION 'League event manager access required'; END IF;
+  RETURN QUERY
+  SELECT profile.id,
+    (profile.application_status='approved' AND public.has_active_paid_membership(profile.id))
+  FROM public.profiles profile;
+END; $$;
+
+REVOKE ALL ON FUNCTION public.league_event_pair_eligibility(uuid) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.league_event_pair_eligibility(uuid) TO authenticated;
+
+COMMIT;
+
+-- BEGIN MIGRATION: 0070_allow_overfull_league_courts_with_warning.sql
+-- Let event managers confirm over-capacity League court assignments in the UI.
+ALTER TABLE public.league_event_court_assignments
+  DROP CONSTRAINT IF EXISTS league_event_court_assignments_segment_order_check;
+ALTER TABLE public.league_event_court_assignments
+  ADD CONSTRAINT league_event_court_assignments_segment_order_check CHECK (segment_order>=1);
+
+CREATE OR REPLACE FUNCTION public.save_league_event_court_assignments(p_event_id uuid,p_assignments jsonb)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE v_expected integer; v_count integer; v_invalid boolean;
+BEGIN
+  IF NOT public.is_event_manager() OR NOT EXISTS (
+    SELECT 1 FROM public.events e JOIN public.social_doubles_ladders l ON l.id=e.social_doubles_ladder_id
+    WHERE e.id=p_event_id AND e.event_type='tournament' AND e.tournament_format='doubles'
+      AND l.competition_type='league' AND (public.is_admin() OR e.organizer_id=auth.uid() OR e.created_by=auth.uid())
+  ) THEN RAISE EXCEPTION 'League event manager access required'; END IF;
+  IF jsonb_typeof(p_assignments)<>'array' THEN RAISE EXCEPTION 'Court assignments must be an array'; END IF;
+  SELECT count(*) INTO v_count FROM jsonb_array_elements(p_assignments);
+  SELECT EXISTS (
+    SELECT 1 FROM jsonb_array_elements(p_assignments) item
+    WHERE (item->>'court_number')::integer NOT BETWEEN 1 AND 4
+      OR (item->>'segment_order')::integer<1
+      OR NOT EXISTS (SELECT 1 FROM public.tournament_pairs pair
+        WHERE pair.id=(item->>'pair_id')::uuid AND pair.event_id=p_event_id AND pair.status='active'
+          AND pair.league_team_id IS NOT NULL)
+  ) INTO v_invalid;
+  IF v_invalid THEN RAISE EXCEPTION 'Assignments must use active League teams and valid courts'; END IF;
+  IF EXISTS (
+    SELECT 1 FROM jsonb_array_elements(p_assignments) item
+    GROUP BY (item->>'pair_id'),(item->>'segment_order') HAVING count(*)>1
+  ) THEN RAISE EXCEPTION 'A League team can only be assigned once per slot'; END IF;
+  SELECT count(*) INTO v_expected FROM public.tournament_pairs pair
+  WHERE pair.event_id=p_event_id AND pair.status='active' AND pair.league_team_id IS NOT NULL;
+  IF v_expected>0 AND (v_count=0 OR v_count % v_expected<>0) THEN
+    RAISE EXCEPTION 'Assign every active League team once in each slot';
+  END IF;
+  IF v_expected>0 AND EXISTS (
+    SELECT 1 FROM generate_series(1,greatest(1,(SELECT max((item->>'segment_order')::integer)
+      FROM jsonb_array_elements(p_assignments) item))) slots(slot)
+    CROSS JOIN public.tournament_pairs pair
+    WHERE pair.event_id=p_event_id AND pair.status='active' AND pair.league_team_id IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(p_assignments) item
+        WHERE (item->>'pair_id')::uuid=pair.id AND (item->>'segment_order')::integer=slots.slot)
+  ) THEN RAISE EXCEPTION 'Assign every active League team once in each slot'; END IF;
+
+  DELETE FROM public.league_event_court_assignments WHERE event_id=p_event_id;
+  INSERT INTO public.league_event_court_assignments(event_id,pair_id,court_number,segment_order)
+  SELECT p_event_id,(item->>'pair_id')::uuid,(item->>'court_number')::integer,(item->>'segment_order')::integer
+  FROM jsonb_array_elements(p_assignments) item;
+END; $$;
+
+-- BEGIN MIGRATION: 0071_admin_league_match_score_entry.sql
+-- Allow approved event managers to enter/correct League scores while retaining
+-- the existing two-day window for ordinary fixed-team members.
+BEGIN;
+
+CREATE OR REPLACE FUNCTION public.submit_league_match_score(
+  p_match_id uuid,
+  p_score_one integer,
+  p_score_two integer
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_event_id uuid;
+  v_starts_at timestamptz;
+  v_status text;
+  v_league_id uuid;
+  v_pair_one uuid;
+  v_pair_two uuid;
+  v_organizer_id uuid;
+  v_created_by uuid;
+  v_is_manager boolean := false;
+BEGIN
+  IF auth.uid() IS NULL OR p_score_one IS NULL OR p_score_two IS NULL
+    OR p_score_one < 0 OR p_score_two < 0 OR p_score_one = p_score_two THEN
+    RAISE EXCEPTION 'Enter two different non-negative scores';
+  END IF;
+
+  SELECT e.id,e.starts_at,e.social_doubles_ladder_id,m.status,m.pair_one_id,m.pair_two_id,
+         e.organizer_id,e.created_by
+    INTO v_event_id,v_starts_at,v_league_id,v_status,v_pair_one,v_pair_two,
+         v_organizer_id,v_created_by
+  FROM public.tournament_matches m
+  JOIN public.events e ON e.id=m.event_id
+  JOIN public.social_doubles_ladders l ON l.id=e.social_doubles_ladder_id AND l.competition_type='league'
+  WHERE m.id=p_match_id AND e.event_type='tournament' AND e.tournament_format='doubles'
+    AND m.phase='round_robin' AND m.pair_one_id IS NOT NULL AND m.pair_two_id IS NOT NULL;
+  IF NOT FOUND THEN RAISE EXCEPTION 'League match not found'; END IF;
+  IF v_status='cancelled' THEN RAISE EXCEPTION 'This match was cancelled'; END IF;
+
+  SELECT EXISTS (
+    SELECT 1 FROM public.profiles p
+    WHERE p.id=auth.uid() AND p.application_status='approved'
+      AND (p.role='admin' OR (p.role='organizer' AND COALESCE(v_organizer_id,v_created_by)=auth.uid()))
+  ) INTO v_is_manager;
+
+  IF NOT v_is_manager AND now() < v_starts_at THEN
+    RAISE EXCEPTION 'Scores cannot be entered before the event start time';
+  END IF;
+  IF NOT v_is_manager AND now() - v_starts_at > interval '2 days' THEN
+    RAISE EXCEPTION 'Scores can only be entered within two days of the event start';
+  END IF;
+
+  IF NOT v_is_manager AND NOT EXISTS (
+    SELECT 1
+    FROM public.tournament_pairs pair
+    JOIN public.league_teams team ON team.id=pair.league_team_id
+      AND team.league_id=v_league_id AND team.status='active'
+    JOIN public.tournament_participants player ON player.id IN (pair.player_one_id,pair.player_two_id)
+    WHERE pair.id IN (v_pair_one,v_pair_two) AND pair.event_id=v_event_id AND pair.status='active'
+      AND player.user_id=auth.uid()
+      AND player.user_id IN (team.player_one_id,team.player_two_id)
+  ) THEN
+    RAISE EXCEPTION 'Only players in these fixed League teams or approved event managers can submit the match score';
+  END IF;
+
+  UPDATE public.tournament_matches
+  SET score_sets=jsonb_build_array(jsonb_build_object('one',p_score_one,'two',p_score_two)),
+      winner_side=CASE WHEN p_score_one > p_score_two THEN 1 ELSE 2 END,
+      status='completed',
+      team_points_one=CASE WHEN p_score_one > p_score_two THEN 3 ELSE 0 END,
+      team_points_two=CASE WHEN p_score_two > p_score_one THEN 3 ELSE 0 END,
+      entered_by=auth.uid(),
+      updated_at=now()
+  WHERE id=p_match_id;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.submit_league_match_score(uuid,integer,integer) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.submit_league_match_score(uuid,integer,integer) TO authenticated;
+
+COMMIT;
+
+-- BEGIN MIGRATION: 0072_league_assignments_create_score_matches.sql
+-- Turn each court/sub-session containing exactly two assigned League teams
+-- Turn each court/sub-session containing exactly two assigned League teams
+-- into a normal tournament match so the existing score and standings pipeline
+-- can be used without a parallel score store.
+BEGIN;
+
+CREATE UNIQUE INDEX IF NOT EXISTS tournament_matches_league_assignment_slot_unique
+  ON public.tournament_matches(event_id, match_number)
+  WHERE notes = 'league-court-assignment';
+
+CREATE OR REPLACE FUNCTION public.save_league_event_court_assignments(p_event_id uuid,p_assignments jsonb)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE
+  v_count integer;
+  v_invalid boolean;
+  v_expected integer;
+  v_max_segment integer;
+BEGIN
+  IF NOT public.is_event_manager() OR NOT EXISTS (
+    SELECT 1 FROM public.events e JOIN public.social_doubles_ladders l ON l.id=e.social_doubles_ladder_id
+    WHERE e.id=p_event_id AND e.event_type='tournament' AND e.tournament_format='doubles'
+      AND l.competition_type='league' AND (public.is_admin() OR e.organizer_id=auth.uid() OR e.created_by=auth.uid())
+  ) THEN RAISE EXCEPTION 'League event manager access required'; END IF;
+  IF jsonb_typeof(p_assignments)<>'array' THEN RAISE EXCEPTION 'Court assignments must be an array'; END IF;
+  SELECT count(*) INTO v_count FROM jsonb_array_elements(p_assignments);
+  SELECT EXISTS (
+    SELECT 1 FROM jsonb_array_elements(p_assignments) item
+    WHERE (item->>'court_number')::integer NOT BETWEEN 1 AND 4
+      OR (item->>'segment_order')::integer NOT BETWEEN 1 AND 4
+      OR NOT EXISTS (SELECT 1 FROM public.tournament_pairs pair
+        WHERE pair.id=(item->>'pair_id')::uuid AND pair.event_id=p_event_id AND pair.status='active'
+          AND pair.league_team_id IS NOT NULL)
+  ) INTO v_invalid;
+  IF v_invalid THEN RAISE EXCEPTION 'Assignments must use active League teams and valid courts'; END IF;
+  IF EXISTS (
+    SELECT 1 FROM jsonb_array_elements(p_assignments) item
+    GROUP BY (item->>'pair_id'),(item->>'segment_order') HAVING count(*)>1
+  ) THEN RAISE EXCEPTION 'A League team can only be assigned once per slot'; END IF;
+  IF EXISTS (
+    SELECT 1 FROM jsonb_array_elements(p_assignments) item
+    GROUP BY (item->>'segment_order'),(item->>'court_number') HAVING count(*)>2
+  ) THEN RAISE EXCEPTION 'Each court can hold two League teams per slot'; END IF;
+  SELECT count(*) INTO v_expected FROM public.tournament_pairs pair
+  WHERE pair.event_id=p_event_id AND pair.status='active' AND pair.league_team_id IS NOT NULL;
+  IF v_expected>0 AND (v_count=0 OR v_count % v_expected<>0) THEN
+    RAISE EXCEPTION 'Assign every active League team once in each slot';
+  END IF;
+  SELECT coalesce(max((item->>'segment_order')::integer),1) INTO v_max_segment
+  FROM jsonb_array_elements(p_assignments) item;
+  IF v_expected>0 AND EXISTS (
+    SELECT 1 FROM generate_series(1,v_max_segment) slots(slot)
+    CROSS JOIN public.tournament_pairs pair
+    WHERE pair.event_id=p_event_id AND pair.status='active' AND pair.league_team_id IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(p_assignments) item
+        WHERE (item->>'pair_id')::uuid=pair.id AND (item->>'segment_order')::integer=slots.slot)
+  ) THEN RAISE EXCEPTION 'Assign every active League team once in each sub-session'; END IF;
+
+  -- Do not silently discard a result if an administrator changes a completed matchup.
+  IF EXISTS (
+    SELECT 1
+    FROM public.tournament_matches m
+    JOIN LATERAL (
+      SELECT (array_agg((item->>'pair_id')::uuid ORDER BY (item->>'pair_id')::uuid))[1] AS pair_one_id,
+             (array_agg((item->>'pair_id')::uuid ORDER BY (item->>'pair_id')::uuid))[2] AS pair_two_id
+      FROM jsonb_array_elements(p_assignments) item
+      WHERE (item->>'segment_order')::integer=(((m.match_number-1)/10)+1)
+        AND (item->>'court_number')::integer=(((m.match_number-1)%10)+1)
+    ) proposed ON true
+    WHERE m.event_id=p_event_id AND m.notes='league-court-assignment' AND m.status='completed'
+      AND (m.pair_one_id IS DISTINCT FROM proposed.pair_one_id OR m.pair_two_id IS DISTINCT FROM proposed.pair_two_id)
+  ) THEN RAISE EXCEPTION 'A completed League match cannot be reassigned. Correct or remove its score first.'; END IF;
+
+  DELETE FROM public.league_event_court_assignments WHERE event_id=p_event_id;
+  INSERT INTO public.league_event_court_assignments(event_id,pair_id,court_number,segment_order)
+  SELECT p_event_id,(item->>'pair_id')::uuid,(item->>'court_number')::integer,(item->>'segment_order')::integer
+  FROM jsonb_array_elements(p_assignments) item;
+
+  -- One normal tournament_matches row for every full court (two teams) in each slot.
+  INSERT INTO public.tournament_matches(
+    event_id,category,phase,group_number,round_number,match_number,
+    pair_one_id,pair_two_id,scheduled_at,court_number,status,notes
+  )
+  SELECT p_event_id, pair_one.category, 'round_robin', NULL, slot.segment_order,
+         (slot.segment_order-1)*10+slot.court_number,
+         pair_one.id, pair_two.id,
+         e.starts_at + ((coalesce(extract(epoch FROM (e.ends_at-e.starts_at)),3600) / greatest(v_max_segment,1))
+           * (slot.segment_order-1)) * interval '1 second',
+         slot.court_number, 'scheduled', 'league-court-assignment'
+  FROM (
+    SELECT (item->>'segment_order')::integer AS segment_order,
+           (item->>'court_number')::integer AS court_number,
+           array_agg((item->>'pair_id')::uuid ORDER BY (item->>'pair_id')::uuid) AS pair_ids
+    FROM jsonb_array_elements(p_assignments) item
+    GROUP BY (item->>'segment_order')::integer,(item->>'court_number')::integer
+    HAVING count(*)=2
+  ) slot
+  JOIN public.tournament_pairs pair_one ON pair_one.id=slot.pair_ids[1]
+  JOIN public.tournament_pairs pair_two ON pair_two.id=slot.pair_ids[2]
+  JOIN public.events e ON e.id=p_event_id
+  ON CONFLICT (event_id,match_number) WHERE notes='league-court-assignment'
+  DO UPDATE SET
+    category=EXCLUDED.category,
+    pair_one_id=EXCLUDED.pair_one_id,
+    pair_two_id=EXCLUDED.pair_two_id,
+    scheduled_at=EXCLUDED.scheduled_at,
+    court_number=EXCLUDED.court_number,
+    round_number=EXCLUDED.round_number,
+    updated_at=now()
+  WHERE public.tournament_matches.status<>'completed';
+
+  -- Remove obsolete, unplayed generated matches when assignments are removed or moved.
+  DELETE FROM public.tournament_matches m
+  WHERE m.event_id=p_event_id AND m.notes='league-court-assignment' AND m.status<>'completed'
+    AND NOT EXISTS (
+      SELECT 1 FROM public.league_event_court_assignments a1
+      JOIN public.league_event_court_assignments a2
+        ON a2.event_id=a1.event_id AND a2.segment_order=a1.segment_order
+       AND a2.court_number=a1.court_number AND a2.pair_id<>a1.pair_id
+      WHERE a1.event_id=m.event_id
+        AND (a1.segment_order-1)*10+a1.court_number=m.match_number
+    );
+END; $$;
+
+REVOKE ALL ON FUNCTION public.save_league_event_court_assignments(uuid,jsonb) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.save_league_event_court_assignments(uuid,jsonb) TO authenticated;
+
+-- Backfill matches for assignments that were saved before this migration.
+DO $$
+DECLARE v_event record; v_max_segment integer;
+BEGIN
+  FOR v_event IN
+    SELECT DISTINCT a.event_id FROM public.league_event_court_assignments a
+  LOOP
+    SELECT greatest(1,max(segment_order)) INTO v_max_segment
+    FROM public.league_event_court_assignments WHERE event_id=v_event.event_id;
+    INSERT INTO public.tournament_matches(
+      event_id,category,phase,group_number,round_number,match_number,
+      pair_one_id,pair_two_id,scheduled_at,court_number,status,notes
+    )
+    SELECT a.event_id,p1.category,'round_robin',NULL,a.segment_order,
+           (a.segment_order-1)*10+a.court_number,p1.id,p2.id,
+           e.starts_at + ((coalesce(extract(epoch FROM (e.ends_at-e.starts_at)),3600) / greatest(v_max_segment,1))
+             * (a.segment_order-1)) * interval '1 second',
+           a.court_number,'scheduled','league-court-assignment'
+    FROM (
+      SELECT event_id,segment_order,court_number,
+             (array_agg(pair_id ORDER BY pair_id))[1] AS pair_one_id,
+             (array_agg(pair_id ORDER BY pair_id))[2] AS pair_two_id
+      FROM public.league_event_court_assignments
+      WHERE event_id=v_event.event_id
+      GROUP BY event_id,segment_order,court_number HAVING count(*)=2
+    ) a
+    JOIN public.tournament_pairs p1 ON p1.id=a.pair_one_id
+    JOIN public.tournament_pairs p2 ON p2.id=a.pair_two_id
+    JOIN public.events e ON e.id=a.event_id
+    ON CONFLICT (event_id,match_number) WHERE notes='league-court-assignment' DO NOTHING;
+  END LOOP;
+END $$;
+
+COMMIT;
+-- BEGIN MIGRATION: 0073_atomic_league_event_team_registration.sql
+-- Register an established League team together and create its event pair atomically.
+BEGIN;
+
+CREATE OR REPLACE FUNCTION public.register_league_event_team(p_event_id uuid,p_member_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE
+  v_actor uuid := auth.uid();
+  v_event public.events%rowtype;
+  v_league public.social_doubles_ladders%rowtype;
+  v_team public.league_teams%rowtype;
+  v_profile_one public.profiles%rowtype;
+  v_profile_two public.profiles%rowtype;
+  v_category text;
+  v_amount integer;
+  v_one_participant uuid;
+  v_two_participant uuid;
+  v_pair_id uuid;
+  v_manager boolean;
+BEGIN
+  IF v_actor IS NULL OR p_member_id IS NULL THEN RAISE EXCEPTION 'Sign in to register a League team'; END IF;
+  SELECT * INTO v_event FROM public.events WHERE id=p_event_id AND event_type='tournament';
+  IF NOT FOUND OR v_event.social_doubles_ladder_id IS NULL THEN RAISE EXCEPTION 'League event was not found'; END IF;
+  SELECT * INTO v_league FROM public.social_doubles_ladders
+    WHERE id=v_event.social_doubles_ladder_id AND competition_type='league';
+  IF NOT FOUND OR v_event.tournament_format<>'doubles' THEN RAISE EXCEPTION 'This is not a League doubles event'; END IF;
+
+  v_manager := public.is_event_manager() AND EXISTS (
+    SELECT 1 FROM public.events e WHERE e.id=p_event_id
+      AND (public.is_admin() OR e.organizer_id=v_actor OR e.created_by=v_actor)
+  );
+  IF v_actor<>p_member_id AND NOT v_manager THEN RAISE EXCEPTION 'League event manager access required'; END IF;
+  IF v_event.status<>'published' THEN RAISE EXCEPTION 'League event registration is unavailable'; END IF;
+  IF NOT v_manager AND (now()<v_event.registration_opens_at
+      OR (v_event.registration_closes_at IS NOT NULL AND now()>=v_event.registration_closes_at)
+      OR now()>=v_event.starts_at) THEN RAISE EXCEPTION 'League event registration is closed'; END IF;
+
+  SELECT * INTO v_team FROM public.league_teams t
+    WHERE t.league_id=v_league.id AND t.status='active'
+      AND p_member_id IN (t.player_one_id,t.player_two_id)
+    FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'No confirmed League team was found for this member'; END IF;
+  SELECT * INTO v_profile_one FROM public.profiles WHERE id=v_team.player_one_id;
+  SELECT * INTO v_profile_two FROM public.profiles WHERE id=v_team.player_two_id;
+  IF v_profile_one.application_status<>'approved' OR v_profile_two.application_status<>'approved'
+     OR NOT public.has_active_paid_membership(v_team.player_one_id)
+     OR NOT public.has_active_paid_membership(v_team.player_two_id) THEN
+    RAISE EXCEPTION 'Both League players need approved profiles and active paid memberships';
+  END IF;
+
+  v_category := CASE WHEN v_league.gender='male' THEN 'men' ELSE 'women' END;
+  v_amount := greatest(coalesce(v_event.price_cents,0),0);
+  SELECT pair.id,
+    CASE WHEN p1.user_id=v_team.player_one_id THEN p1.id ELSE p2.id END,
+    CASE WHEN p1.user_id=v_team.player_two_id THEN p1.id ELSE p2.id END
+    INTO v_pair_id,v_one_participant,v_two_participant
+  FROM public.tournament_pairs pair
+  JOIN public.tournament_participants p1 ON p1.id=pair.player_one_id
+  JOIN public.tournament_participants p2 ON p2.id=pair.player_two_id
+  WHERE pair.event_id=p_event_id AND pair.league_team_id=v_team.id AND pair.status='active'
+    AND p1.status='registered' AND p2.status='registered'
+    AND ((p1.user_id=v_team.player_one_id AND p2.user_id=v_team.player_two_id)
+      OR (p1.user_id=v_team.player_two_id AND p2.user_id=v_team.player_one_id));
+  IF FOUND THEN
+    RETURN jsonb_build_object('participantId',v_one_participant,'partnerParticipantId',v_two_participant,
+      'pairId',v_pair_id,'amountCents',0,'paymentStatus','paid','alreadyRegistered',true);
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.tournament_participants p WHERE p.event_id=p_event_id
+       AND p.user_id IN (v_team.player_one_id,v_team.player_two_id) AND p.status='registered') THEN
+    RAISE EXCEPTION 'League team has an incomplete registration; contact the event organizer';
+  END IF;
+  IF NOT v_manager AND (SELECT count(*) FROM public.tournament_participants p
+      WHERE p.event_id=p_event_id AND p.status='registered')+2>v_event.capacity THEN
+    RAISE EXCEPTION 'League event does not have room for both players';
+  END IF;
+
+  INSERT INTO public.tournament_participants(event_id,user_id,category,display_name,email,phone,gender,amount_cents,payment_status)
+  VALUES(p_event_id,v_team.player_one_id,v_category,
+    coalesce(nullif(v_profile_one.full_name,''),v_profile_one.email),v_profile_one.email,v_profile_one.phone,
+    v_profile_one.gender,v_amount,CASE WHEN v_amount=0 THEN 'not_required' ELSE 'pending' END)
+  RETURNING id INTO v_one_participant;
+  INSERT INTO public.tournament_participants(event_id,user_id,category,display_name,email,phone,gender,amount_cents,payment_status)
+  VALUES(p_event_id,v_team.player_two_id,v_category,
+    coalesce(nullif(v_profile_two.full_name,''),v_profile_two.email),v_profile_two.email,v_profile_two.phone,
+    v_profile_two.gender,v_amount,CASE WHEN v_amount=0 THEN 'not_required' ELSE 'pending' END)
+  RETURNING id INTO v_two_participant;
+  INSERT INTO public.tournament_pairs(event_id,category,player_one_id,player_two_id,league_team_id)
+  VALUES(p_event_id,v_category,v_one_participant,v_two_participant,v_team.id)
+  RETURNING id INTO v_pair_id;
+
+  RETURN jsonb_build_object('participantId',v_one_participant,'partnerParticipantId',v_two_participant,
+    'pairId',v_pair_id,'amountCents',v_amount,'paymentStatus',CASE WHEN v_amount=0 THEN 'not_required' ELSE 'pending' END,
+    'alreadyRegistered',false);
+END; $$;
+
+REVOKE ALL ON FUNCTION public.register_league_event_team(uuid,uuid) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.register_league_event_team(uuid,uuid) TO authenticated;
+
+COMMIT;
+-- BEGIN MIGRATION: 0074_atomic_league_event_team_withdrawal.sql
+-- Withdraw both participants and their League pair as one operation.
+BEGIN;
+
+CREATE OR REPLACE FUNCTION public.withdraw_league_event_team(p_participant_id uuid)
+RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE
+  v_actor uuid := auth.uid();
+  v_event public.events%rowtype;
+  v_pair record;
+  v_team public.league_teams%rowtype;
+  v_updated integer;
+BEGIN
+  IF v_actor IS NULL THEN RAISE EXCEPTION 'Sign in to withdraw a League team'; END IF;
+  SELECT pair.id,pair.league_team_id,pair.player_one_id,pair.player_two_id,
+    p1.user_id AS player_one_user_id,p2.user_id AS player_two_user_id,p1.event_id
+    INTO v_pair
+  FROM public.tournament_participants selected
+  JOIN public.tournament_pairs pair ON pair.event_id=selected.event_id
+    AND pair.status='active' AND selected.id IN (pair.player_one_id,pair.player_two_id)
+  JOIN public.tournament_participants p1 ON p1.id=pair.player_one_id AND p1.status='registered'
+  JOIN public.tournament_participants p2 ON p2.id=pair.player_two_id AND p2.status='registered'
+  WHERE selected.id=p_participant_id AND selected.user_id=v_actor AND selected.status='registered'
+  FOR UPDATE OF pair,p1,p2;
+  IF NOT FOUND OR v_pair.league_team_id IS NULL THEN RAISE EXCEPTION 'Active League team registration not found'; END IF;
+  SELECT * INTO v_event FROM public.events WHERE id=v_pair.event_id;
+  IF now() >= coalesce(v_event.registration_closes_at,v_event.starts_at) THEN
+    RAISE EXCEPTION 'The withdrawal cutoff has passed';
+  END IF;
+  SELECT * INTO v_team FROM public.league_teams
+    WHERE id=v_pair.league_team_id AND status='active' FOR UPDATE;
+  IF NOT FOUND OR NOT (
+    (v_team.player_one_id=v_pair.player_one_user_id AND v_team.player_two_id=v_pair.player_two_user_id)
+    OR (v_team.player_one_id=v_pair.player_two_user_id AND v_team.player_two_id=v_pair.player_one_user_id)
+  ) THEN RAISE EXCEPTION 'Confirmed League team could not be verified'; END IF;
+
+  UPDATE public.tournament_participants SET status='withdrawn',updated_at=now()
+    WHERE id IN (v_pair.player_one_id,v_pair.player_two_id) AND status='registered';
+  GET DIAGNOSTICS v_updated=ROW_COUNT;
+  IF v_updated<>2 THEN RAISE EXCEPTION 'Both League players must be registered to withdraw the team'; END IF;
+  UPDATE public.tournament_pairs SET status='withdrawn'
+    WHERE id=v_pair.id AND status='active';
+END; $$;
+
+REVOKE ALL ON FUNCTION public.withdraw_league_event_team(uuid) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.withdraw_league_event_team(uuid) TO authenticated;
+
+COMMIT;
+-- BEGIN MIGRATION: 0075_league_single_player_registration.sql
+-- Let an approved member without an established League team register for a later event alone.
+BEGIN;
+
+CREATE OR REPLACE FUNCTION public.register_league_single_event_entry(p_event_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE
+  v_user uuid := auth.uid();
+  v_event public.events%rowtype;
+  v_league public.social_doubles_ladders%rowtype;
+  v_profile public.profiles%rowtype;
+  v_category text;
+  v_participant_id uuid;
+  v_amount integer;
+  v_payment_status text;
+BEGIN
+  IF v_user IS NULL THEN RAISE EXCEPTION 'Sign in with an approved member account to register for a League event'; END IF;
+  SELECT * INTO v_event FROM public.events WHERE id=p_event_id AND event_type='tournament';
+  IF NOT FOUND OR v_event.social_doubles_ladder_id IS NULL THEN RAISE EXCEPTION 'League event was not found'; END IF;
+  SELECT * INTO v_league FROM public.social_doubles_ladders
+    WHERE id=v_event.social_doubles_ladder_id AND competition_type='league';
+  IF NOT FOUND OR v_event.tournament_format<>'doubles' THEN RAISE EXCEPTION 'This is not a League doubles event'; END IF;
+  IF v_event.status<>'published' OR now()<v_event.registration_opens_at
+     OR (v_event.registration_closes_at IS NOT NULL AND now()>=v_event.registration_closes_at)
+     OR now()>=v_event.starts_at THEN RAISE EXCEPTION 'League event registration is closed'; END IF;
+  SELECT * INTO v_profile FROM public.profiles WHERE id=v_user AND application_status='approved';
+  IF NOT FOUND OR NOT public.has_active_paid_membership(v_user) THEN
+    RAISE EXCEPTION 'An approved profile and active paid membership are required for League registration';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.league_teams team WHERE team.league_id=v_league.id
+       AND team.status='active' AND v_user IN (team.player_one_id,team.player_two_id)) THEN
+    RAISE EXCEPTION 'You have a confirmed League partner. Register your team instead';
+  END IF;
+  v_category := CASE WHEN v_league.gender='male' THEN 'men' ELSE 'women' END;
+  IF v_profile.gender IS NOT NULL AND v_profile.gender<>(CASE WHEN v_category='men' THEN 'male' ELSE 'female' END) THEN
+    RAISE EXCEPTION 'Your profile gender does not match this League category';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.tournament_participants p WHERE p.event_id=p_event_id
+       AND p.user_id=v_user AND p.category=v_category AND p.status='registered') THEN
+    RAISE EXCEPTION 'You are already registered for this League event';
+  END IF;
+  IF (SELECT count(*) FROM public.tournament_participants p
+      WHERE p.event_id=p_event_id AND p.status='registered')+1>v_event.capacity THEN
+    RAISE EXCEPTION 'League event registration is full';
+  END IF;
+  v_amount := greatest(coalesce(v_event.price_cents,0),0);
+  INSERT INTO public.tournament_participants(
+    event_id,user_id,category,display_name,email,phone,gender,amount_cents,payment_status
+  ) VALUES (
+    p_event_id,v_user,v_category,coalesce(nullif(v_profile.full_name,''),v_profile.email),
+    v_profile.email,v_profile.phone,v_profile.gender,v_amount,
+    CASE WHEN v_amount=0 THEN 'not_required' ELSE 'pending' END
+  ) RETURNING id,amount_cents,payment_status
+    INTO v_participant_id,v_amount,v_payment_status;
+  RETURN jsonb_build_object('participantId',v_participant_id,'amountCents',v_amount,
+    'paymentStatus',v_payment_status,'singleRegistration',true);
+END; $$;
+
+REVOKE ALL ON FUNCTION public.register_league_single_event_entry(uuid) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.register_league_single_event_entry(uuid) TO authenticated;
+
+COMMIT;
+-- BEGIN MIGRATION: 0076_league_event_score_start_guard.sql
+-- Require the League event to have started before any score can be entered.
+BEGIN;
+
+CREATE OR REPLACE FUNCTION public.submit_league_match_score(
+  p_match_id uuid,
+  p_score_one integer,
+  p_score_two integer
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_event_id uuid;
+  v_starts_at timestamptz;
+  v_status text;
+  v_league_id uuid;
+  v_pair_one uuid;
+  v_pair_two uuid;
+  v_organizer_id uuid;
+  v_created_by uuid;
+  v_is_manager boolean := false;
+BEGIN
+  IF auth.uid() IS NULL OR p_score_one IS NULL OR p_score_two IS NULL
+    OR p_score_one < 0 OR p_score_two < 0 OR p_score_one = p_score_two THEN
+    RAISE EXCEPTION 'Enter two different non-negative scores';
+  END IF;
+
+  SELECT e.id,e.starts_at,e.social_doubles_ladder_id,m.status,m.pair_one_id,m.pair_two_id,
+         e.organizer_id,e.created_by
+    INTO v_event_id,v_starts_at,v_league_id,v_status,v_pair_one,v_pair_two,
+         v_organizer_id,v_created_by
+  FROM public.tournament_matches m
+  JOIN public.events e ON e.id=m.event_id
+  JOIN public.social_doubles_ladders l ON l.id=e.social_doubles_ladder_id AND l.competition_type='league'
+  WHERE m.id=p_match_id AND e.event_type='tournament' AND e.tournament_format='doubles'
+    AND m.phase='round_robin' AND m.pair_one_id IS NOT NULL AND m.pair_two_id IS NOT NULL;
+  IF NOT FOUND THEN RAISE EXCEPTION 'League match not found'; END IF;
+  IF v_status='cancelled' THEN RAISE EXCEPTION 'This match was cancelled'; END IF;
+
+  SELECT EXISTS (
+    SELECT 1 FROM public.profiles p
+    WHERE p.id=auth.uid() AND p.application_status='approved'
+      AND (p.role='admin' OR (p.role='organizer' AND COALESCE(v_organizer_id,v_created_by)=auth.uid()))
+  ) INTO v_is_manager;
+
+  IF now() < v_starts_at THEN
+    RAISE EXCEPTION 'Scores cannot be entered before the event start time';
+  END IF;
+  IF NOT v_is_manager AND now() - v_starts_at > interval '2 days' THEN
+    RAISE EXCEPTION 'Scores can only be entered within two days of the event start';
+  END IF;
+
+  IF NOT v_is_manager AND NOT EXISTS (
+    SELECT 1
+    FROM public.tournament_pairs pair
+    JOIN public.league_teams team ON team.id=pair.league_team_id
+      AND team.league_id=v_league_id AND team.status='active'
+    JOIN public.tournament_participants player ON player.id IN (pair.player_one_id,pair.player_two_id)
+    WHERE pair.id IN (v_pair_one,v_pair_two) AND pair.event_id=v_event_id AND pair.status='active'
+      AND player.user_id=auth.uid()
+      AND player.user_id IN (team.player_one_id,team.player_two_id)
+  ) THEN
+    RAISE EXCEPTION 'Only players in these fixed League teams or approved event managers can submit the match score';
+  END IF;
+
+  UPDATE public.tournament_matches
+  SET score_sets=jsonb_build_array(jsonb_build_object('one',p_score_one,'two',p_score_two)),
+      winner_side=CASE WHEN p_score_one > p_score_two THEN 1 ELSE 2 END,
+      status='completed',
+      team_points_one=CASE WHEN p_score_one > p_score_two THEN 3 ELSE 0 END,
+      team_points_two=CASE WHEN p_score_two > p_score_one THEN 3 ELSE 0 END,
+      entered_by=auth.uid(),
+      updated_at=now()
+  WHERE id=p_match_id;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.submit_league_match_score(uuid,integer,integer) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.submit_league_match_score(uuid,integer,integer) TO authenticated;
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname='supabase_realtime' AND schemaname='public'
+      AND tablename='league_event_court_assignments'
+  ) THEN
+    EXECUTE 'ALTER PUBLICATION supabase_realtime ADD TABLE public.league_event_court_assignments';
+  END IF;
+END $$;
+
+COMMIT;

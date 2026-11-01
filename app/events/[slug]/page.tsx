@@ -4,7 +4,10 @@ import { SiteHeader } from '@/components/site-header';
 import { SiteFooter } from '@/components/site-footer';
 import { EventDetailClient } from '@/components/event-detail-client';
 import { EventEditManagement } from '@/components/event-edit-management';
-import { eventPath } from '@/lib/event-slug';
+import { eventEditPath, eventPath } from '@/lib/event-slug';
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+import { Pencil } from 'lucide-react';
 import { TournamentManagement } from '@/components/tournament-management';
 import { TournamentPublicView } from '@/components/tournament-public-view';
 import { PublicOrganizerContacts } from '@/components/public-organizer-contacts';
@@ -55,6 +58,23 @@ export default async function EventDetailsPage({ params }: { params: { slug: str
   }
   const event = resolvedEvent;
   if (!event) notFound();
+  const [{ data: league }, { data: leagueSnapshot }, { data: leagueEventMatches }] =
+    event.social_doubles_ladder_id
+      ? await Promise.all([
+          db
+            .from('social_doubles_ladders')
+            .select('id,name,competition_type,gender')
+            .eq('id', event.social_doubles_ladder_id)
+            .maybeSingle(),
+          db
+            .from('league_standings_snapshots')
+            .select('standings,standings_after')
+            .eq('event_id', event.id)
+            .maybeSingle(),
+          db.from('tournament_public_matches').select('status').eq('event_id', event.id),
+        ])
+      : [{ data: null }, { data: null }, { data: null }];
+  const isLeagueTournament = league?.competition_type === 'league';
   if (event.slug && params.slug !== event.slug)
     redirect(eventPath({ id: event.id, slug: event.slug }));
   if (!['published', 'cancelled'].includes(event.status)) {
@@ -161,7 +181,16 @@ export default async function EventDetailsPage({ params }: { params: { slug: str
       />
       <div className="page-container flex-1 py-10">
         <p className="eyebrow">Club event</p>
-        <h1 className="section-title">{event.title}</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="section-title min-w-0">{event.title}</h1>
+          {isManager && (
+            <Button asChild variant="outline" size="icon">
+              <Link href={eventEditPath(event)} aria-label="Edit event" title="Edit event">
+                <Pencil aria-hidden="true" className="h-4 w-4" />
+              </Link>
+            </Button>
+          )}
+        </div>
         {event.event_type === 'tournament' && !user ? (
           <PublicOrganizerContacts
             eventId={event.id}
@@ -237,16 +266,21 @@ export default async function EventDetailsPage({ params }: { params: { slug: str
                 isManager ? (
                   <TournamentManagement
                     eventId={event.id}
+                    leagueId={event.social_doubles_ladder_id ?? null}
                     eventStartsAt={event.starts_at}
                     eventEndsAt={event.ends_at}
                     courtCount={event.court_count ?? 4}
                     format={event.tournament_format}
                     config={event.tournament_config ?? {}}
                     priceCents={event.price_cents ?? 0}
+                    leagueTournament={isLeagueTournament}
+                    leagueGender={league?.gender ?? null}
                   />
                 ) : null
               }
               eventTitle={event.title}
+              eventDescription={event.description ?? ''}
+              genderRestriction={event.gender_restriction ?? null}
               eventId={event.id}
               currentUserId={user?.id ?? null}
               format={event.tournament_format}
@@ -262,6 +296,24 @@ export default async function EventDetailsPage({ params }: { params: { slug: str
               registrationClosesAt={event.registration_closes_at}
               priceCents={event.price_cents ?? 0}
               interacEnabled={interacEnabled}
+              leagueTournament={isLeagueTournament}
+              leagueId={event.social_doubles_ladder_id ?? null}
+              leagueGender={league?.gender ?? null}
+              courtCount={event.court_count ?? 4}
+              leagueStandingsBefore={
+                Array.isArray(leagueSnapshot?.standings)
+                  ? (leagueSnapshot.standings as Array<Record<string, unknown>>)
+                  : []
+              }
+              leagueStandingsAfter={
+                Array.isArray(leagueSnapshot?.standings_after)
+                  ? (leagueSnapshot.standings_after as Array<Record<string, unknown>>)
+                  : []
+              }
+              leagueHasResults={
+                Array.isArray(leagueEventMatches) &&
+                leagueEventMatches.some((match) => ['completed', 'bye'].includes(match.status))
+              }
             />
           </>
         ) : (

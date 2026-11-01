@@ -36,13 +36,17 @@ describe('tournament regression fixes', () => {
     expect(publicView).not.toContain(
       '{adminContent && <div className="mb-5">{adminContent}</div>}',
     );
-    expect(publicView).toContain(
-      "{['participants', 'matches', 'audit'].includes(tab) && adminContent ? (",
+    expect(publicView).toMatch(
+      /\['participants',\s*'matches',\s*'audit'\]\.includes\(tab\)\s*&&\s*adminContent\s*&&\s*\(!leagueTournament\s*\|\|\s*!\['matches',\s*'audit'\]\.includes\(tab\)\)/,
     );
   });
 
   it('renders the participant roster only once in the tournament overview', () => {
-    expect(publicView.match(/aria-label="Registered entries"/g) ?? []).toHaveLength(1);
+    expect(
+      publicView.match(
+        /aria-label=\{leagueTournament \? 'Players and courts' : 'Registered entries'\}/g,
+      ) ?? [],
+    ).toHaveLength(1);
     expect(publicView).not.toContain('The organizer has not published participants yet.');
   });
 
