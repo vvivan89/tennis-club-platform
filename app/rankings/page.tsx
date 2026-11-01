@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { getClubDisplay } from '@/lib/club-display';
 import { getRankingsData } from '@/lib/rankings-data';
 import { SiteHeader } from '@/components/site-header';
 import { SiteFooter } from '@/components/site-footer';
@@ -8,7 +9,12 @@ import { TournamentPublicView } from '@/components/tournament-public-view';
 import { RankingsCompetitionSelector } from '@/components/rankings-competition-selector';
 import type { TournamentConfig } from '@/lib/tournament-config';
 import { calculateLadderSession, type LadderMetric } from '@/lib/social-doubles-ladder';
-import { calculatePlayerStats, getSeasonYear, isInSeason, medal } from '@/lib/player-rankings';
+import {
+  calculatePlayerStats,
+  getSeasonYearChoices,
+  isInSeason,
+  medal,
+} from '@/lib/player-rankings';
 
 type Props = {
   searchParams?: {
@@ -115,13 +121,7 @@ export default async function RankingsPage({ searchParams }: Props) {
     tournamentsWithResults.has(tournament.id),
   );
   if (profile.role !== 'admin' && !data.eligibleUserIds.has(user.id)) redirect('/member/dashboard');
-  const allSeasonYears = [
-    ...new Set(data.games.map((g) => getSeasonYear(new Date(g.playedAt), data.settings))),
-  ].sort((a, b) => b - a);
-  const currentSeasonYear = getSeasonYear(new Date(), data.settings);
-  const defaultYear = allSeasonYears.includes(currentSeasonYear)
-    ? currentSeasonYear
-    : (allSeasonYears[0] ?? currentSeasonYear);
+  const { allSeasonYears, defaultYear } = getSeasonYearChoices(data.games, data.settings);
   const rawSeason = searchParams?.season;
   const requested = Array.isArray(rawSeason) ? rawSeason[0] : rawSeason;
   const requestedLadderRaw = searchParams?.ladder;
@@ -228,11 +228,7 @@ export default async function RankingsPage({ searchParams }: Props) {
         );
     }
   }
-  const clubName = club?.club_name || 'Port Coquitlam Tennis Club';
-  const shortName = club?.short_name || 'PCTC';
-  const socialLinks = Array.isArray(club?.social_links)
-    ? (club.social_links as { url: string }[])
-    : [];
+  const { clubName, shortName, socialLinks } = getClubDisplay(club);
   const competitionOptions = [
     ...[...new Set([defaultYear, ...allSeasonYears])]
       .sort((a, b) => b - a)

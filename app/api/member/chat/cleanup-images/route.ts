@@ -1,23 +1,14 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { getSignedInUser, getConfiguredServiceClient } from '@/lib/api-helpers';
 
 export async function POST() {
-  const session = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await session.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
+  const { user, response: authError } = await getSignedInUser();
+  if (authError) return authError;
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceRoleKey) {
-    return NextResponse.json({ error: 'Chat image cleanup is not configured.' }, { status: 503 });
-  }
-
-  const serviceClient = createClient(url, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
+  const { db: serviceClient, response: configError } = getConfiguredServiceClient(
+    'Chat image cleanup is not configured.',
+  );
+  if (configError) return configError;
   const { data: profile } = await serviceClient
     .from('profiles')
     .select('application_status')

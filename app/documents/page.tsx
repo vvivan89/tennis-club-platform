@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { getClubDisplay } from '@/lib/club-display';
 import { SiteHeader } from '@/components/site-header';
 import { SiteFooter } from '@/components/site-footer';
 import { DocumentsBrowser } from '@/components/documents-browser';
@@ -30,9 +31,7 @@ export default async function DocumentsPage() {
       return { ...doc, downloadUrl: data?.signedUrl ?? null };
     }),
   );
-  const clubName = club?.club_name || 'Port Coquitlam Tennis Club';
-  const shortName = club?.short_name || 'PCTC';
-  const socials = Array.isArray(club?.social_links) ? (club.social_links as { url: string }[]) : [];
+  const { clubName, shortName, socialLinks: socials } = getClubDisplay(club);
   return (
     <main className="flex min-h-screen flex-col bg-background text-foreground">
       <SiteHeader clubName={clubName} shortName={shortName} />

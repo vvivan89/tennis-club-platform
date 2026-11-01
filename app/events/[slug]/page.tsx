@@ -1,7 +1,8 @@
 import { notFound, redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { SiteHeader } from '@/components/site-header';
-import { SiteFooter } from '@/components/site-footer';
+import { ClubSiteFooter } from '@/components/club-site-footer';
+import { findEventBySlugAlias } from '@/lib/event-alias';
 import { EventDetailClient } from '@/components/event-detail-client';
 import { EventEditManagement } from '@/components/event-edit-management';
 import { eventEditPath, eventPath } from '@/lib/event-slug';
@@ -41,21 +42,7 @@ export default async function EventDetailsPage({ params }: { params: { slug: str
       .maybeSingle();
     if (legacyEvent) resolvedEvent = legacyEvent;
   }
-  if (!resolvedEvent) {
-    const { data: alias } = await db
-      .from('event_slug_aliases')
-      .select('event_id')
-      .eq('slug', params.slug)
-      .maybeSingle();
-    if (alias?.event_id) {
-      const { data: aliasedEvent } = await db
-        .from('events')
-        .select('*')
-        .eq('id', alias.event_id)
-        .maybeSingle();
-      if (aliasedEvent) resolvedEvent = aliasedEvent;
-    }
-  }
+  if (!resolvedEvent) resolvedEvent = await findEventBySlugAlias(db, params.slug);
   const event = resolvedEvent;
   if (!event) notFound();
   const [{ data: league }, { data: leagueSnapshot }, { data: leagueEventMatches }] =
@@ -340,13 +327,7 @@ export default async function EventDetailsPage({ params }: { params: { slug: str
           </>
         )}
       </div>
-      <SiteFooter
-        clubName={club?.club_name}
-        shortName={club?.short_name}
-        socialLinks={
-          Array.isArray(club?.social_links) ? (club.social_links as { url: string }[]) : []
-        }
-      />
+      <ClubSiteFooter club={club} />
     </main>
   );
 }

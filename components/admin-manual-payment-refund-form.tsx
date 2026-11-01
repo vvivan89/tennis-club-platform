@@ -1,10 +1,13 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { RotateCcw } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import {
+  RefundAmountRow,
+  RefundStatusMessage,
+  useRefundForm,
+} from '@/components/refund-form-parts';
 
 export function AdminManualPaymentRefundForm({
   paymentId,
@@ -14,17 +17,14 @@ export function AdminManualPaymentRefundForm({
   remainingMinor: number;
 }) {
   const router = useRouter();
-  const [amount, setAmount] = useState((remainingMinor / 100).toFixed(2));
+  const form = useRefundForm(remainingMinor);
+  const { amount, idempotencyKey } = form;
   const [note, setNote] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const idempotencyKey = useRef(crypto.randomUUID());
-  useEffect(() => setAmount((remainingMinor / 100).toFixed(2)), [remainingMinor]);
   async function submit() {
     setConfirmOpen(false);
-    setBusy(true);
-    setMessage('');
+    form.setBusy(true);
+    form.setMessage('');
     try {
       const response = await fetch('/api/admin/payments/manual-refund', {
         method: 'POST',
@@ -38,51 +38,31 @@ export function AdminManualPaymentRefundForm({
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Could not record manual refund.');
-      setMessage(
+      form.setMessage(
         `Refund recorded: ${(result.amountMinor / 100).toLocaleString('en-CA', { style: 'currency', currency: (result.currency || 'CAD').toUpperCase() })}.`,
       );
       idempotencyKey.current = crypto.randomUUID();
       router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not record manual refund.');
+      form.setMessage(error instanceof Error ? error.message : 'Could not record manual refund.');
     } finally {
-      setBusy(false);
+      form.setBusy(false);
     }
   }
   return (
     <div className="min-w-0 space-y-1">
-      <div className="flex min-w-0 items-center gap-1.5 whitespace-nowrap">
-        <label className="sr-only" htmlFor={`manual-refund-amount-${paymentId}`}>
-          Manual refund amount
-        </label>
-        <input
-          id={`manual-refund-amount-${paymentId}`}
-          aria-label={`Manual refund amount for ${paymentId}`}
-          className="w-24 rounded-md border border-input bg-background px-2 py-1.5 text-sm"
-          type="number"
-          min="0.01"
-          step="0.01"
-          max={(remainingMinor / 100).toFixed(2)}
-          value={amount}
-          onChange={(event) => setAmount(event.target.value)}
-        />
-        <Button
-          size="icon"
-          variant="outline"
-          title="Record manual refund"
-          aria-label={`Record manual refund for ${paymentId}`}
-          disabled={
-            busy ||
-            remainingMinor <= 0 ||
-            !Number.isFinite(Number(amount)) ||
-            Number(amount) <= 0 ||
-            Math.round(Number(amount) * 100) > remainingMinor
-          }
-          onClick={() => setConfirmOpen(true)}
-        >
-          <RotateCcw size={16} aria-hidden="true" />
-        </Button>
-      </div>
+      <RefundAmountRow
+        inputId={`manual-refund-amount-${paymentId}`}
+        amount={amount}
+        onAmountChange={form.setAmount}
+        maxAmount={form.defaultAmount}
+        inputLabel="Manual refund amount"
+        inputAriaLabel={`Manual refund amount for ${paymentId}`}
+        buttonTitle="Record manual refund"
+        buttonAriaLabel={`Record manual refund for ${paymentId}`}
+        disabled={!form.canSubmit}
+        onClick={() => setConfirmOpen(true)}
+      />
       <label className="sr-only" htmlFor={`manual-refund-note-${paymentId}`}>
         Manual refund note
       </label>
@@ -95,18 +75,14 @@ export function AdminManualPaymentRefundForm({
         value={note}
         onChange={(event) => setNote(event.target.value)}
       />
-      {message && (
-        <p role="status" className="max-w-64 text-xs text-muted-foreground">
-          {message}
-        </p>
-      )}
+      <RefundStatusMessage message={form.message} />
       <ConfirmDialog
         open={confirmOpen}
         title="Record manual Interac refund?"
         description={`Record a manual Interac refund of $${Number(amount || 0).toFixed(2)}? This records the refund in PCTC; it does not send money.`}
         confirmLabel="Record refund"
         destructive
-        busy={busy}
+        busy={form.busy}
         onCancel={() => setConfirmOpen(false)}
         onConfirm={() => void submit()}
       />

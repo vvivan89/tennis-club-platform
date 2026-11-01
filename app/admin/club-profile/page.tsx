@@ -1,10 +1,12 @@
 'use client';
 import Image from 'next/image';
 import { TennisLoader } from '@/components/tennis-loader';
+import { FormFeedback } from '@/components/form-feedback';
 import { SiteFooter } from '@/components/site-footer';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
+import { getAdminBrowserClient } from '@/lib/supabase-browser-user';
 import { formatPhoneNumber } from '@/lib/format-phone';
 import { AdminNav } from '@/components/admin-nav';
 import { Button } from '@/components/ui/button';
@@ -73,19 +75,8 @@ export default function ClubProfileAdminPage() {
   useEffect(() => {
     let active = true;
     async function load() {
-      const db = createSupabaseBrowserClient();
-      const {
-        data: { user },
-      } = await db.auth.getUser();
-      if (!user) {
-        router.replace('/login?next=/admin/club-profile');
-        return;
-      }
-      const { data: me } = await db.from('profiles').select('role').eq('id', user.id).maybeSingle();
-      if (me?.role !== 'admin') {
-        router.replace('/member/dashboard');
-        return;
-      }
+      const db = await getAdminBrowserClient(router, '/login?next=/admin/club-profile');
+      if (!db) return;
       const [settings, profiles, existing] = await Promise.all([
         db
           .from('club_settings')
@@ -504,16 +495,7 @@ export default function ClubProfileAdminPage() {
                     </div>
                   </CardContent>
                 </Card>
-                {error && (
-                  <p role="alert" className="text-sm text-destructive">
-                    {error}
-                  </p>
-                )}
-                {message && (
-                  <p role="status" className="text-sm">
-                    {message}
-                  </p>
-                )}
+                <FormFeedback error={error} message={message} />
                 <Button type="submit" disabled={busy}>
                   {busy ? <TennisLoader compact label="Saving" /> : 'Save club information'}
                 </Button>
@@ -636,16 +618,7 @@ export default function ClubProfileAdminPage() {
                     </Button>
                   </CardContent>
                 </Card>
-                {error && (
-                  <p role="alert" className="text-sm text-destructive">
-                    {error}
-                  </p>
-                )}
-                {message && (
-                  <p role="status" className="text-sm">
-                    {message}
-                  </p>
-                )}
+                <FormFeedback error={error} message={message} />
                 <Button type="submit" disabled={busy}>
                   {busy ? <TennisLoader compact label="Saving" /> : 'Save contact details'}
                 </Button>

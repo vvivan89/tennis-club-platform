@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft, CalendarDays } from 'lucide-react';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { getClubDisplay } from '@/lib/club-display';
 import { newsPathSlug } from '@/lib/news-slug';
 import { SiteHeader } from '@/components/site-header';
 import { SiteFooter } from '@/components/site-footer';
@@ -31,9 +32,7 @@ export default async function PublicationPage({ params }: { params: { slug: stri
   const article = allArticles.find((item) => newsPathSlug(item, allArticles) === params.slug);
   if (!article) notFound();
 
-  const clubName = settings?.club_name || 'Port Coquitlam Tennis Club';
-  const shortName = settings?.short_name || 'PCTC';
-  const socialLinks = Array.isArray(settings?.social_links) ? settings.social_links : [];
+  const { clubName, shortName, socialLinks } = getClubDisplay(settings);
 
   return (
     <main className="flex min-h-screen flex-col bg-background text-foreground">

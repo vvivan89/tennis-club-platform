@@ -113,7 +113,6 @@ vi.mock('@tiptap/starter-kit', () => ({ default: {} }));
 vi.mock('@tiptap/extension-link', () => ({ default: { configure: () => ({}) } }));
 vi.mock('@tiptap/extension-underline', () => ({ default: {} }));
 
-import { TournamentRulesEditor } from '@/components/tournament-rules-editor';
 import { TournamentManagement } from '@/components/tournament-management';
 import { TournamentPublicView } from '@/components/tournament-public-view';
 import { PublicOrganizerContacts } from '@/components/public-organizer-contacts';
@@ -133,19 +132,6 @@ afterEach(() => {
 });
 
 describe('tournament component coverage', () => {
-  it('renders the rules editor with formatting controls and a vertically resizable content area', () => {
-    const onChange = vi.fn();
-    const { container } = render(
-      <TournamentRulesEditor value="<p>Rules</p>" onChange={onChange} />,
-    );
-    expect(screen.getByRole('button', { name: 'Bold' })).toBeInTheDocument();
-    expect(screen.getByTestId('editor-content')).toBeInTheDocument();
-    expect(container.querySelector('.resize-y')).toBeInTheDocument();
-    for (const name of ['Bold', 'Italic', 'Underline', 'Heading', 'Bullets', 'Numbers'])
-      screen.getByRole('button', { name }).click();
-    tiptapMocks.options?.onUpdate?.({ editor: { getHTML: () => '<p>Updated rules</p>' } });
-    expect(onChange).toHaveBeenCalledWith('<p>Updated rules</p>');
-  });
   describe('public tournament contact and registration workflows', () => {
     it('loads public organizer contacts once and renders only the supplied contact details', async () => {
       supabaseMocks.rpcData.event_public_tournament_organizer_contact_details = [

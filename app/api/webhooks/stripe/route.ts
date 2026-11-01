@@ -3,6 +3,8 @@ import type Stripe from 'stripe';
 import { getStripeClient, getStripeWebhookSecret } from '@/lib/payments/stripe';
 import { createPaymentServiceClient } from '@/lib/payments/server';
 import { syncPaymentProceeds } from '@/lib/payments/proceeds';
+import { removeProvisionalGuestEntries } from '@/lib/payments/checkout-cleanup';
+import { upsertStripeRefund } from '@/lib/payments/refund-records';
 import {
   calculateRefundState,
   mapStripePaymentStatus,
@@ -365,52 +367,12 @@ async function recordExpiredCheckout(
       .filter((entry) => entry.user_id === null && entry.status === 'provisional')
       .map((entry) => entry.id);
     if (provisionalIds.length) {
-      const [{ data: pairsOne, error: pairsOneError }, { data: pairsTwo, error: pairsTwoError }] =
-        await Promise.all([
-          db
-            .from('tournament_pairs')
-            .select('player_one_id,player_two_id')
-            .in('player_one_id', provisionalIds),
-          db
-            .from('tournament_pairs')
-            .select('player_one_id,player_two_id')
-            .in('player_two_id', provisionalIds),
-        ]);
-      if (pairsOneError || pairsTwoError)
-        throw new Error('Could not inspect provisional tournament pairs after checkout expiry.');
-      const relatedIds = [
-        ...new Set([
-          ...provisionalIds,
-          ...(pairsOne ?? []).flatMap((pair) => [pair.player_one_id, pair.player_two_id]),
-          ...(pairsTwo ?? []).flatMap((pair) => [pair.player_one_id, pair.player_two_id]),
-        ]),
-      ];
-      const { data: relatedEntries, error: relatedError } = await db
-        .from('tournament_participants')
-        .select('id,user_id,status')
-        .in('id', relatedIds);
-      if (relatedError)
-        throw new Error('Could not inspect provisional tournament entries after checkout expiry.');
-      const cleanupIds = (relatedEntries ?? [])
-        .filter((entry) => entry.user_id === null && entry.status === 'provisional')
-        .map((entry) => entry.id);
-      const { error: deletePairsOneError } = await db
-        .from('tournament_pairs')
-        .delete()
-        .in('player_one_id', cleanupIds);
-      const { error: deletePairsTwoError } = await db
-        .from('tournament_pairs')
-        .delete()
-        .in('player_two_id', cleanupIds);
-      if (deletePairsOneError || deletePairsTwoError)
-        throw new Error('Could not remove provisional tournament pairs after checkout expiry.');
-      const { error: deleteParticipantsError } = await db
-        .from('tournament_participants')
-        .delete()
-        .in('id', cleanupIds)
-        .eq('status', 'provisional');
-      if (deleteParticipantsError)
-        throw new Error('Could not remove provisional tournament entries after checkout expiry.');
+      await removeProvisionalGuestEntries(db, provisionalIds, {
+        inspectPairs: 'Could not inspect provisional tournament pairs after checkout expiry.',
+        inspectEntries: 'Could not inspect provisional tournament entries after checkout expiry.',
+        removePairs: 'Could not remove provisional tournament pairs after checkout expiry.',
+        removeEntries: 'Could not remove provisional tournament entries after checkout expiry.',
+      });
     }
   }
   await writePaymentAudit(db, payment.id, 'payment.canceled', eventId, {
@@ -442,19 +404,9 @@ async function recordChargeRefund(
     expand: ['refunds.data'],
   });
   for (const refund of currentCharge.refunds?.data ?? []) {
-    const { error: refundError } = await db.from('payment_refunds').upsert(
-      {
-        payment_id: payment.id,
-        stripe_refund_id: refund.id,
-        amount_minor: refund.amount,
-        currency: refund.currency.toLowerCase(),
-        status: refund.status ?? 'pending',
-        reason: refund.reason ?? null,
-        last_stripe_event_id: eventId,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'stripe_refund_id' },
-    );
+    const refundError = await upsertStripeRefund(db, payment.id, refund, {
+      last_stripe_event_id: eventId,
+    });
     if (refundError) throw new Error('Could not persist refund record.');
   }
   const refundState = calculateRefundState(

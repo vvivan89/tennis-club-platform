@@ -20,8 +20,8 @@ vi.mock('@/lib/supabase-browser', () => ({
     },
   }),
 }));
-vi.mock('@/components/tournament-rules-editor', () => ({
-  TournamentRulesEditor: ({ value }: { value: string }) => (
+vi.mock('@/components/rich-text-editor', () => ({
+  RichTextEditor: ({ value }: { value: string }) => (
     <div data-testid="tournament-rules-editor" data-value={value} />
   ),
 }));

@@ -289,7 +289,7 @@ export function AuditLogsConsole() {
               </select>
             </label>
           )}
-          {mode === 'audit' ? (
+          {mode === 'audit' && (
             <label className="space-y-1 text-sm font-medium">
               <span>Outcome</span>
               <select
@@ -307,7 +307,8 @@ export function AuditLogsConsole() {
                 <option value="info">Info</option>
               </select>
             </label>
-          ) : (
+          )}
+          {
             <label className="space-y-1 text-sm font-medium">
               <span>Source</span>
               <select
@@ -326,27 +327,7 @@ export function AuditLogsConsole() {
                 <option value="integration">Integration</option>
               </select>
             </label>
-          )}
-          {mode === 'audit' && (
-            <label className="space-y-1 text-sm font-medium">
-              <span>Source</span>
-              <select
-                className="form-select h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                value={source}
-                onChange={(e) => {
-                  setSource(e.target.value);
-                  setPage(0);
-                }}
-              >
-                <option value="">All sources</option>
-                <option value="web">Web</option>
-                <option value="api">API</option>
-                <option value="database">Database</option>
-                <option value="background">Background</option>
-                <option value="integration">Integration</option>
-              </select>
-            </label>
-          )}
+          }
           <label className="space-y-1 text-sm font-medium">
             <span>From date</span>
             <Input

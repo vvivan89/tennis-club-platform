@@ -1,50 +1,21 @@
 'use client';
 import { formatClockTime } from '@/lib/time-format';
+import { useTimedFeedback } from '@/hooks/use-timed-feedback';
 import { TennisLoader } from '@/components/tennis-loader';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
+import { requireBrowserUser } from '@/lib/supabase-browser-user';
 import { reorderRankingPriority, type TournamentConfig } from '@/lib/tournament-config';
 import { calculateLadderSession, type LadderMetric } from '@/lib/social-doubles-ladder';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { TournamentRulesEditor } from '@/components/tournament-rules-editor';
+import { RichTextEditor } from '@/components/rich-text-editor';
+import { FloatingFeedback } from '@/components/floating-feedback';
+import { EventBasicsFields } from '@/components/event-basics-fields';
+import { PriorityBuckets } from '@/components/priority-buckets';
+import { type EventFormValues, type OrganizerOption } from '@/components/event-form-types';
 
-type EventFormValues = {
-  id?: string;
-  series_id?: string | null;
-  organizer_id?: string | null;
-  title: string;
-  description: string;
-  gender_restriction: string | null;
-  event_type: string;
-  starts_at: string;
-  ends_at: string;
-  registration_opens_at: string;
-  registration_closes_at: string;
-  capacity: number;
-  price_cents: number;
-  members_only: boolean;
-  status: string;
-  location: string;
-  notes: string;
-  waitlist_enabled: boolean;
-  court_count: number;
-  tournament_format: string | null;
-  tournament_config: TournamentConfig;
-  tournament_rules_html: string;
-  allow_non_member_registration: boolean;
-  tournament_details_public: boolean;
-  ladder_gender: 'male' | 'female';
-  ladder_points: [number, number, number, number];
-  ladder_ranking_priority: string[];
-  ladder_carryover: 'none' | 'position' | 'full';
-  ladder_previous_id: string;
-  ladder_existing_id: string;
-  ladder_name: string;
-  league_existing_id: string;
-  is_league_tournament: boolean;
-};
 const localValue = (value?: string | null) =>
   value
     ? new Date(value)
@@ -52,6 +23,17 @@ const localValue = (value?: string | null) =>
         .replace(' ', 'T')
         .slice(0, 16)
     : '';
+const leagueTournamentConfig = (
+  config: EventFormValues['tournament_config'],
+  ladderGender: string,
+) => ({
+  ...config,
+  categories: [ladderGender === 'male' ? 'men' : 'women'],
+  phases: { round_robin: true },
+  group_count: 1,
+  teams_per_group: 4,
+  registration_mode: 'both' as const,
+});
 const initial: EventFormValues = {
   title: '',
   description: '',
@@ -191,7 +173,7 @@ export function EventManagementForm({
     ladder_ranking_priority?: string[] | null;
   };
   currentUserId?: string;
-  organizerOptions?: Array<{ id: string; full_name: string | null; email: string; role: string }>;
+  organizerOptions?: OrganizerOption[];
   showOrganizerField?: boolean;
 }) {
   const router = useRouter();
@@ -318,19 +300,62 @@ export function EventManagementForm({
   const [openTime, setOpenTime] = useState('18:00');
   const [closeDays, setCloseDays] = useState('1');
   const [closeTime, setCloseTime] = useState('18:00');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
-  useEffect(() => {
-    if (!error && !message) return;
-    const timer = window.setTimeout(() => {
-      setError('');
-      setMessage('');
-    }, 3000);
-    return () => window.clearTimeout(timer);
-  }, [error, message]);
+  const { busy, setBusy, error, setError, message, setMessage } = useTimedFeedback();
   function change<K extends keyof EventFormValues>(key: K, value: EventFormValues[K]) {
     setV((prev) => ({ ...prev, [key]: value }));
+  }
+  const ladderOptions = availableLadders
+    .filter((ladder) => ladder.gender === v.ladder_gender)
+    .map((ladder) => (
+      <option key={ladder.id} value={ladder.id}>
+        {ladder.name}
+      </option>
+    ));
+  function seedSeriesFromEvent() {
+    if (v.starts_at) {
+      setSeriesStartDate(v.starts_at.slice(0, 10));
+      setDayOfWeek(String(new Date(v.starts_at).getDay()));
+      setSeriesStartTime(v.starts_at.slice(11, 16));
+    }
+    if (v.ends_at) setSeriesEndTime(v.ends_at.slice(11, 16));
+  }
+  function handleEventTypeChange(value: string) {
+    change('is_league_tournament', value === 'league_tournament');
+    change(
+      'event_type',
+      value === 'social' || value === 'social_doubles_ladder' ? value : 'tournament',
+    );
+    if (value === 'league_tournament') {
+      change('tournament_format', 'doubles');
+      change('members_only', false);
+      change('tournament_config', leagueTournamentConfig(v.tournament_config, v.ladder_gender));
+      setRecurring(true);
+      seedSeriesFromEvent();
+    }
+    if (value === 'social_doubles_ladder') {
+      change('gender_restriction', v.ladder_gender);
+      change('members_only', true);
+      setRecurring(true);
+      seedSeriesFromEvent();
+    }
+    if (value !== 'social' && value !== 'social_doubles_ladder' && value !== 'league_tournament') {
+      change('members_only', false);
+      change('tournament_format', value === 'team_tournament' ? 'team' : 'doubles');
+      if (value === 'team_tournament') {
+        change('tournament_config', {
+          ...v.tournament_config,
+          ranking_priority: ['points', 'matches_won', 'sets_won', 'games_won'],
+        });
+      } else {
+        change('tournament_config', {
+          ...v.tournament_config,
+          ranking_priority: (
+            v.tournament_config.ranking_priority ?? ['matches_won', 'sets_won', 'games_won']
+          ).filter((key) => key !== 'points'),
+        });
+      }
+      setRecurring(false);
+    }
   }
   const firstSeriesDate = useMemo(() => {
     if (!seriesStartDate) return null;
@@ -361,11 +386,7 @@ export function EventManagementForm({
     setError('');
     setMessage('');
     try {
-      const db = createSupabaseBrowserClient();
-      const {
-        data: { user },
-      } = await db.auth.getUser();
-      if (!user) throw new Error('Sign in again to continue.');
+      const { db, user } = await requireBrowserUser('Sign in again to continue.');
       const starts =
         recurring && firstSeriesDate
           ? new Date(`${firstSeriesDate.toISOString().slice(0, 10)}T${seriesStartTime}`)
@@ -524,14 +545,7 @@ export function EventManagementForm({
             .update({
               name: v.ladder_name.trim() || event?.league_name || v.title.trim(),
               gender: v.ladder_gender,
-              tournament_config: {
-                ...v.tournament_config,
-                categories: [v.ladder_gender === 'male' ? 'men' : 'women'],
-                phases: { round_robin: true },
-                group_count: 1,
-                teams_per_group: 4,
-                registration_mode: 'both',
-              },
+              tournament_config: leagueTournamentConfig(v.tournament_config, v.ladder_gender),
               tournament_rules_html: '',
             })
             .eq('id', v.league_existing_id);
@@ -855,14 +869,7 @@ export function EventManagementForm({
               created_by: user.id,
               competition_type: 'league',
               season: String(starts.getFullYear()),
-              tournament_config: {
-                ...v.tournament_config,
-                categories: [v.ladder_gender === 'male' ? 'men' : 'women'],
-                phases: { round_robin: true },
-                group_count: 1,
-                teams_per_group: 4,
-                registration_mode: 'both',
-              },
+              tournament_config: leagueTournamentConfig(v.tournament_config, v.ladder_gender),
               tournament_rules_html: '',
             })
             .select('id')
@@ -874,14 +881,7 @@ export function EventManagementForm({
           .from('social_doubles_ladders')
           .update({
             gender: v.ladder_gender,
-            tournament_config: {
-              ...v.tournament_config,
-              categories: [v.ladder_gender === 'male' ? 'men' : 'women'],
-              phases: { round_robin: true },
-              group_count: 1,
-              teams_per_group: 4,
-              registration_mode: 'both',
-            },
+            tournament_config: leagueTournamentConfig(v.tournament_config, v.ladder_gender),
             tournament_rules_html: '',
           })
           .eq('id', leagueId);
@@ -892,14 +892,7 @@ export function EventManagementForm({
             social_doubles_ladder_id: leagueId,
             gender_restriction: v.ladder_gender,
             tournament_format: 'doubles',
-            tournament_config: {
-              ...v.tournament_config,
-              categories: [v.ladder_gender === 'male' ? 'men' : 'women'],
-              phases: { round_robin: true },
-              group_count: 1,
-              teams_per_group: 4,
-              registration_mode: 'both',
-            },
+            tournament_config: leagueTournamentConfig(v.tournament_config, v.ladder_gender),
           })
           .in(
             'id',
@@ -924,29 +917,7 @@ export function EventManagementForm({
   }
   return (
     <form onSubmit={submit} className="space-y-6">
-      {(error || message) && (
-        <div
-          className="pointer-events-none fixed right-4 top-4 z-[100] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2"
-          aria-live="polite"
-        >
-          {error && (
-            <p
-              role="alert"
-              className="pointer-events-auto rounded-md border border-destructive/30 bg-background p-3 text-sm text-destructive shadow-lg"
-            >
-              {error}
-            </p>
-          )}
-          {message && (
-            <p
-              role="status"
-              className="pointer-events-auto rounded-md border border-emerald-600/30 bg-background p-3 text-sm shadow-lg"
-            >
-              {message}
-            </p>
-          )}
-        </div>
-      )}
+      <FloatingFeedback error={error} message={message} />
       {v.id && v.series_id && (
         <section className="rounded-xl border border-border p-4">
           <label className="flex items-center gap-2 text-sm">
@@ -967,235 +938,14 @@ export function EventManagementForm({
           </label>
         </section>
       )}
-      <section className="grid gap-4 rounded-xl border border-border p-5 sm:grid-cols-2">
-        <div className="sm:col-span-2 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <label className="min-w-0 flex-1 space-y-1 text-sm font-medium">
-            Event title
-            <Input
-              required
-              maxLength={160}
-              value={v.title}
-              onChange={(e) => change('title', e.target.value)}
-            />
-          </label>
-        </div>
-        {showOrganizerField && (
-          <label className="space-y-1 text-sm font-medium">
-            Organizer
-            <select
-              required
-              value={v.organizer_id ?? currentUserId}
-              onChange={(e) => change('organizer_id', e.target.value)}
-              className="block h-10 w-full rounded-md border border-input bg-background px-3"
-            >
-              {organizerOptions.map((organizer) => (
-                <option key={organizer.id} value={organizer.id}>
-                  {organizer.full_name || organizer.email} ({organizer.role})
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        <label className="space-y-1 text-sm font-medium">
-          Event type
-          <select
-            value={
-              v.event_type === 'tournament'
-                ? v.is_league_tournament
-                  ? 'league_tournament'
-                  : v.tournament_format === 'team'
-                    ? 'team_tournament'
-                    : 'doubles_tournament'
-                : v.event_type === 'social_doubles_ladder'
-                  ? 'social_doubles_ladder'
-                  : 'social'
-            }
-            onChange={(e) => {
-              const value = e.target.value;
-              change('is_league_tournament', value === 'league_tournament');
-              change(
-                'event_type',
-                value === 'social' || value === 'social_doubles_ladder' ? value : 'tournament',
-              );
-              if (value === 'league_tournament') {
-                change('tournament_format', 'doubles');
-                change('members_only', false);
-                change('tournament_config', {
-                  ...v.tournament_config,
-                  categories: [v.ladder_gender === 'male' ? 'men' : 'women'],
-                  phases: { round_robin: true },
-                  group_count: 1,
-                  teams_per_group: 4,
-                  registration_mode: 'both',
-                });
-                setRecurring(true);
-                if (v.starts_at) {
-                  setSeriesStartDate(v.starts_at.slice(0, 10));
-                  setDayOfWeek(String(new Date(v.starts_at).getDay()));
-                  setSeriesStartTime(v.starts_at.slice(11, 16));
-                }
-                if (v.ends_at) setSeriesEndTime(v.ends_at.slice(11, 16));
-              }
-              if (value === 'social_doubles_ladder') {
-                change('gender_restriction', v.ladder_gender);
-                change('members_only', true);
-                setRecurring(true);
-                if (v.starts_at) {
-                  setSeriesStartDate(v.starts_at.slice(0, 10));
-                  setDayOfWeek(String(new Date(v.starts_at).getDay()));
-                  setSeriesStartTime(v.starts_at.slice(11, 16));
-                }
-                if (v.ends_at) setSeriesEndTime(v.ends_at.slice(11, 16));
-              }
-              if (
-                value !== 'social' &&
-                value !== 'social_doubles_ladder' &&
-                value !== 'league_tournament'
-              ) {
-                change('members_only', false);
-                change('tournament_format', value === 'team_tournament' ? 'team' : 'doubles');
-                if (value === 'team_tournament') {
-                  change('tournament_config', {
-                    ...v.tournament_config,
-                    ranking_priority: ['points', 'matches_won', 'sets_won', 'games_won'],
-                  });
-                } else {
-                  change('tournament_config', {
-                    ...v.tournament_config,
-                    ranking_priority: (
-                      v.tournament_config.ranking_priority ?? [
-                        'matches_won',
-                        'sets_won',
-                        'games_won',
-                      ]
-                    ).filter((key) => key !== 'points'),
-                  });
-                }
-                setRecurring(false);
-              }
-            }}
-            className="block h-10 w-full rounded-md border border-input bg-background px-3"
-          >
-            <option value="doubles_tournament">Doubles tournament</option>
-            <option value="league_tournament">League</option>
-            <option value="social">Social event</option>
-            <option value="social_doubles_ladder">Social Doubles Ladder</option>
-            <option value="team_tournament">Team tournament</option>
-          </select>
-        </label>
-        {v.event_type !== 'tournament' && v.event_type !== 'social_doubles_ladder' && (
-          <label className="space-y-1 text-sm font-medium">
-            Participant gender restriction (optional)
-            <select
-              value={v.gender_restriction ?? ''}
-              onChange={(e) => change('gender_restriction', e.target.value || null)}
-              className="block h-10 w-full rounded-md border border-input bg-background px-3"
-            >
-              <option value="">No restriction</option>
-              <option value="male">Male participants only</option>
-              <option value="female">Female participants only</option>
-            </select>
-          </label>
-        )}
-        <label className="space-y-1 text-sm font-medium">
-          Publication
-          <select
-            value={v.status}
-            onChange={(e) => change('status', e.target.value)}
-            className="block h-10 w-full rounded-md border border-input bg-background px-3"
-          >
-            <option value="draft">Draft</option>
-            <option value="published">Published</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
-        </label>
-        {(v.event_type !== 'tournament' || v.is_league_tournament) && (
-          <label className="space-y-1 text-sm font-medium sm:col-span-2">
-            Description
-            <textarea
-              value={v.description}
-              onChange={(e) => change('description', e.target.value)}
-              maxLength={5000}
-              className="min-h-24 w-full rounded-md border border-input bg-background p-3"
-            />
-          </label>
-        )}
-        <label className="space-y-1 text-sm font-medium">
-          Cost per person (CAD)
-          <Input
-            type="number"
-            min="0"
-            step="0.01"
-            required
-            value={(v.price_cents / 100).toString()}
-            onChange={(e) => change('price_cents', Math.round(Number(e.target.value || 0) * 100))}
-          />
-        </label>
-        <label className="space-y-1 text-sm font-medium">
-          {v.event_type === 'tournament' && !v.is_league_tournament
-            ? 'Total tournament capacity (optional)'
-            : 'Maximum attendees'}
-          <Input
-            type="number"
-            min="1"
-            max="1000"
-            required={v.event_type !== 'tournament' || v.is_league_tournament}
-            value={
-              v.event_type === 'tournament' && !v.is_league_tournament && v.capacity >= 1000000
-                ? ''
-                : v.capacity || ''
-            }
-            placeholder={
-              v.event_type === 'tournament' && !v.is_league_tournament ? 'Unlimited' : undefined
-            }
-            onChange={(e) => change('capacity', e.target.value === '' ? 0 : Number(e.target.value))}
-          />
-        </label>
-        <label className="space-y-1 text-sm font-medium">
-          Location
-          <Input required value={v.location} onChange={(e) => change('location', e.target.value)} />
-        </label>
-        <label className="space-y-1 text-sm font-medium">
-          Courts available
-          <select
-            value={v.court_count}
-            onChange={(e) => change('court_count', Number(e.target.value))}
-            className="block h-10 w-full rounded-md border border-input bg-background px-3"
-          >
-            {[1, 2, 3, 4].map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
-        </label>
-        {v.event_type !== 'tournament' && (
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={v.members_only}
-              onChange={(e) => change('members_only', e.target.checked)}
-            />{' '}
-            Active paid membership required
-          </label>
-        )}
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={v.waitlist_enabled}
-            onChange={(e) => change('waitlist_enabled', e.target.checked)}
-          />{' '}
-          Enable waitlist when full
-        </label>
-        <label className="space-y-1 text-sm font-medium sm:col-span-2">
-          Organizer notes
-          <textarea
-            value={v.notes}
-            onChange={(e) => change('notes', e.target.value)}
-            className="min-h-20 w-full rounded-md border border-input bg-background p-3"
-          />
-        </label>
-      </section>
+      <EventBasicsFields
+        v={v}
+        change={change}
+        showOrganizerField={showOrganizerField}
+        currentUserId={currentUserId}
+        organizerOptions={organizerOptions}
+        onEventTypeChange={handleEventTypeChange}
+      />
       {v.event_type === 'tournament' && (
         <section className="space-y-5 rounded-xl border border-border p-5">
           <div>
@@ -1627,171 +1377,49 @@ export function EventManagementForm({
                     ranking_priority: ordered,
                   });
                 };
+                const updatePriority = (next: string[]) => {
+                  const ordered =
+                    v.tournament_format === 'team'
+                      ? ['points', ...next.filter((key) => key !== 'points')]
+                      : next;
+                  change('tournament_config', {
+                    ...v.tournament_config,
+                    ranking_priority: ordered,
+                  });
+                };
+                const dropAvailableItem = (source: string, target: string) => {
+                  if (!source || source === target) return;
+                  const next = [...priority];
+                  const sourceIndex = next.indexOf(source);
+                  if (sourceIndex < 0) return;
+                  next.splice(sourceIndex, 1);
+                  const targetIndex = next.indexOf(target);
+                  next.splice(targetIndex < 0 ? next.length : targetIndex, 0, source);
+                  updatePriority(next);
+                };
                 return (
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div
-                      className="rounded-md border border-border p-3"
-                      onDragOver={(event) => event.preventDefault()}
-                      onDrop={(event) => {
-                        event.preventDefault();
-                        const source = event.dataTransfer.getData('text/plain');
-                        if (source && !priority.includes(source)) {
-                          const next = [...priority.filter((key) => key !== 'points'), source];
-                          change('tournament_config', {
-                            ...v.tournament_config,
-                            ranking_priority:
-                              v.tournament_format === 'team'
-                                ? ['points', ...next.filter((key) => key !== 'points')]
-                                : next,
-                          });
-                        }
-                      }}
-                    >
-                      <h3 className="mb-2 text-sm font-semibold">Selected priorities</h3>
-                      <ol className="space-y-2" aria-label="Group ranking priorities">
-                        {priority.map((key, index) => {
-                          const label = options.find(([option]) => option === key)?.[1] ?? key;
-                          return (
-                            <li
-                              key={key}
-                              draggable
-                              onDragStart={(event) => {
-                                event.dataTransfer.setData('text/plain', key);
-                                event.dataTransfer.effectAllowed = 'move';
-                              }}
-                              onDragOver={(event) => event.preventDefault()}
-                              onDrop={(event) => {
-                                event.preventDefault();
-                                const source = event.dataTransfer.getData('text/plain');
-                                if (source && source !== key) reorder(source, index);
-                              }}
-                              className="flex items-center gap-2 rounded-md border border-border bg-background p-2 text-sm"
-                              data-ranking-key={key}
-                            >
-                              <span
-                                aria-hidden="true"
-                                className="cursor-grab select-none text-muted-foreground"
-                              >
-                                ⠿
-                              </span>
-                              <span className="w-24 shrink-0 text-muted-foreground">
-                                Priority {index + 1}
-                              </span>
-                              <span className="flex-1">{label}</span>
-                              <button
-                                type="button"
-                                aria-label={`Remove ${label} priority`}
-                                disabled={v.tournament_format === 'team' && key === 'points'}
-                                onClick={() =>
-                                  change('tournament_config', {
-                                    ...v.tournament_config,
-                                    ranking_priority: priority.filter((item) => item !== key),
-                                  })
-                                }
-                                className="rounded border border-border px-2 py-1 disabled:opacity-40"
-                              >
-                                −
-                              </button>
-                              <button
-                                type="button"
-                                aria-label={`Move ${label} up`}
-                                disabled={index === 0}
-                                onClick={() => reorder(key, index - 1)}
-                                className="rounded border border-border px-2 py-1 disabled:opacity-40"
-                              >
-                                ↑
-                              </button>
-                              <button
-                                type="button"
-                                aria-label={`Move ${label} down`}
-                                disabled={
-                                  index === priority.length - 1 ||
-                                  (v.tournament_format === 'team' && key === 'points')
-                                }
-                                onClick={() => reorder(key, index + 1)}
-                                className="rounded border border-border px-2 py-1 disabled:opacity-40"
-                              >
-                                ↓
-                              </button>
-                            </li>
-                          );
-                        })}
-                      </ol>
-                    </div>
-                    <div
-                      className="rounded-md border border-border p-3"
-                      onDragOver={(event) => event.preventDefault()}
-                      onDrop={(event) => {
-                        event.preventDefault();
-                        const source = event.dataTransfer.getData('text/plain');
-                        if (source && !(v.tournament_format === 'team' && source === 'points'))
-                          change('tournament_config', {
-                            ...v.tournament_config,
-                            ranking_priority: priority.filter((key) => key !== source),
-                          });
-                      }}
-                    >
-                      <h3 className="mb-2 text-sm font-semibold">Available options</h3>
-                      <ul className="space-y-2">
-                        {options
-                          .filter(([key]) => !priority.includes(key))
-                          .map(([key, label]) => (
-                            <li
-                              key={key}
-                              draggable
-                              onDragStart={(event) => {
-                                event.dataTransfer.setData('text/plain', key);
-                                event.dataTransfer.effectAllowed = 'move';
-                              }}
-                              onDragOver={(event) => event.preventDefault()}
-                              onDrop={(event) => {
-                                event.preventDefault();
-                                const source = event.dataTransfer.getData('text/plain');
-                                if (source && source !== key) {
-                                  const next = [...priority];
-                                  const sourceIndex = next.indexOf(source);
-                                  if (sourceIndex >= 0) {
-                                    next.splice(sourceIndex, 1);
-                                    const targetIndex = next.indexOf(key);
-                                    next.splice(
-                                      targetIndex < 0 ? next.length : targetIndex,
-                                      0,
-                                      source,
-                                    );
-                                    change('tournament_config', {
-                                      ...v.tournament_config,
-                                      ranking_priority:
-                                        v.tournament_format === 'team'
-                                          ? ['points', ...next.filter((item) => item !== 'points')]
-                                          : next,
-                                    });
-                                  }
-                                }
-                              }}
-                              className="flex items-center justify-between rounded-md bg-secondary/40 p-2 text-sm"
-                            >
-                              <span className="cursor-grab">⠿ {label}</span>
-                              <button
-                                type="button"
-                                aria-label={`Add ${label} priority`}
-                                onClick={() =>
-                                  change('tournament_config', {
-                                    ...v.tournament_config,
-                                    ranking_priority: [...priority, key],
-                                  })
-                                }
-                                className="rounded border px-2"
-                              >
-                                +
-                              </button>
-                            </li>
-                          ))}
-                        {options.every(([key]) => priority.includes(key)) && (
-                          <li className="text-sm text-muted-foreground">All options selected.</li>
-                        )}
-                      </ul>
-                    </div>
-                  </div>
+                  <PriorityBuckets
+                    options={options}
+                    priority={priority}
+                    selectedAriaLabel="Group ranking priorities"
+                    priorityWidth="w-24"
+                    lockedKeys={v.tournament_format === 'team' ? ['points'] : []}
+                    onDropSelectedPanel={(source) => {
+                      if (source && !priority.includes(source))
+                        updatePriority([...priority.filter((key) => key !== 'points'), source]);
+                    }}
+                    onDropSelectedItem={(source, target, index) => {
+                      if (source !== target) reorder(source, index);
+                    }}
+                    onDropAvailablePanel={(source) => {
+                      if (source && !(v.tournament_format === 'team' && source === 'points'))
+                        updatePriority(priority.filter((key) => key !== source));
+                    }}
+                    onDropAvailableItem={dropAvailableItem}
+                    onAdd={(key) => updatePriority([...priority, key])}
+                    onRemove={(key) => updatePriority(priority.filter((item) => item !== key))}
+                    onReorder={reorder}
+                  />
                 );
               })()}
             </fieldset>
@@ -1811,7 +1439,7 @@ export function EventManagementForm({
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">Add text version of the rules here.</p>
-              <TournamentRulesEditor
+              <RichTextEditor
                 value={v.tournament_rules_html}
                 onChange={(html) => change('tournament_rules_html', html)}
               />
@@ -1867,13 +1495,7 @@ export function EventManagementForm({
                 className="block h-10 w-full rounded-md border border-input bg-background px-3"
               >
                 <option value="">Create a new ladder</option>
-                {availableLadders
-                  .filter((ladder) => ladder.gender === v.ladder_gender)
-                  .map((ladder) => (
-                    <option key={ladder.id} value={ladder.id}>
-                      {ladder.name}
-                    </option>
-                  ))}
+                {ladderOptions}
               </select>
             </label>
           </div>
@@ -1960,138 +1582,35 @@ export function EventManagementForm({
                 if (!priority.includes(key)) changePriority([...priority, key]);
               };
               return (
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div
-                    className="rounded-md border border-border p-3"
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={(event) => {
-                      event.preventDefault();
-                      const source = event.dataTransfer.getData('text/plain');
-                      if (source && optionKeys.includes(source) && !priority.includes(source))
-                        moveToSelected(source);
-                    }}
-                  >
-                    <h3 className="mb-2 text-sm font-semibold">Selected priorities</h3>
-                    <ol className="space-y-2" aria-label="Ladder ranking priorities">
-                      {priority.map((key, index) => {
-                        const label = options.find(([option]) => option === key)?.[1] ?? key;
-                        return (
-                          <li
-                            key={key}
-                            draggable
-                            onDragStart={(event) => {
-                              event.dataTransfer.setData('text/plain', key);
-                              event.dataTransfer.effectAllowed = 'move';
-                            }}
-                            onDragOver={(event) => event.preventDefault()}
-                            onDrop={(event) => {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              const source = event.dataTransfer.getData('text/plain');
-                              if (source && source !== key && priority.includes(source))
-                                reorder(source, index);
-                              else if (source && optionKeys.includes(source))
-                                moveToSelected(source);
-                            }}
-                            className="flex items-center gap-2 rounded-md border border-border bg-background p-2 text-sm"
-                            data-ladder-ranking-key={key}
-                          >
-                            <span
-                              aria-hidden="true"
-                              className="cursor-grab select-none text-muted-foreground"
-                            >
-                              ⠿
-                            </span>
-                            <span className="w-20 shrink-0 text-muted-foreground">
-                              Priority {index + 1}
-                            </span>
-                            <span className="flex-1">{label}</span>
-                            <button
-                              type="button"
-                              aria-label={`Remove ${label} priority`}
-                              onClick={() => moveToAvailable(key)}
-                              className="rounded border border-border px-2 py-1"
-                            >
-                              −
-                            </button>
-                            <button
-                              type="button"
-                              aria-label={`Move ${label} up`}
-                              disabled={index === 0}
-                              onClick={() => reorder(key, index - 1)}
-                              className="rounded border border-border px-2 py-1 disabled:opacity-40"
-                            >
-                              ↑
-                            </button>
-                            <button
-                              type="button"
-                              aria-label={`Move ${label} down`}
-                              disabled={index === priority.length - 1}
-                              onClick={() => reorder(key, index + 1)}
-                              className="rounded border border-border px-2 py-1 disabled:opacity-40"
-                            >
-                              ↓
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ol>
-                    {priority.length === 0 && (
-                      <p className="text-sm text-muted-foreground">
-                        No criteria selected. Add at least one criterion.
-                      </p>
-                    )}
-                  </div>
-                  <div
-                    className="rounded-md border border-border p-3"
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={(event) => {
-                      event.preventDefault();
-                      const source = event.dataTransfer.getData('text/plain');
-                      if (source && priority.includes(source)) moveToAvailable(source);
-                    }}
-                  >
-                    <h3 className="mb-2 text-sm font-semibold">Available options</h3>
-                    <ul className="space-y-2" aria-label="Available ladder ranking criteria">
-                      {options
-                        .filter(([key]) => !priority.includes(key))
-                        .map(([key, label]) => (
-                          <li
-                            key={key}
-                            draggable
-                            onDragStart={(event) => {
-                              event.dataTransfer.setData('text/plain', key);
-                              event.dataTransfer.effectAllowed = 'move';
-                            }}
-                            onDragOver={(event) => event.preventDefault()}
-                            onDrop={(event) => {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              const source = event.dataTransfer.getData('text/plain');
-                              if (source && priority.includes(source)) moveToAvailable(source);
-                              else if (source && optionKeys.includes(source))
-                                moveToSelected(source);
-                            }}
-                            className="flex items-center justify-between rounded-md bg-secondary/40 p-2 text-sm"
-                            data-ladder-ranking-key={key}
-                          >
-                            <span className="cursor-grab">⠿ {label}</span>
-                            <button
-                              type="button"
-                              aria-label={`Add ${label} priority`}
-                              onClick={() => moveToSelected(key)}
-                              className="rounded border px-2"
-                            >
-                              +
-                            </button>
-                          </li>
-                        ))}
-                      {options.every(([key]) => priority.includes(key)) && (
-                        <li className="text-sm text-muted-foreground">All options selected.</li>
-                      )}
-                    </ul>
-                  </div>
-                </div>
+                <PriorityBuckets
+                  options={options}
+                  priority={priority}
+                  selectedAriaLabel="Ladder ranking priorities"
+                  availableAriaLabel="Available ladder ranking criteria"
+                  priorityWidth="w-20"
+                  dataAttribute="ladder-ranking"
+                  emptyPriorityMessage="No criteria selected. Add at least one criterion."
+                  stopRowDropPropagation
+                  onDropSelectedPanel={(source) => {
+                    if (source && optionKeys.includes(source) && !priority.includes(source))
+                      moveToSelected(source);
+                  }}
+                  onDropSelectedItem={(source, targetKey, index) => {
+                    if (source && source !== targetKey && priority.includes(source))
+                      reorder(source, index);
+                    else if (source && optionKeys.includes(source)) moveToSelected(source);
+                  }}
+                  onDropAvailablePanel={(source) => {
+                    if (source && priority.includes(source)) moveToAvailable(source);
+                  }}
+                  onDropAvailableItem={(source) => {
+                    if (source && priority.includes(source)) moveToAvailable(source);
+                    else if (source && optionKeys.includes(source)) moveToSelected(source);
+                  }}
+                  onAdd={moveToSelected}
+                  onRemove={moveToAvailable}
+                  onReorder={reorder}
+                />
               );
             })()}
             <p className="text-xs text-muted-foreground">
@@ -2123,13 +1642,7 @@ export function EventManagementForm({
                 className="block h-10 w-full rounded-md border border-input bg-background px-3"
               >
                 <option value="">Select previous ladder</option>
-                {availableLadders
-                  .filter((ladder) => ladder.gender === v.ladder_gender)
-                  .map((ladder) => (
-                    <option key={ladder.id} value={ladder.id}>
-                      {ladder.name}
-                    </option>
-                  ))}
+                {ladderOptions}
               </select>
             </label>
           )}
@@ -2164,12 +1677,7 @@ export function EventManagementForm({
                     onClick={() => {
                       const seriesMode = value === 'series';
                       if (seriesMode) {
-                        if (v.starts_at) {
-                          setSeriesStartDate(v.starts_at.slice(0, 10));
-                          setDayOfWeek(String(new Date(v.starts_at).getDay()));
-                          setSeriesStartTime(v.starts_at.slice(11, 16));
-                        }
-                        if (v.ends_at) setSeriesEndTime(v.ends_at.slice(11, 16));
+                        seedSeriesFromEvent();
                       } else if (firstSeriesDate) {
                         const sessionDate = firstSeriesDate.toISOString().slice(0, 10);
                         change('starts_at', `${sessionDate}T${seriesStartTime}`);

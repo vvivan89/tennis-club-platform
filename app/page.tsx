@@ -11,23 +11,9 @@ import { EventCardActions } from '@/components/event-card-actions';
 import { EventCardWeather } from '@/components/event-card-weather';
 import { newsPathSlug } from '@/lib/news-slug';
 import { eventPath } from '@/lib/event-slug';
+import { eventPriceLabel as money, type EventRow } from '@/lib/event-format';
 
-type ClubEvent = {
-  id: string;
-  slug?: string | null;
-  title: string;
-  description: string | null;
-  starts_at: string;
-  ends_at?: string | null;
-  registration_opens_at: string;
-  registration_closes_at: string | null;
-  capacity: number;
-  price_cents: number;
-  members_only: boolean;
-  event_type: string;
-  status: 'draft' | 'published' | 'cancelled';
-  location?: string | null;
-};
+type ClubEvent = EventRow & { status: 'draft' | 'published' | 'cancelled' };
 const demoEvents: ClubEvent[] = [
   {
     id: 'demo-1',
@@ -78,13 +64,6 @@ function dateLabel(value: string) {
     minute: '2-digit',
     timeZone: 'America/Vancouver',
   }).format(new Date(value));
-}
-function money(cents: number, membersOnly: boolean) {
-  return cents === 0
-    ? membersOnly
-      ? 'Free for members'
-      : 'Free'
-    : new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(cents / 100);
 }
 export default function Home() {
   const [hydrated, setHydrated] = useState(false);

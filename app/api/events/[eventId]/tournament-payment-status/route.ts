@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { getConfiguredServiceClient, getSignedInUser, isUuid } from '@/lib/api-helpers';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -9,25 +8,17 @@ type RouteContext = { params: { eventId: string } };
 
 export async function GET(_request: Request, { params }: RouteContext) {
   const eventId = params.eventId;
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(eventId)) {
+  if (!isUuid(eventId)) {
     return NextResponse.json({ error: 'Invalid event.' }, { status: 400 });
   }
 
-  const auth = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await auth.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
+  const { user, response: authError } = await getSignedInUser();
+  if (authError) return authError;
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    return NextResponse.json(
-      { error: 'Tournament payment status is unavailable.' },
-      { status: 503 },
-    );
-  }
-  const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  const { db, response: configError } = getConfiguredServiceClient(
+    'Tournament payment status is unavailable.',
+  );
+  if (configError) return configError;
   const { data: event, error: eventError } = await db
     .from('events')
     .select('id,event_type')

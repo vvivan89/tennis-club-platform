@@ -1,8 +1,10 @@
 'use client';
 import { TennisLoader } from '@/components/tennis-loader';
+import { FormFeedback } from '@/components/form-feedback';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
+import { requireBrowserUser } from '@/lib/supabase-browser-user';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -58,11 +60,7 @@ export function MemberEditModal({
     setError('');
     setMessage('');
     try {
-      const db = createSupabaseBrowserClient();
-      const {
-        data: { user },
-      } = await db.auth.getUser();
-      if (!user) throw new Error('Sign in again to continue.');
+      const { db, user } = await requireBrowserUser('Sign in again to continue.');
       const note = await db.from('member_admin_notes').upsert(
         {
           user_id: member.id,
@@ -117,11 +115,7 @@ export function MemberEditModal({
     setBusy(true);
     setError('');
     try {
-      const db = createSupabaseBrowserClient();
-      const {
-        data: { user },
-      } = await db.auth.getUser();
-      if (!user) throw new Error('Sign in again to continue.');
+      const { db } = await requireBrowserUser('Sign in again to continue.');
       const result = await db
         .from('member_suspensions')
         .delete()
@@ -317,16 +311,7 @@ export function MemberEditModal({
               <p className="mt-2 text-sm text-muted-foreground">No previous suspensions.</p>
             )}
           </div>
-          {error && (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          )}
-          {message && (
-            <p role="status" className="text-sm">
-              {message}
-            </p>
-          )}
+          <FormFeedback error={error} message={message} />
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
               Cancel

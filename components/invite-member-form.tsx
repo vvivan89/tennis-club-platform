@@ -1,5 +1,6 @@
 'use client';
 import { TennisLoader } from '@/components/tennis-loader';
+import { FormFeedback } from '@/components/form-feedback';
 import { useState, type FormEvent } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -90,16 +91,7 @@ export function InviteMemberForm() {
               </select>
             </label>
             <div className="sm:col-span-2">
-              {error && (
-                <p role="alert" className="mb-3 text-sm text-destructive">
-                  {error}
-                </p>
-              )}
-              {message && (
-                <p role="status" className="mb-3 text-sm">
-                  {message}
-                </p>
-              )}
+              <FormFeedback error={error} message={message} className="mb-3" />
               <Button disabled={busy}>
                 {busy ? (
                   <TennisLoader compact label="Sending invitation" />

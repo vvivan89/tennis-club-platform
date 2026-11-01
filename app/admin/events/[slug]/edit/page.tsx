@@ -2,7 +2,8 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { AdminNav } from '@/components/admin-nav';
-import { SiteFooter } from '@/components/site-footer';
+import { ClubSiteFooter } from '@/components/club-site-footer';
+import { findEventBySlugAlias } from '@/lib/event-alias';
 import { EventManagementForm } from '@/components/event-management-form';
 import { eventPath, eventEditPath } from '@/lib/event-slug';
 import { EventEditManagement } from '@/components/event-edit-management';
@@ -23,21 +24,7 @@ export default async function EditEventPage({ params }: { params: { slug: string
     db.from('club_settings').select('club_name,short_name,social_links').eq('id', 1).maybeSingle(),
   ]);
   let event = slugEvent;
-  if (!event) {
-    const { data: alias } = await db
-      .from('event_slug_aliases')
-      .select('event_id')
-      .eq('slug', params.slug)
-      .maybeSingle();
-    if (alias?.event_id) {
-      const { data: aliasedEvent } = await db
-        .from('events')
-        .select('*')
-        .eq('id', alias.event_id)
-        .maybeSingle();
-      if (aliasedEvent) event = aliasedEvent;
-    }
-  }
+  if (!event) event = await findEventBySlugAlias(db, params.slug);
   if (
     !event &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(params.slug)
@@ -117,13 +104,7 @@ export default async function EditEventPage({ params }: { params: { slug: string
           </Link>
         </p>
       </div>
-      <SiteFooter
-        clubName={club?.club_name}
-        shortName={club?.short_name}
-        socialLinks={
-          Array.isArray(club?.social_links) ? (club.social_links as { url: string }[]) : []
-        }
-      />
+      <ClubSiteFooter club={club} />
     </main>
   );
 }

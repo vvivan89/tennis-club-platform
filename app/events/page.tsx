@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { getClubDisplay } from '@/lib/club-display';
 import { SiteHeader } from '@/components/site-header';
 import { SiteFooter } from '@/components/site-footer';
 import { Button } from '@/components/ui/button';
@@ -45,9 +46,7 @@ export default async function EventsPage() {
       profile?.application_status === 'approved' &&
       ['admin', 'organizer'].includes(profile.role ?? '');
   }
-  const clubName = club?.club_name || 'Port Coquitlam Tennis Club';
-  const shortName = club?.short_name || 'PCTC';
-  const socials = Array.isArray(club?.social_links) ? (club.social_links as { url: string }[]) : [];
+  const { clubName, shortName, socialLinks: socials } = getClubDisplay(club);
   return (
     <main className="flex min-h-screen flex-col bg-background text-foreground">
       <SiteHeader clubName={clubName} shortName={shortName} active="events" />

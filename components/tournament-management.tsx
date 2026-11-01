@@ -2,6 +2,8 @@
 
 import Image from 'next/image';
 import { buildKnockoutSchedule, phaseStartAfterPrerequisites } from '@/lib/tournament-schedule';
+import { useTimedFeedback } from '@/hooks/use-timed-feedback';
+import { evaluateTournamentScore } from '@/lib/tournament-score';
 import { pairKnockoutFirstRound } from '@/lib/knockout-draw';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { MoreHorizontal } from 'lucide-react';
@@ -18,6 +20,24 @@ import { Input } from '@/components/ui/input';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { TennisLoader } from '@/components/tennis-loader';
 import { SearchableMemberSelect, type MemberOption } from '@/components/searchable-member-select';
+import { FloatingFeedback } from '@/components/floating-feedback';
+import { TournamentCourtScheduleBoard } from '@/components/tournament-court-schedule-board';
+import { DraggableItem } from '@/components/drag-drop';
+import {
+  compareTournamentEntries,
+  compareTournamentHeadToHead,
+  accumulateSideStats,
+  createSideStats,
+  defaultRankingPriority,
+  tournamentRankingMetric,
+} from '@/lib/tournament-standings';
+import {
+  compareByScheduleThenCourt,
+  hasTwoPlayersPerTeam,
+  pairMatchPlayerRows,
+  roundNumbersByMatch,
+  type TournamentMatchCore,
+} from '@/lib/tournament-match';
 
 type Team = {
   id: string;
@@ -57,24 +77,7 @@ type MatchPlayer = {
   side: number;
   team_id: string | null;
 };
-type Match = {
-  id: string;
-  category: string;
-  phase: string;
-  group_number: number | null;
-  round_number: number;
-  match_number: number;
-  pair_one_id: string | null;
-  pair_two_id: string | null;
-  team_one_id: string | null;
-  team_two_id: string | null;
-  scheduled_at: string | null;
-  court_number: number | null;
-  score_sets: Array<{ one: number; two: number }>;
-  winner_side: number | null;
-  team_points_one: number;
-  team_points_two: number;
-  status: string;
+type Match = TournamentMatchCore & {
   notes: string;
 };
 type Member = { id: string; full_name: string; email: string; gender: string | null };
@@ -158,17 +161,7 @@ export function TournamentManagement({
     court: number | null;
     conflicts: Array<{ match: Match; severity: 'danger' | 'warning' }>;
   } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
-  useEffect(() => {
-    if (!error && !message) return;
-    const timer = window.setTimeout(() => {
-      setError('');
-      setMessage('');
-    }, 3000);
-    return () => window.clearTimeout(timer);
-  }, [error, message]);
+  const { busy, setBusy, error, setError, message, setMessage } = useTimedFeedback();
   const [teamName, setTeamName] = useState('');
   const [teamColor, setTeamColor] = useState('');
   const [teamLogo, setTeamLogo] = useState('');
@@ -297,7 +290,7 @@ export function TournamentManagement({
       JSON.stringify(previous) === JSON.stringify(nextAuditRows) ? previous : nextAuditRows,
     );
     window.dispatchEvent(new CustomEvent('pctc-tournament-data-refresh', { detail: { eventId } }));
-  }, [db, eventId, leagueTournament]);
+  }, [db, eventId, leagueTournament, setError]);
 
   useEffect(() => {
     const closeOutsideMenus = (event: PointerEvent) => {
@@ -481,6 +474,18 @@ export function TournamentManagement({
       return 'Mixed doubles requires different known genders';
     return '';
   }
+  const pairPlayerOption = (participant: Participant, selectedPartnerId: string): MemberOption => {
+    const reason = pairPlayerRestriction(participant, selectedPartnerId);
+    const genderLabel = profileGenderLabel(participant.gender, pairCategory);
+    return {
+      id: participant.id,
+      full_name: participant.display_name,
+      statusText: [genderLabel, reason].filter(Boolean).join(' · ') || undefined,
+      sortPriority: genderLabel ? 1 : 0,
+      available: !reason,
+      unavailableReason: reason || undefined,
+    };
+  };
   function replacementRestriction(participant: Participant, target: { pair: Pair; side: 1 | 2 }) {
     const { pair, side } = target;
     if (participant.id === pair.player_one_id || participant.id === pair.player_two_id)
@@ -1099,19 +1104,25 @@ export function TournamentManagement({
       }),
     );
   }
+  async function insertMatchPlayers(assignments: ReturnType<typeof pairMatchPlayerRows>) {
+    if (!assignments.length) return;
+    const { error: playerError } = await db.from('tournament_match_players').insert(assignments);
+    if (playerError) throw new Error(playerError.message);
+  }
   async function saveMatch(match: Match, changes: Partial<Match>): Promise<boolean> {
+    const updateMatchRow = () =>
+      runAction(
+        () =>
+          db
+            .from('tournament_matches')
+            .update({ ...changes, updated_at: new Date().toISOString() })
+            .eq('id', match.id),
+        changes.score_sets ? '' : 'Match updated.',
+      );
     if (changes.scheduled_at && !isValidSchedule(localDateTime(changes.scheduled_at))) return false;
     if (changes.scheduled_at || changes.court_number !== undefined) {
       const proposedScheduledAt = changes.scheduled_at ?? match.scheduled_at;
-      if (!proposedScheduledAt)
-        return runAction(
-          () =>
-            db
-              .from('tournament_matches')
-              .update({ ...changes, updated_at: new Date().toISOString() })
-              .eq('id', match.id),
-          changes.score_sets ? '' : 'Match updated.',
-        );
+      if (!proposedScheduledAt) return updateMatchRow();
       const start = new Date(proposedScheduledAt).getTime();
       const court = changes.court_number ?? match.court_number;
       const duration = Math.max(30, Number(config?.schedule?.match_minutes ?? 60));
@@ -1144,14 +1155,7 @@ export function TournamentManagement({
         return false;
       }
     }
-    return runAction(
-      () =>
-        db
-          .from('tournament_matches')
-          .update({ ...changes, updated_at: new Date().toISOString() })
-          .eq('id', match.id),
-      changes.score_sets ? '' : 'Match updated.',
-    );
+    return updateMatchRow();
   }
   async function confirmResolveScheduleConflicts() {
     if (!pendingScheduleConflicts) return;
@@ -1437,44 +1441,9 @@ export function TournamentManagement({
           if (insertError) throw new Error(insertError.message);
           const createdMatches = (created ?? []) as Match[];
           if (!isTeam && createdMatches.length) {
-            const assignments = createdMatches.flatMap((match) => {
-              const one = pairs.find((pair) => pair.id === match.pair_one_id);
-              const two = pairs.find((pair) => pair.id === match.pair_two_id);
-              return one && two
-                ? [
-                    {
-                      match_id: match.id,
-                      participant_id: one.player_one_id,
-                      side: 1,
-                      team_id: null,
-                    },
-                    {
-                      match_id: match.id,
-                      participant_id: one.player_two_id,
-                      side: 1,
-                      team_id: null,
-                    },
-                    {
-                      match_id: match.id,
-                      participant_id: two.player_one_id,
-                      side: 2,
-                      team_id: null,
-                    },
-                    {
-                      match_id: match.id,
-                      participant_id: two.player_two_id,
-                      side: 2,
-                      team_id: null,
-                    },
-                  ]
-                : [];
-            });
-            if (assignments.length) {
-              const { error: playerError } = await db
-                .from('tournament_match_players')
-                .insert(assignments);
-              if (playerError) throw new Error(playerError.message);
-            }
+            await insertMatchPlayers(
+              createdMatches.flatMap((match) => pairMatchPlayerRows(match, pairs)),
+            );
           }
           currentMatches = [...currentMatches, ...createdMatches];
         }
@@ -1487,8 +1456,7 @@ export function TournamentManagement({
           !m.scheduled_at,
       );
       const end = new Date(eventEndsAt || eventStartsAt);
-      const duration = Math.max(30, Number(config?.schedule?.match_minutes ?? 60));
-      const breakMinutes = Math.max(10, Number(config?.schedule?.break_minutes ?? 15));
+      const { duration, breakMinutes } = scheduleTimings;
       // Sequence phases from the end of every prerequisite match, then leave at
       // least one full hour before the next phase starts. This intentionally uses
       // the latest match across the whole preceding phase, not the first round.
@@ -1949,103 +1917,24 @@ export function TournamentManagement({
             relevantMatches.filter((m) => m.status === 'completed' || m.winner_side != null)
               .length >= expected;
           const stats = groupSides
-            .map((side) => {
-              const row = {
-                side,
-                wins: 0,
-                points: 0,
-                setsWon: 0,
-                gamesWon: 0,
-                setDiff: 0,
-                gameDiff: 0,
-              };
-              for (const match of relevantMatches) {
-                const firstId = isTeam ? match.team_one_id : match.pair_one_id;
-                const secondId = isTeam ? match.team_two_id : match.pair_two_id;
-                if (firstId !== side.id && secondId !== side.id) continue;
-                if (
-                  match.winner_side &&
-                  ((firstId === side.id && match.winner_side === 1) ||
-                    (secondId === side.id && match.winner_side === 2))
-                )
-                  row.wins++;
-                if (isTeam)
-                  row.points +=
-                    firstId === side.id
-                      ? Number(match.team_points_one ?? 0)
-                      : Number(match.team_points_two ?? 0);
-                for (const set of match.score_sets ?? []) {
-                  const oneSide = firstId === side.id;
-                  const own = oneSide ? set.one : set.two;
-                  const against = oneSide ? set.two : set.one;
-                  row.setsWon += own > against ? 1 : 0;
-                  row.setDiff += (own > against ? 1 : 0) - (own < against ? 1 : 0);
-                  row.gamesWon += own;
-                  row.gameDiff += own - against;
-                }
-              }
-              return row;
-            })
+            .map((side) => accumulateSideStats(createSideStats(side), relevantMatches, isTeam))
             .sort((a, b) => {
-              const priority =
-                config?.ranking_priority ??
-                (isTeam
-                  ? [
-                      'points',
-                      'matches_won',
-                      'sets_won',
-                      'games_won',
-                      'set_difference',
-                      'game_difference',
-                      'head_to_head',
-                    ]
-                  : [
-                      'matches_won',
-                      'sets_won',
-                      'games_won',
-                      'set_difference',
-                      'game_difference',
-                      'head_to_head',
-                    ]);
-              const metric = (row: typeof a, key: string) =>
-                key === 'points'
-                  ? row.points
-                  : key === 'matches_won'
-                    ? row.wins
-                    : key === 'sets_won'
-                      ? row.setsWon
-                      : key === 'games_won'
-                        ? row.gamesWon
-                        : key === 'set_difference'
-                          ? row.setDiff
-                          : key === 'game_difference'
-                            ? row.gameDiff
-                            : 0;
-              for (const key of priority) {
-                if (key === 'head_to_head') {
-                  const direct = relevantMatches.find((match) => {
-                    const firstId = isTeam ? match.team_one_id : match.pair_one_id;
-                    const secondId = isTeam ? match.team_two_id : match.pair_two_id;
-                    return (
-                      match.winner_side != null &&
-                      ((firstId === a.side.id && secondId === b.side.id) ||
-                        (firstId === b.side.id && secondId === a.side.id))
-                    );
-                  });
-                  if (direct?.winner_side) {
-                    const firstId = isTeam ? direct.team_one_id : direct.pair_one_id;
-                    const aWon =
-                      firstId === a.side.id ? direct.winner_side === 1 : direct.winner_side === 2;
-                    return aWon ? -1 : 1;
-                  }
-                  continue;
-                }
-                const difference = metric(b, key) - metric(a, key);
-                if (difference) return difference;
-              }
-              const aName = 'name' in a.side ? a.side.name : a.side.player_one_name || '';
-              const bName = 'name' in b.side ? b.side.name : b.side.player_one_name || '';
-              return aName.localeCompare(bName);
+              const priority = config?.ranking_priority ?? defaultRankingPriority(isTeam);
+              const metric = tournamentRankingMetric;
+              return compareTournamentEntries(
+                a,
+                b,
+                priority,
+                metric,
+                (first, second) =>
+                  compareTournamentHeadToHead(
+                    relevantMatches,
+                    first.side.id,
+                    second.side.id,
+                    isTeam,
+                  ),
+                (row) => ('name' in row.side ? row.side.name : row.side.player_one_name || ''),
+              );
             });
           return { groupNumber, stats, complete };
         });
@@ -2109,8 +1998,7 @@ export function TournamentManagement({
         );
       }
       const eventEnd = new Date(eventEndsAt || eventStartsAt);
-      const duration = Math.max(30, Number(config?.schedule?.match_minutes ?? 60));
-      const breakMinutes = Math.max(10, Number(config?.schedule?.break_minutes ?? 15));
+      const { duration, breakMinutes } = scheduleTimings;
       const prerequisitePhases =
         phase === (isTeam ? 'team_knockout' : 'final_knockout')
           ? isTeam
@@ -2292,26 +2180,11 @@ export function TournamentManagement({
       }
       // Assign participant history for all first-round matches with known pairs.
       if (!isTeam) {
-        const assignments = (createdMatches ?? [])
-          .filter((m: Match) => m.round_number === 1 && m.pair_one_id && m.pair_two_id)
-          .flatMap((match: Match) => {
-            const one = pairs.find((pair) => pair.id === match.pair_one_id);
-            const two = pairs.find((pair) => pair.id === match.pair_two_id);
-            return one && two
-              ? [
-                  { match_id: match.id, participant_id: one.player_one_id, side: 1, team_id: null },
-                  { match_id: match.id, participant_id: one.player_two_id, side: 1, team_id: null },
-                  { match_id: match.id, participant_id: two.player_one_id, side: 2, team_id: null },
-                  { match_id: match.id, participant_id: two.player_two_id, side: 2, team_id: null },
-                ]
-              : [];
-          });
-        if (assignments.length) {
-          const { error: playerError } = await db
-            .from('tournament_match_players')
-            .insert(assignments);
-          if (playerError) throw new Error(playerError.message);
-        }
+        await insertMatchPlayers(
+          (createdMatches ?? [])
+            .filter((m: Match) => m.round_number === 1 && m.pair_one_id && m.pair_two_id)
+            .flatMap((match: Match) => pairMatchPlayerRows(match, pairs)),
+        );
       }
       setMessage(
         `Created a ${rounds}-round knockout bracket and suggested a schedule. Review the draw and edit any match as needed.`,
@@ -2450,114 +2323,22 @@ export function TournamentManagement({
     );
   }
   async function saveScore(match: Match, raw: string, confirmWalkoverReplacement = false) {
-    if (
-      isTeam &&
-      ([1, 2] as const).some(
-        (side) =>
-          matchPlayers.filter(
-            (player) =>
-              player.match_id === match.id &&
-              player.side === side &&
-              player.team_id === (side === 1 ? match.team_one_id : match.team_two_id),
-          ).length !== 2,
-      )
-    ) {
+    if (isTeam && !hasTwoPlayersPerTeam(match, matchPlayers)) {
       setError(
         'Assign two players to each team before recording the result so individual records remain accurate.',
       );
-      return;
-    }
-    const sets = raw
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .map((s) => {
-        const parts = s.split('-').map(Number);
-        return { one: parts[0], two: parts[1] };
-      });
-    if (
-      !sets.length ||
-      sets.some(
-        (s) =>
-          !Number.isInteger(s.one) ||
-          !Number.isInteger(s.two) ||
-          s.one < 0 ||
-          s.two < 0 ||
-          s.one === s.two,
-      )
-    ) {
-      setError('Enter decisive set scores like 6-4, 3-6, 10-8.');
       return;
     }
     const scoringTemplate =
       config?.scoring_templates?.[
         match.phase as keyof NonNullable<TournamentConfig['scoring_templates']>
       ] ?? config?.scoring_template;
-    if (scoringTemplate === 'one_set' && sets.length !== 1) {
-      setError('This scoring template requires exactly one set.');
+    const evaluation = evaluateTournamentScore(raw, scoringTemplate);
+    if (evaluation.error !== undefined) {
+      setError(evaluation.error);
       return;
     }
-    if (
-      scoringTemplate === 'best_of_three' &&
-      (sets.length > 3 ||
-        Math.max(
-          sets.filter((s) => s.one > s.two).length,
-          sets.filter((s) => s.two > s.one).length,
-        ) < 2)
-    ) {
-      setError('Best-of-three requires a player to win two sets, with no more than three sets.');
-      return;
-    }
-    if (
-      scoringTemplate === 'two_sets_then_third' &&
-      (sets.length < 2 ||
-        sets.length > 3 ||
-        (sets[0].one > sets[0].two === sets[1].one > sets[1].two && sets.length !== 2) ||
-        (sets[0].one > sets[0].two !== sets[1].one > sets[1].two && sets.length !== 3))
-    ) {
-      setError('Play two sets; add a deciding third set only when the first two are split.');
-      return;
-    }
-    if (
-      scoringTemplate === 'team_two_sets_bonus_third' &&
-      (sets.length < 2 ||
-        sets.length > 3 ||
-        (sets[0].one > sets[0].two === sets[1].one > sets[1].two && sets.length !== 2) ||
-        (sets[0].one > sets[0].two !== sets[1].one > sets[1].two && sets.length !== 3))
-    ) {
-      setError(
-        'This team scoring template requires two sets, plus a third set if the first two are split.',
-      );
-      return;
-    }
-    const winsOne = sets.filter((s) => s.one > s.two).length;
-    const winsTwo = sets.filter((s) => s.two > s.one).length;
-    if (winsOne === winsTwo) {
-      setError('The set scores must identify a winner.');
-      return;
-    }
-    const winner = winsOne > winsTwo ? 1 : 2;
-    let pointsOne = winner === 1 ? 1 : 0;
-    let pointsTwo = winner === 2 ? 1 : 0;
-    const scoring =
-      config?.scoring_templates?.[
-        match.phase as keyof NonNullable<TournamentConfig['scoring_templates']>
-      ] ?? config?.scoring_template;
-    if (scoring === 'team_two_sets_bonus_third') {
-      const firstTwo = sets.slice(0, 2);
-      const a = firstTwo.filter((s) => s.one > s.two).length;
-      const b = firstTwo.filter((s) => s.two > s.one).length;
-      if (a === 2) {
-        pointsOne = 3;
-        pointsTwo = 0;
-      } else if (b === 2) {
-        pointsOne = 0;
-        pointsTwo = 3;
-      } else {
-        pointsOne = winner === 1 ? 2 : 1;
-        pointsTwo = winner === 2 ? 2 : 1;
-      }
-    }
+    const { sets, winner, pointsOne, pointsTwo } = evaluation;
     const isWalkoverResult = /^Walkover \/ retirement awarded to side (one|two)$/i.test(
       match.notes?.trim() ?? '',
     );
@@ -2586,6 +2367,18 @@ export function TournamentManagement({
   }
 
   const isTeam = format === 'team';
+  const groupOptions = Array.from(
+    { length: Math.max(1, Number(config?.group_count ?? 2)) },
+    (_, index) => index + 1,
+  ).map((group) => (
+    <option key={group} value={group}>
+      Group {group}
+    </option>
+  ));
+  const scheduleTimings = {
+    duration: Math.max(30, Number(config?.schedule?.match_minutes ?? 60)),
+    breakMinutes: Math.max(10, Number(config?.schedule?.break_minutes ?? 15)),
+  };
   const enabledPhases = config?.phases ?? {
     round_robin: true,
     preliminary_knockout: false,
@@ -2682,35 +2475,21 @@ export function TournamentManagement({
       (match.score_sets?.length ?? 0) > 0,
   );
   const isRoundRobinPhase = matchPhase.includes('round_robin');
-  const adminRoundByMatch = useMemo(() => {
-    const counts = new Map<string, number>();
-    const result = new Map<string, number>();
-    const ordered = matches
-      .filter(
-        (match) =>
-          match.category === matchCategory &&
-          match.phase === matchPhase &&
-          match.status !== 'cancelled',
-      )
-      .sort((a, b) => {
-        const aTime = a.scheduled_at ? new Date(a.scheduled_at).getTime() : Number.MAX_SAFE_INTEGER;
-        const bTime = b.scheduled_at ? new Date(b.scheduled_at).getTime() : Number.MAX_SAFE_INTEGER;
-        return (
-          aTime - bTime ||
-          (a.court_number ?? Number.MAX_SAFE_INTEGER) - (b.court_number ?? Number.MAX_SAFE_INTEGER)
-        );
-      });
-    for (const match of ordered) {
-      const first = isTeam ? match.team_one_id : match.pair_one_id;
-      const second = isTeam ? match.team_two_id : match.pair_two_id;
-      const firstRound = first ? (counts.get(first) ?? 0) + 1 : match.round_number;
-      const secondRound = second ? (counts.get(second) ?? 0) + 1 : match.round_number;
-      if (first) counts.set(first, firstRound);
-      if (second) counts.set(second, secondRound);
-      result.set(match.id, Math.min(firstRound, secondRound));
-    }
-    return result;
-  }, [matches, matchCategory, matchPhase, isTeam]);
+  const adminRoundByMatch = useMemo(
+    () =>
+      roundNumbersByMatch(
+        matches
+          .filter(
+            (match) =>
+              match.category === matchCategory &&
+              match.phase === matchPhase &&
+              match.status !== 'cancelled',
+          )
+          .sort(compareByScheduleThenCourt),
+        isTeam,
+      ),
+    [matches, matchCategory, matchPhase, isTeam],
+  );
   const adminMatchList = useMemo(() => {
     const list = matches.filter(
       (match) =>
@@ -2884,95 +2663,22 @@ export function TournamentManagement({
     );
     if (!playedMatches.length) return `Group ${groupNumber}`;
 
-    const stats = groupEntries.map((side) => {
-      const row = { side, wins: 0, points: 0, setsWon: 0, gamesWon: 0, setDiff: 0, gameDiff: 0 };
-      for (const match of playedMatches) {
-        const firstId = isTeam ? match.team_one_id : match.pair_one_id;
-        const secondId = isTeam ? match.team_two_id : match.pair_two_id;
-        if (firstId !== side.id && secondId !== side.id) continue;
-        if (
-          match.winner_side &&
-          ((firstId === side.id && match.winner_side === 1) ||
-            (secondId === side.id && match.winner_side === 2))
-        )
-          row.wins += 1;
-        if (isTeam)
-          row.points +=
-            firstId === side.id
-              ? Number(match.team_points_one ?? 0)
-              : Number(match.team_points_two ?? 0);
-        for (const set of match.score_sets ?? []) {
-          const own = firstId === side.id ? set.one : set.two;
-          const against = firstId === side.id ? set.two : set.one;
-          row.setsWon += own > against ? 1 : 0;
-          row.setDiff += (own > against ? 1 : 0) - (own < against ? 1 : 0);
-          row.gamesWon += own;
-          row.gameDiff += own - against;
-        }
-      }
-      return row;
-    });
-    const priority =
-      config?.ranking_priority ??
-      (isTeam
-        ? [
-            'points',
-            'matches_won',
-            'sets_won',
-            'games_won',
-            'set_difference',
-            'game_difference',
-            'head_to_head',
-          ]
-        : [
-            'matches_won',
-            'sets_won',
-            'games_won',
-            'set_difference',
-            'game_difference',
-            'head_to_head',
-          ]);
-    const metric = (row: (typeof stats)[number], key: string) =>
-      key === 'points'
-        ? row.points
-        : key === 'matches_won'
-          ? row.wins
-          : key === 'sets_won'
-            ? row.setsWon
-            : key === 'games_won'
-              ? row.gamesWon
-              : key === 'set_difference'
-                ? row.setDiff
-                : key === 'game_difference'
-                  ? row.gameDiff
-                  : 0;
-    stats.sort((a, b) => {
-      for (const key of priority) {
-        if (key === 'head_to_head') {
-          const direct = playedMatches.find((match) => {
-            const firstId = isTeam ? match.team_one_id : match.pair_one_id;
-            const secondId = isTeam ? match.team_two_id : match.pair_two_id;
-            return (
-              match.winner_side != null &&
-              ((firstId === a.side.id && secondId === b.side.id) ||
-                (firstId === b.side.id && secondId === a.side.id))
-            );
-          });
-          if (direct?.winner_side) {
-            const firstId = isTeam ? direct.team_one_id : direct.pair_one_id;
-            const aWon =
-              firstId === a.side.id ? direct.winner_side === 1 : direct.winner_side === 2;
-            return aWon ? -1 : 1;
-          }
-          continue;
-        }
-        const difference = metric(b, key) - metric(a, key);
-        if (difference) return difference;
-      }
-      const aName = 'name' in a.side ? a.side.name : a.side.player_one_name || '';
-      const bName = 'name' in b.side ? b.side.name : b.side.player_one_name || '';
-      return aName.localeCompare(bName);
-    });
+    const stats = groupEntries.map((side) =>
+      accumulateSideStats(createSideStats(side), playedMatches, isTeam),
+    );
+    const priority = config?.ranking_priority ?? defaultRankingPriority(isTeam);
+    const metric = tournamentRankingMetric;
+    stats.sort((a, b) =>
+      compareTournamentEntries(
+        a,
+        b,
+        priority,
+        metric,
+        (first, second) =>
+          compareTournamentHeadToHead(playedMatches, first.side.id, second.side.id, isTeam),
+        (row) => ('name' in row.side ? row.side.name : row.side.player_one_name || ''),
+      ),
+    );
     const place = stats.findIndex((row) => row.side.id === entry.id) + 1;
     const expectedMatches = (groupEntries.length * (groupEntries.length - 1)) / 2;
     const allPlayed = expectedMatches > 0 && playedMatches.length >= expectedMatches;
@@ -3138,29 +2844,7 @@ export function TournamentManagement({
 
   return (
     <section className="space-y-6" aria-label="Tournament administration">
-      {(error || message) && (
-        <div
-          className="pointer-events-none fixed right-4 top-4 z-[100] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2"
-          aria-live="polite"
-        >
-          {error && (
-            <p
-              role="alert"
-              className="pointer-events-auto rounded-md border border-destructive/30 bg-background p-3 text-sm text-destructive shadow-lg"
-            >
-              {error}
-            </p>
-          )}
-          {message && (
-            <p
-              role="status"
-              className="pointer-events-auto rounded-md border border-emerald-600/30 bg-background p-3 text-sm shadow-lg"
-            >
-              {message}
-            </p>
-          )}
-        </div>
-      )}
+      <FloatingFeedback error={error} message={message} />
       {externalTab !== 'competition' && adminTab === 'participants' && (
         <div className="space-y-5">
           <div className="grid gap-5 xl:grid-cols-2">
@@ -3582,14 +3266,7 @@ export function TournamentManagement({
                               }
                             >
                               <option value="">Unassigned</option>
-                              {Array.from(
-                                { length: Math.max(1, Number(config?.group_count ?? 2)) },
-                                (_, index) => index + 1,
-                              ).map((group) => (
-                                <option key={group} value={group}>
-                                  Group {group}
-                                </option>
-                              ))}
+                              {groupOptions}
                             </select>
                           </label>
                         </div>
@@ -3629,20 +3306,7 @@ export function TournamentManagement({
                         placeholder="Choose player"
                         options={availablePairPlayers
                           .filter((p) => p.category === pairCategory)
-                          .map((p): MemberOption => {
-                            const reason = pairPlayerRestriction(p, pairTwo);
-                            const genderLabel = profileGenderLabel(p.gender, pairCategory);
-                            const statusText =
-                              [genderLabel, reason].filter(Boolean).join(' · ') || undefined;
-                            return {
-                              id: p.id,
-                              full_name: p.display_name,
-                              statusText,
-                              sortPriority: genderLabel ? 1 : 0,
-                              available: !reason,
-                              unavailableReason: reason || undefined,
-                            };
-                          })}
+                          .map((p) => pairPlayerOption(p, pairTwo))}
                       />
                     </label>
                     <label className="block text-sm">
@@ -3653,20 +3317,7 @@ export function TournamentManagement({
                         placeholder="Choose partner"
                         options={availablePairPlayers
                           .filter((p) => p.category === pairCategory)
-                          .map((p): MemberOption => {
-                            const reason = pairPlayerRestriction(p, pairOne);
-                            const genderLabel = profileGenderLabel(p.gender, pairCategory);
-                            const statusText =
-                              [genderLabel, reason].filter(Boolean).join(' · ') || undefined;
-                            return {
-                              id: p.id,
-                              full_name: p.display_name,
-                              statusText,
-                              sortPriority: genderLabel ? 1 : 0,
-                              available: !reason,
-                              unavailableReason: reason || undefined,
-                            };
-                          })}
+                          .map((p) => pairPlayerOption(p, pairOne))}
                       />
                     </label>
                     <Button type="submit" disabled={busy}>
@@ -3707,14 +3358,7 @@ export function TournamentManagement({
                                 }
                               >
                                 <option value="">Unassigned</option>
-                                {Array.from(
-                                  { length: Math.max(1, Number(config?.group_count ?? 2)) },
-                                  (_, index) => index + 1,
-                                ).map((group) => (
-                                  <option key={group} value={group}>
-                                    Group {group}
-                                  </option>
-                                ))}
+                                {groupOptions}
                               </select>
                             </label>
                           )}
@@ -3922,105 +3566,25 @@ export function TournamentManagement({
             </div>
           </form>
           <div className="space-y-3">
-            <div>
-              <h4 className="font-medium">Court assignment</h4>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Drag a match to a court, or use the court selector on the match below.
-              </p>
-              {courtScheduleConflicts.length > 0 && (
-                <div className="mt-3 space-y-2" role="status" aria-live="polite">
-                  {courtScheduleConflicts.some((item) => item.severity === 'danger') && (
-                    <div className="rounded-md border border-red-500/50 bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-300">
-                      <p className="font-semibold">Scheduling conflicts — immediate overlap</p>
-                      {courtScheduleConflicts
-                        .filter((item) => item.severity === 'danger')
-                        .map((item) => (
-                          <p key={`${item.court}-${item.current.id}`} className="mt-1">
-                            Court {item.court}: {matchCourtTileNames(item.previous).players} (
-                            {formatDateTime(item.previous.scheduled_at!)}) overlaps with{' '}
-                            {matchCourtTileNames(item.current).players} (
-                            {formatDateTime(item.current.scheduled_at!)}).
-                          </p>
-                        ))}
-                    </div>
-                  )}
-                  {courtScheduleConflicts.some((item) => item.severity === 'warning') && (
-                    <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-300">
-                      <p className="font-semibold">Scheduling warnings — insufficient break</p>
-                      {courtScheduleConflicts
-                        .filter((item) => item.severity === 'warning')
-                        .map((item) => (
-                          <p key={`${item.court}-${item.current.id}`} className="mt-1">
-                            Court {item.court}: insufficient break between{' '}
-                            {matchCourtTileNames(item.previous).players} (
-                            {formatDateTime(item.previous.scheduled_at!)}) and{' '}
-                            {matchCourtTileNames(item.current).players} (
-                            {formatDateTime(item.current.scheduled_at!)}).
-                          </p>
-                        ))}
-                    </div>
-                  )}
-                </div>
-              )}
-              <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                {Array.from({ length: Math.max(1, courtCount) }, (_, index) => index + 1).map(
-                  (court) => (
-                    <div
-                      key={court}
-                      onDragOver={(e) => e.preventDefault()}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        const matchId = e.dataTransfer.getData('application/x-pctc-match-id');
-                        const match = matches.find((item) => item.id === matchId);
-                        if (match) void moveMatchToCourt(match, court);
-                      }}
-                      className="min-h-32 rounded-md border border-dashed border-border bg-secondary/20 p-2"
-                    >
-                      <p className="text-sm font-semibold">Court {court}</p>
-                      <div className="mt-2 space-y-2">
-                        {matches
-                          .filter(
-                            (match) => match.court_number === court && match.status !== 'cancelled',
-                          )
-                          .sort(
-                            (a, b) =>
-                              (a.scheduled_at
-                                ? new Date(a.scheduled_at).getTime()
-                                : Number.MAX_SAFE_INTEGER) -
-                              (b.scheduled_at
-                                ? new Date(b.scheduled_at).getTime()
-                                : Number.MAX_SAFE_INTEGER),
-                          )
-                          .map((match) => {
-                            const names = matchCourtTileNames(match);
-                            return (
-                              <div
-                                key={match.id}
-                                draggable
-                                onDragStart={(e) => {
-                                  e.dataTransfer.setData('application/x-pctc-match-id', match.id);
-                                  e.dataTransfer.effectAllowed = 'move';
-                                }}
-                                className="cursor-grab rounded-md border border-border bg-background px-2 py-2 text-xs shadow-sm active:cursor-grabbing"
-                                title="Drag to another court to reassign"
-                              >
-                                <p className="font-semibold">
-                                  {match.scheduled_at
-                                    ? formatDateTime(match.scheduled_at)
-                                    : 'Time not scheduled'}
-                                </p>
-                                <p className="mt-1 leading-snug text-muted-foreground">
-                                  {names.players} · {names.stage}
-                                </p>
-                              </div>
-                            );
-                          })}
-                      </div>
-                    </div>
-                  ),
-                )}
-              </div>
-            </div>
+            <TournamentCourtScheduleBoard
+              courtCount={courtCount}
+              matches={matches}
+              getMatchLabels={matchCourtTileNames}
+              formatScheduledTime={formatDateTime}
+              conflicts={courtScheduleConflicts.map((conflict) => ({
+                key: `${conflict.court}-${conflict.current.id}`,
+                court: conflict.court,
+                severity: conflict.severity,
+                previousPlayers: matchCourtTileNames(conflict.previous).players,
+                previousTime: formatDateTime(conflict.previous.scheduled_at!),
+                currentPlayers: matchCourtTileNames(conflict.current).players,
+                currentTime: formatDateTime(conflict.current.scheduled_at!),
+              }))}
+              onMoveMatchToCourt={(matchId, court) => {
+                const match = matches.find((item) => item.id === matchId);
+                if (match) void moveMatchToCourt(match, court);
+              }}
+            />
             {adminMatchList.map((m, index, list) => {
               const knockoutPhase = matchPhase.includes('knockout');
               const groupKey = knockoutPhase
@@ -4112,9 +3676,9 @@ export function TournamentManagement({
                       {groupTitle}
                     </h4>
                   )}
-                  <div
-                    draggable
-                    onDragStart={(e) => e.dataTransfer.setData('application/x-pctc-match-id', m.id)}
+                  <DraggableItem
+                    id={m.id}
+                    dataType="application/x-pctc-match-id"
                     className="space-y-3 rounded-lg border border-border p-3"
                   >
                     <div className="flex flex-wrap items-start justify-between gap-2">
@@ -4397,7 +3961,7 @@ export function TournamentManagement({
                           <p className="text-sm">{m.notes}</p>
                         );
                       })()}
-                  </div>
+                  </DraggableItem>
                 </div>
               );
             })}

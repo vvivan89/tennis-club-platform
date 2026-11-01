@@ -1,12 +1,7 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { getSignedInUser, getConfiguredServiceClient } from '@/lib/api-helpers';
+import { escapeHtml as esc, sendResendEmail } from '@/lib/resend';
 
-const esc = (value: string) =>
-  value.replace(
-    /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!,
-  );
 const templates: Record<string, { subject: string; intro: string }> = {
   registration_created: {
     subject: 'Your PCTC event registration',
@@ -31,11 +26,8 @@ const templates: Record<string, { subject: string; intro: string }> = {
 };
 export async function POST(request: Request) {
   try {
-    const session = await createSupabaseServerClient();
-    const {
-      data: { user },
-    } = await session.auth.getUser();
-    if (!user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
+    const { user, response: authError } = await getSignedInUser();
+    if (authError) return authError;
     const body = await request.json();
     const eventIds = Array.isArray(body.eventIds)
       ? ([
@@ -46,16 +38,10 @@ export async function POST(request: Request) {
         : [];
     if (!eventIds.length || eventIds.length > 100)
       return NextResponse.json({ error: 'Provide one or more event IDs.' }, { status: 400 });
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!url || !key)
-      return NextResponse.json(
-        { error: 'Notification service is not configured.' },
-        { status: 503 },
-      );
-    const admin = createClient(url, key, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
+    const { db: admin, response: configError } = getConfiguredServiceClient(
+      'Notification service is not configured.',
+    );
+    if (configError) return configError;
     const [{ data: profile }, { data: regs }] = await Promise.all([
       admin.from('profiles').select('role,application_status').eq('id', user.id).maybeSingle(),
       admin
@@ -167,36 +153,7 @@ export async function POST(request: Request) {
               : template.subject
           : template.subject;
       const html = `<p>Hello ${name},</p><p>${template.intro}</p><h2>${title}</h2><p>${esc(new Date(event.starts_at).toLocaleString('en-CA'))}${event.location ? ` · ${esc(event.location)}` : ''}</p>${status ? `<p><strong>Registration status:</strong> ${esc(status)}</p>` : ''}<p><a href="${esc(eventUrl)}">View event details</a></p><p>Port Coquitlam Tennis Club</p>`;
-      try {
-        const response = await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ from: fromEmail, to: [recipient.email], subject, html }),
-        });
-        if (response.ok) {
-          await admin
-            .from('event_notification_queue')
-            .update({ sent_at: new Date().toISOString(), last_error: null })
-            .eq('id', item.id)
-            .is('sent_at', null);
-          sent++;
-        } else {
-          const detail = (await response.text()).slice(0, 1000);
-          const reason = `Resend HTTP ${response.status}: ${detail || 'No error details returned.'}`;
-          await admin
-            .from('event_notification_queue')
-            .update({ last_error: reason })
-            .eq('id', item.id);
-          errors.push({
-            eventId: item.event_id,
-            userId: item.user_id,
-            email: recipient.email,
-            error: reason,
-          });
-          failed++;
-        }
-      } catch (e) {
-        const reason = e instanceof Error ? e.message : 'Email send failed';
+      const recordFailure = async (reason: string) => {
         await admin
           .from('event_notification_queue')
           .update({ last_error: reason })
@@ -208,6 +165,30 @@ export async function POST(request: Request) {
           error: reason,
         });
         failed++;
+      };
+      try {
+        const response = await sendResendEmail({
+          apiKey: resendKey,
+          from: fromEmail,
+          to: recipient.email,
+          subject,
+          html,
+        });
+        if (response.ok) {
+          await admin
+            .from('event_notification_queue')
+            .update({ sent_at: new Date().toISOString(), last_error: null })
+            .eq('id', item.id)
+            .is('sent_at', null);
+          sent++;
+        } else {
+          const detail = (await response.text()).slice(0, 1000);
+          await recordFailure(
+            `Resend HTTP ${response.status}: ${detail || 'No error details returned.'}`,
+          );
+        }
+      } catch (e) {
+        await recordFailure(e instanceof Error ? e.message : 'Email send failed');
       }
     }
     return NextResponse.json({

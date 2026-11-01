@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { getClubDisplay } from '@/lib/club-display';
 import { SiteHeader } from '@/components/site-header';
 import { SiteFooter } from '@/components/site-footer';
 import { MemberNav } from '@/components/member-nav';
@@ -7,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getRankingsData } from '@/lib/rankings-data';
 import {
   calculatePlayerStats,
-  getSeasonYear,
+  getSeasonYearChoices,
   isInSeason,
   medal,
   rankPlayers,
@@ -15,6 +16,60 @@ import {
 import { SeasonSelector } from '@/components/season-selector';
 
 type Props = { searchParams?: { season?: string | string[] } };
+function StatCard({
+  title,
+  subtitle,
+  won,
+  lost,
+  percentage,
+  progressLabel,
+}: {
+  title: string;
+  subtitle: string;
+  won: number;
+  lost: number;
+  percentage: number;
+  progressLabel: string;
+}) {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle>{title}</CardTitle>
+        <p className="text-sm text-muted-foreground">{subtitle}</p>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <p className="text-xs text-muted-foreground">Won</p>
+            <p className="text-2xl font-semibold">{won}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Lost</p>
+            <p className="text-2xl font-semibold">{lost}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Win rate</p>
+            <p className="text-2xl font-semibold">{percentage.toFixed(1)}%</p>
+          </div>
+        </div>
+        <div
+          className="mt-4 h-3 overflow-hidden rounded-full bg-muted"
+          role="progressbar"
+          aria-label={progressLabel}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={percentage}
+        >
+          <div
+            className="h-full rounded-full bg-primary transition-all"
+            style={{ width: `${percentage}%` }}
+          />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default async function MemberStatsPage({ searchParams }: Props) {
   const session = await createSupabaseServerClient();
   const {
@@ -36,13 +91,7 @@ export default async function MemberStatsPage({ searchParams }: Props) {
   if (profile?.application_status !== 'approved') redirect('/member/dashboard');
   const data = await getRankingsData();
   if (profile.role !== 'admin' && !data.eligibleUserIds.has(user.id)) redirect('/member/dashboard');
-  const allSeasonYears = [
-    ...new Set(data.games.map((g) => getSeasonYear(new Date(g.playedAt), data.settings))),
-  ].sort((a, b) => b - a);
-  const currentSeasonYear = getSeasonYear(new Date(), data.settings);
-  const defaultYear = allSeasonYears.includes(currentSeasonYear)
-    ? currentSeasonYear
-    : (allSeasonYears[0] ?? currentSeasonYear);
+  const { allSeasonYears, defaultYear } = getSeasonYearChoices(data.games, data.settings);
   const requestedValue = searchParams?.season;
   const requested = Array.isArray(requestedValue) ? requestedValue[0] : requestedValue;
   const season =
@@ -95,11 +144,7 @@ export default async function MemberStatsPage({ searchParams }: Props) {
       };
     })
     .sort((a, b) => new Date(b.playedAt).getTime() - new Date(a.playedAt).getTime());
-  const clubName = club?.club_name || 'Port Coquitlam Tennis Club';
-  const shortName = club?.short_name || 'PCTC';
-  const socialLinks = Array.isArray(club?.social_links)
-    ? (club.social_links as { url: string }[])
-    : [];
+  const { clubName, shortName, socialLinks } = getClubDisplay(club);
   const seasonLabel = season === 'all' ? 'All time' : `${season}`;
   return (
     <main className="flex min-h-screen flex-col bg-background text-foreground">
@@ -167,80 +212,22 @@ export default async function MemberStatsPage({ searchParams }: Props) {
           )}
         </section>
         <div className="mt-7 grid gap-4 lg:grid-cols-2">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle>Sets</CardTitle>
-              <p className="text-sm text-muted-foreground">
-                {own.setsWon + own.setsLost} recorded results · {seasonLabel}
-              </p>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <p className="text-xs text-muted-foreground">Won</p>
-                  <p className="text-2xl font-semibold">{own.setsWon}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Lost</p>
-                  <p className="text-2xl font-semibold">{own.setsLost}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Win rate</p>
-                  <p className="text-2xl font-semibold">{own.setsPercentage.toFixed(1)}%</p>
-                </div>
-              </div>
-              <div
-                className="mt-4 h-3 overflow-hidden rounded-full bg-muted"
-                role="progressbar"
-                aria-label="Sets won percentage"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={own.setsPercentage}
-              >
-                <div
-                  className="h-full rounded-full bg-primary transition-all"
-                  style={{ width: `${own.setsPercentage}%` }}
-                />
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle>Games</CardTitle>
-              <p className="text-sm text-muted-foreground">
-                {own.gamesWon + own.gamesLost} total games · {seasonLabel}
-              </p>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <p className="text-xs text-muted-foreground">Won</p>
-                  <p className="text-2xl font-semibold">{own.gamesWon}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Lost</p>
-                  <p className="text-2xl font-semibold">{own.gamesLost}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Win rate</p>
-                  <p className="text-2xl font-semibold">{own.gamesPercentage.toFixed(1)}%</p>
-                </div>
-              </div>
-              <div
-                className="mt-4 h-3 overflow-hidden rounded-full bg-muted"
-                role="progressbar"
-                aria-label="Games won percentage"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={own.gamesPercentage}
-              >
-                <div
-                  className="h-full rounded-full bg-primary transition-all"
-                  style={{ width: `${own.gamesPercentage}%` }}
-                />
-              </div>
-            </CardContent>
-          </Card>
+          <StatCard
+            title="Sets"
+            subtitle={`${own.setsWon + own.setsLost} recorded results · ${seasonLabel}`}
+            won={own.setsWon}
+            lost={own.setsLost}
+            percentage={own.setsPercentage}
+            progressLabel="Sets won percentage"
+          />
+          <StatCard
+            title="Games"
+            subtitle={`${own.gamesWon + own.gamesLost} total games · ${seasonLabel}`}
+            won={own.gamesWon}
+            lost={own.gamesLost}
+            percentage={own.gamesPercentage}
+            progressLabel="Games won percentage"
+          />
         </div>
         <section className="mt-8">
           <h2 className="text-lg font-semibold">Past game scores</h2>

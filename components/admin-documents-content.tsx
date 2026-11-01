@@ -1,8 +1,8 @@
 'use client';
 import { TennisLoader } from '@/components/tennis-loader';
+import { FormFeedback } from '@/components/form-feedback';
 import { AdminSectionTabs } from '@/components/admin-section-tabs';
-import { useEffect, useState, type FormEvent } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, type FormEvent } from 'react';
 type DocumentRow = {
   id: string;
   title: string;
@@ -11,14 +11,15 @@ type DocumentRow = {
   created_at: string;
 };
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
+import { requireBrowserUser } from '@/lib/supabase-browser-user';
 import { AdminNav } from '@/components/admin-nav';
 import { SiteFooter } from '@/components/site-footer';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { useApprovedAdminPage } from '@/hooks/use-approved-admin-page';
 
 export function AdminDocumentsContent({ embedded = false }: { embedded?: boolean }) {
-  const router = useRouter();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [file, setFile] = useState<File | null>(null);
@@ -27,51 +28,15 @@ export function AdminDocumentsContent({ embedded = false }: { embedded?: boolean
   const [message, setMessage] = useState('');
   const [documents, setDocuments] = useState<DocumentRow[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<DocumentRow | null>(null);
-  const [club, setClub] = useState({
-    club_name: 'Port Coquitlam Tennis Club',
-    short_name: 'PCTC',
-    social_links: [] as { url: string }[],
-  });
   async function load() {
     const db = createSupabaseBrowserClient();
-    const [{ data }, { data: clubData }] = await Promise.all([
-      db
-        .from('documents')
-        .select('id,title,description,created_at,storage_path')
-        .order('created_at', { ascending: false }),
-      db
-        .from('club_settings')
-        .select('club_name,short_name,social_links')
-        .eq('id', 1)
-        .maybeSingle(),
-    ]);
+    const { data } = await db
+      .from('documents')
+      .select('id,title,description,created_at,storage_path')
+      .order('created_at', { ascending: false });
     setDocuments(data ?? []);
-    if (clubData)
-      setClub({
-        club_name: clubData.club_name || 'Port Coquitlam Tennis Club',
-        short_name: clubData.short_name || 'PCTC',
-        social_links: Array.isArray(clubData.social_links) ? clubData.social_links : [],
-      });
   }
-  useEffect(() => {
-    const db = createSupabaseBrowserClient();
-    db.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user) {
-        router.replace('/login?next=/admin/documents?tab=uploaded_documents');
-        return;
-      }
-      const { data } = await db
-        .from('profiles')
-        .select('role,application_status')
-        .eq('id', user.id)
-        .maybeSingle();
-      if (data?.role !== 'admin' || data?.application_status !== 'approved') {
-        router.replace('/member/dashboard');
-        return;
-      }
-      void load();
-    });
-  }, [router]);
+  useApprovedAdminPage('/login?next=/admin/documents?tab=uploaded_documents', () => void load());
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError('');
@@ -90,11 +55,7 @@ export function AdminDocumentsContent({ embedded = false }: { embedded?: boolean
     }
     setBusy(true);
     try {
-      const db = createSupabaseBrowserClient();
-      const {
-        data: { user },
-      } = await db.auth.getUser();
-      if (!user) throw new Error('Sign in again.');
+      const { db, user } = await requireBrowserUser();
       const path = `${user.id}/${crypto.randomUUID()}.pdf`;
       const { error: uploadError } = await db.storage
         .from('member-documents')
@@ -207,16 +168,7 @@ export function AdminDocumentsContent({ embedded = false }: { embedded?: boolean
               PDF only; maximum 20 MB.
             </span>
           </label>
-          {error && (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          )}
-          {message && (
-            <p role="status" className="text-sm">
-              {message}
-            </p>
-          )}
+          <FormFeedback error={error} message={message} />
           <Button type="submit" disabled={busy}>
             {busy ? <TennisLoader compact label="Uploading" /> : 'Upload PDF'}
           </Button>
@@ -244,13 +196,7 @@ export function AdminDocumentsContent({ embedded = false }: { embedded?: boolean
           </div>
         </section>
       </div>
-      {!embedded && (
-        <SiteFooter
-          clubName={club.club_name}
-          shortName={club.short_name}
-          socialLinks={club.social_links}
-        />
-      )}
+      {!embedded && <SiteFooter />}
       {deleteTarget && (
         <ConfirmDialog
           open

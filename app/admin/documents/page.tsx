@@ -1,9 +1,11 @@
 'use client';
 import { TennisLoader } from '@/components/tennis-loader';
+import { FormFeedback } from '@/components/form-feedback';
 import { AdminSectionTabs } from '@/components/admin-section-tabs';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
+import { requireBrowserUser } from '@/lib/supabase-browser-user';
 import { AdminNav } from '@/components/admin-nav';
 import { SiteFooter } from '@/components/site-footer';
 import { Button } from '@/components/ui/button';
@@ -107,11 +109,7 @@ export default function AdminLegalPage() {
     }
     setBusy(true);
     try {
-      const db = createSupabaseBrowserClient();
-      const {
-        data: { user },
-      } = await db.auth.getUser();
-      if (!user) throw new Error('Sign in again.');
+      const { db, user } = await requireBrowserUser();
       const maxVersion = Math.max(
         0,
         ...versions.filter((v) => v.document_type === activeTab).map((v) => v.version),
@@ -193,16 +191,7 @@ export default function AdminLegalPage() {
                 <p className="mb-1.5 text-sm font-medium">Document text</p>
                 <RichTextEditor value={body} onChange={setBody} />
               </div>
-              {error && (
-                <p role="alert" className="text-sm text-destructive">
-                  {error}
-                </p>
-              )}
-              {message && (
-                <p role="status" className="text-sm">
-                  {message}
-                </p>
-              )}
+              <FormFeedback error={error} message={message} />
               <Button type="submit" disabled={busy}>
                 {busy ? <TennisLoader compact label="Saving" /> : 'Save new version'}
               </Button>

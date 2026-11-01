@@ -16,7 +16,6 @@ vi.mock('@/lib/supabase-server', () => ({
 }));
 vi.mock('@supabase/supabase-js', () => ({ createClient: mocks.createClient }));
 
-import { GET as organizerContactsGet } from '@/app/api/events/[eventId]/organizer-contacts/route';
 import { GET as tournamentPaymentStatusGet } from '@/app/api/events/[eventId]/tournament-payment-status/route';
 import { GET as pairPaymentStatusGet } from '@/app/api/tournaments/[eventId]/pair-payment-status/route';
 
@@ -78,110 +77,6 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.clearAllMocks();
-});
-
-describe('GET /api/events/[eventId]/organizer-contacts', () => {
-  it('validates the event id and server configuration', async () => {
-    expect(
-      (await organizerContactsGet(new Request('https://club.test'), { params: { eventId: 'bad' } }))
-        .status,
-    ).toBe(400);
-    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', '');
-    expect((await organizerContactsGet(new Request('https://club.test'), context)).status).toBe(
-      503,
-    );
-    expect(mocks.createClient).not.toHaveBeenCalled();
-  });
-
-  it('returns safe errors for event lookup failures and non-public tournaments', async () => {
-    mocks.errors.events = { message: 'database details' };
-    const failed = await organizerContactsGet(new Request('https://club.test'), context);
-    expect(failed.status).toBe(500);
-    expect(await failed.json()).toEqual({ error: 'Could not load event.' });
-
-    mocks.errors = {};
-    mocks.data.events = { id: eventId, event_type: 'social', status: 'published' };
-    const unsupported = await organizerContactsGet(new Request('https://club.test'), context);
-    expect(unsupported.status).toBe(404);
-  });
-
-  it('returns an empty private response when the event or profile has no organizer', async () => {
-    mocks.data.events = { id: eventId, event_type: 'tournament', status: 'published' };
-    const noOrganizer = await organizerContactsGet(new Request('https://club.test'), context);
-    expect(await noOrganizer.json()).toEqual({ contacts: [] });
-    expect(noOrganizer.headers.get('Cache-Control')).toBe('no-store');
-
-    mocks.data.events = {
-      id: eventId,
-      event_type: 'tournament',
-      status: 'published',
-      created_by: 'organizer-1',
-    };
-    mocks.data.profiles = null;
-    const noProfile = await organizerContactsGet(new Request('https://club.test'), context);
-    expect(await noProfile.json()).toEqual({ contacts: [] });
-  });
-
-  it('filters contact values and falls back to organizer profile details', async () => {
-    mocks.data.events = {
-      id: eventId,
-      event_type: 'tournament',
-      status: 'published',
-      organizer_id: 'organizer-1',
-      created_by: 'creator-1',
-    };
-    mocks.data.profiles = {
-      id: 'organizer-1',
-      full_name: 'Alex Organizer',
-      email: 'alex@example.com',
-      phone: '604-555-0100',
-      role: 'organizer',
-    };
-    mocks.data.club_contacts = {
-      position: 'Tournament director',
-      emails: [' events@example.com ', '', 2],
-      phones: ['604-555-0101', '  ', null],
-    };
-
-    const response = await organizerContactsGet(new Request('https://club.test'), context);
-    expect(response.status).toBe(200);
-    expect(response.headers.get('Cache-Control')).toBe('no-store, private');
-    expect(await response.json()).toEqual({
-      contacts: [
-        {
-          organizer_name: 'Alex Organizer',
-          position: 'Tournament director',
-          emails: [' events@example.com '],
-          phones: ['604-555-0101'],
-        },
-      ],
-    });
-
-    mocks.data.club_contacts = null;
-    const fallback = await organizerContactsGet(new Request('https://club.test'), context);
-    expect(await fallback.json()).toMatchObject({
-      contacts: [
-        {
-          position: 'Event organizer',
-          emails: ['alex@example.com'],
-          phones: ['604-555-0100'],
-        },
-      ],
-    });
-  });
-
-  it('hides database errors while loading organizer details', async () => {
-    mocks.data.events = {
-      id: eventId,
-      event_type: 'tournament',
-      status: 'published',
-      organizer_id: 'organizer-1',
-    };
-    mocks.errors['club_contacts'] = { message: 'private database details' };
-    const response = await organizerContactsGet(new Request('https://club.test'), context);
-    expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: 'Could not load organizer contacts.' });
-  });
 });
 
 describe('GET /api/events/[eventId]/tournament-payment-status', () => {

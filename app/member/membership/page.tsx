@@ -8,7 +8,10 @@ import { SiteFooter } from '@/components/site-footer';
 import { Button } from '@/components/ui/button';
 import { MemberNav } from '@/components/member-nav';
 import { SearchableMemberSelect } from '@/components/searchable-member-select';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import {
+  InteracPaymentInstructionsDialog,
+  type InteracPaymentNotice,
+} from '@/components/interac-payment-instructions-dialog';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 type Profile = {
   id: string;
@@ -150,13 +153,7 @@ export default function MembershipPortal() {
   const [waiverAccepted, setWaiverAccepted] = useState(false);
   const [interacEnabled, setInteracEnabled] = useState(false);
   const [message, setMessage] = useState('');
-  const [interacNotice, setInteracNotice] = useState<{
-    amount: string;
-    recipientEmail: string;
-    paymentId: string;
-    instructions: string;
-    message: string;
-  } | null>(null);
+  const [interacNotice, setInteracNotice] = useState<InteracPaymentNotice | null>(null);
   const [club, setClub] = useState<{
     club_name: string;
     short_name: string;
@@ -822,48 +819,9 @@ export default function MembershipPortal() {
         shortName={club.short_name}
         socialLinks={Array.isArray(club.social_links) ? club.social_links : []}
       />
-      <ConfirmDialog
-        open={!!interacNotice}
-        title="Interac e-Transfer instructions"
-        description={
-          interacNotice ? (
-            <div className="space-y-4">
-              <p className="text-muted-foreground">
-                Your payment request has been created. Send the amount below by e-Transfer.
-              </p>
-              <div className="rounded-lg border border-border bg-muted/40 p-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Amount to send
-                </p>
-                <p className="mt-1 text-xl font-semibold">{interacNotice.amount}</p>
-                <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Send to
-                </p>
-                <p className="mt-1 break-all font-medium">{interacNotice.recipientEmail}</p>
-                <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Payment reference
-                </p>
-                <p className="mt-1 break-all font-mono text-xs">{interacNotice.paymentId}</p>
-              </div>
-              {interacNotice.instructions.trim() && (
-                <div className="rounded-lg border-2 border-primary/40 bg-primary/5 p-4">
-                  <p className="mb-2 text-sm font-semibold text-primary">
-                    Payment instructions from the club
-                  </p>
-                  <p className="whitespace-pre-line leading-relaxed">
-                    {interacNotice.instructions}
-                  </p>
-                </div>
-              )}
-              {interacNotice.message && (
-                <p className="text-sm text-muted-foreground">{interacNotice.message}</p>
-              )}
-            </div>
-          ) : null
-        }
-        confirmLabel="Got it"
-        onConfirm={() => setInteracNotice(null)}
-        onCancel={() => setInteracNotice(null)}
+      <InteracPaymentInstructionsDialog
+        notice={interacNotice}
+        onClose={() => setInteracNotice(null)}
       />
     </main>
   );

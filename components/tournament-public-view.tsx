@@ -1,6 +1,8 @@
 'use client';
 
 import { formatDateTime, formatTime } from '@/lib/time-format';
+import { useTimedFeedback } from '@/hooks/use-timed-feedback';
+import { evaluateTournamentScore } from '@/lib/tournament-score';
 import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
@@ -17,6 +19,26 @@ import { Sparkles, Triangle, Trophy } from 'lucide-react';
 import { TennisLoader } from '@/components/tennis-loader';
 import { SearchableMemberSelect, type MemberOption } from '@/components/searchable-member-select';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { DraggableItem } from '@/components/drag-drop';
+import {
+  LeagueCourtAssignmentDialog,
+  type LeagueCourtAssignment,
+} from '@/components/league-court-assignment-dialog';
+import { FloatingFeedback } from '@/components/floating-feedback';
+import { PartnerSkillLevelSelect } from '@/components/partner-skill-level-select';
+import {
+  compareTournamentEntries,
+  compareTournamentHeadToHead,
+  defaultRankingPriority,
+  tournamentRankingMetric,
+} from '@/lib/tournament-standings';
+import {
+  compareByScheduleThenCourt,
+  compareByScheduleThenMatchNumber,
+  hasTwoPlayersPerTeam,
+  roundNumbersByMatch,
+  type TournamentMatchCore,
+} from '@/lib/tournament-match';
 
 type GroupOverride = {
   id: string;
@@ -78,25 +100,8 @@ type MatchPlayer = {
   side: number;
   team_id: string | null;
 };
-type Match = {
-  id: string;
+type Match = TournamentMatchCore & {
   event_id: string;
-  category: string;
-  phase: string;
-  group_number: number | null;
-  round_number: number;
-  match_number: number;
-  pair_one_id: string | null;
-  pair_two_id: string | null;
-  team_one_id: string | null;
-  team_two_id: string | null;
-  scheduled_at: string | null;
-  court_number: number | null;
-  score_sets: Array<{ one: number; two: number }>;
-  winner_side: number | null;
-  team_points_one: number;
-  team_points_two: number;
-  status: string;
   team_one_name: string | null;
   team_two_name: string | null;
   player_one_name: string | null;
@@ -105,8 +110,6 @@ type Match = {
   opponent_two_name: string | null;
   notes?: string | null;
 };
-type LeagueCourtAssignment = { pair_id: string; court_number: number; segment_order: number };
-
 function safeRulesHtml(input: string) {
   if (typeof window === 'undefined')
     return input
@@ -216,7 +219,6 @@ export function TournamentPublicView({
   const [leagueCourtAssignments, setLeagueCourtAssignments] = useState<LeagueCourtAssignment[]>([]);
   const [leagueCourtDraft, setLeagueCourtDraft] = useState<LeagueCourtAssignment[]>([]);
   const [leagueCourtSessionCount, setLeagueCourtSessionCount] = useState(1);
-  const [leagueCourtDragging, setLeagueCourtDragging] = useState<string | null>(null);
   const [leagueCourtError, setLeagueCourtError] = useState('');
   const [leagueCourtConfirmation, setLeagueCourtConfirmation] = useState(false);
   const [leagueCourtView, setLeagueCourtView] = useState<'courts' | 'list'>('list');
@@ -350,17 +352,14 @@ export function TournamentPublicView({
   const [partnerPhone, setPartnerPhone] = useState('');
   const [partnerGender, setPartnerGender] = useState('');
   const [partnerSkillLevel, setPartnerSkillLevel] = useState('');
-  const [registrationBusy, setRegistrationBusy] = useState(false);
-  const [registrationError, setRegistrationError] = useState('');
-  const [registrationMessage, setRegistrationMessage] = useState('');
-  useEffect(() => {
-    if (!registrationError && !registrationMessage) return;
-    const timer = window.setTimeout(() => {
-      setRegistrationError('');
-      setRegistrationMessage('');
-    }, 3000);
-    return () => window.clearTimeout(timer);
-  }, [registrationError, registrationMessage]);
+  const {
+    busy: registrationBusy,
+    setBusy: setRegistrationBusy,
+    error: registrationError,
+    setError: setRegistrationError,
+    message: registrationMessage,
+    setMessage: setRegistrationMessage,
+  } = useTimedFeedback();
   const [paymentParticipantIds, setPaymentParticipantIds] = useState<string[]>([]);
   const [newEntryParticipantId, setNewEntryParticipantId] = useState<string | null>(null);
   const [newPartnerParticipantId, setNewPartnerParticipantId] = useState<string | null>(null);
@@ -948,17 +947,7 @@ export function TournamentPublicView({
     ]);
   }
   async function saveCaptainScore(match: Match) {
-    if (
-      [1, 2].some(
-        (side) =>
-          matchPlayers.filter(
-            (player) =>
-              player.match_id === match.id &&
-              player.side === side &&
-              player.team_id === (side === 1 ? match.team_one_id : match.team_two_id),
-          ).length !== 2,
-      )
-    ) {
+    if (!hasTwoPlayersPerTeam(match, matchPlayers)) {
       window.alert(
         'Assign two players to each team before recording the result so individual records remain accurate.',
       );
@@ -966,91 +955,12 @@ export function TournamentPublicView({
     }
     const input = document.getElementById(`captain-score-${match.id}`) as HTMLInputElement | null;
     const raw = input?.value ?? '';
-    const sets = raw
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .map((s) => {
-        const parts = s.split('-').map(Number);
-        return { one: parts[0], two: parts[1] };
-      });
-    if (
-      !sets.length ||
-      sets.some(
-        (set) =>
-          !Number.isInteger(set.one) ||
-          !Number.isInteger(set.two) ||
-          set.one < 0 ||
-          set.two < 0 ||
-          set.one === set.two,
-      )
-    ) {
-      window.alert('Enter decisive set scores like 6-4, 3-6, 10-8.');
+    const evaluation = evaluateTournamentScore(raw, config?.scoring_template);
+    if (evaluation.error !== undefined) {
+      window.alert(evaluation.error);
       return;
     }
-    if (config?.scoring_template === 'one_set' && sets.length !== 1) {
-      window.alert('This scoring template requires exactly one set.');
-      return;
-    }
-    if (
-      config?.scoring_template === 'best_of_three' &&
-      (sets.length > 3 ||
-        Math.max(
-          sets.filter((set) => set.one > set.two).length,
-          sets.filter((set) => set.two > set.one).length,
-        ) < 2)
-    ) {
-      window.alert(
-        'Best-of-three requires a player to win two sets, with no more than three sets.',
-      );
-      return;
-    }
-    if (
-      config?.scoring_template === 'two_sets_then_third' &&
-      (sets.length < 2 ||
-        sets.length > 3 ||
-        (sets[0].one > sets[0].two === sets[1].one > sets[1].two && sets.length !== 2) ||
-        (sets[0].one > sets[0].two !== sets[1].one > sets[1].two && sets.length !== 3))
-    ) {
-      window.alert('Play two sets; add a deciding third set only when the first two are split.');
-      return;
-    }
-    if (
-      config?.scoring_template === 'team_two_sets_bonus_third' &&
-      (sets.length < 2 ||
-        sets.length > 3 ||
-        (sets[0].one > sets[0].two === sets[1].one > sets[1].two && sets.length !== 2) ||
-        (sets[0].one > sets[0].two !== sets[1].one > sets[1].two && sets.length !== 3))
-    ) {
-      window.alert(
-        'This team scoring template requires two sets, plus a third set if the first two are split.',
-      );
-      return;
-    }
-    const winsOne = sets.filter((set) => set.one > set.two).length;
-    const winsTwo = sets.filter((set) => set.two > set.one).length;
-    if (winsOne === winsTwo) {
-      window.alert('The set scores must identify a winner.');
-      return;
-    }
-    const winner = winsOne > winsTwo ? 1 : 2;
-    let pointsOne = winner === 1 ? 1 : 0;
-    let pointsTwo = winner === 2 ? 1 : 0;
-    if (config?.scoring_template === 'team_two_sets_bonus_third') {
-      const firstTwo = sets.slice(0, 2);
-      const a = firstTwo.filter((set) => set.one > set.two).length;
-      const b = firstTwo.filter((set) => set.two > set.one).length;
-      if (a === 2) {
-        pointsOne = 3;
-        pointsTwo = 0;
-      } else if (b === 2) {
-        pointsOne = 0;
-        pointsTwo = 3;
-      } else {
-        pointsOne = winner === 1 ? 2 : 1;
-        pointsTwo = winner === 2 ? 2 : 1;
-      }
-    }
+    const { sets, winner, pointsOne, pointsTwo } = evaluation;
     const { error: saveError } = await db
       .from('tournament_matches')
       .update({
@@ -1132,32 +1042,21 @@ export function TournamentPublicView({
   const categoryVisibleMatches = visibleMatches.filter(
     (match) => format === 'team' || match.category === activeCategory,
   );
-  const roundRobinRoundByMatch = useMemo(() => {
-    const roundNumberByMatch = new Map<string, number>();
-    const counts = new Map<string, number>();
-    const roundRobinMatches = categoryVisibleMatches
-      .filter(
-        (match) =>
-          match.phase.includes('round_robin') &&
-          match.status !== 'cancelled' &&
-          match.status !== 'bye',
-      )
-      .sort((a, b) => {
-        const aTime = a.scheduled_at ? new Date(a.scheduled_at).getTime() : Number.MAX_SAFE_INTEGER;
-        const bTime = b.scheduled_at ? new Date(b.scheduled_at).getTime() : Number.MAX_SAFE_INTEGER;
-        return aTime - bTime || a.match_number - b.match_number;
-      });
-    for (const match of roundRobinMatches) {
-      const first = format === 'team' ? match.team_one_id : match.pair_one_id;
-      const second = format === 'team' ? match.team_two_id : match.pair_two_id;
-      const firstRound = first ? (counts.get(first) ?? 0) + 1 : match.round_number;
-      const secondRound = second ? (counts.get(second) ?? 0) + 1 : match.round_number;
-      if (first) counts.set(first, firstRound);
-      if (second) counts.set(second, secondRound);
-      roundNumberByMatch.set(match.id, Math.min(firstRound, secondRound));
-    }
-    return roundNumberByMatch;
-  }, [categoryVisibleMatches, format]);
+  const roundRobinRoundByMatch = useMemo(
+    () =>
+      roundNumbersByMatch(
+        categoryVisibleMatches
+          .filter(
+            (match) =>
+              match.phase.includes('round_robin') &&
+              match.status !== 'cancelled' &&
+              match.status !== 'bye',
+          )
+          .sort(compareByScheduleThenMatchNumber),
+        format === 'team',
+      ),
+    [categoryVisibleMatches, format],
+  );
   const isOwnPair = (pairId: string | null | undefined) => {
     if (!pairId || !currentUserId) return false;
     const pair = pairs.find((item) => item.id === pairId);
@@ -1451,89 +1350,31 @@ export function TournamentPublicView({
           two.gamesAgainst += set.one;
         }
       });
-    const priority: string[] =
-      config?.ranking_priority ??
-      (format === 'team'
-        ? [
-            'points',
-            'matches_won',
-            'sets_won',
-            'games_won',
-            'set_difference',
-            'game_difference',
-            'head_to_head',
-          ]
-        : [
-            'matches_won',
-            'sets_won',
-            'games_won',
-            'set_difference',
-            'game_difference',
-            'head_to_head',
-          ]);
-    const value = (
-      row: {
-        wins: number;
-        points: number;
-        setsFor: number;
-        setsAgainst: number;
-        gamesFor: number;
-        gamesAgainst: number;
-      },
-      key: string,
-    ) =>
-      key === 'points'
-        ? row.points
-        : key === 'matches_won'
-          ? row.wins
-          : key === 'sets_won'
-            ? row.setsFor
-            : key === 'games_won'
-              ? row.gamesFor
-              : key === 'set_difference'
-                ? row.setsFor - row.setsAgainst
-                : key === 'game_difference'
-                  ? row.gamesFor - row.gamesAgainst
-                  : 0;
+    const priority = config?.ranking_priority ?? defaultRankingPriority(format === 'team');
+    const value = tournamentRankingMetric;
     return [...groups.values()]
       .sort((a, b) => a.group - b.group || a.category.localeCompare(b.category))
       .map((group) => {
-        const standings = [...group.rows.values()].sort((a, b) => {
-          for (const key of priority) {
-            if (key === 'head_to_head') {
-              const direct = visibleMatches.find(
+        const standings = [...group.rows.values()].sort((a, b) =>
+          compareTournamentEntries(
+            a,
+            b,
+            priority,
+            value,
+            (first, second) =>
+              compareTournamentHeadToHead(
+                visibleMatches,
+                first.id,
+                second.id,
+                format === 'team',
                 (match) =>
                   match.category === group.category &&
                   match.group_number === group.group &&
-                  match.status === 'completed' &&
-                  ((format === 'team' &&
-                    match.team_one_id === a.id &&
-                    match.team_two_id === b.id) ||
-                    (format === 'team' &&
-                      match.team_one_id === b.id &&
-                      match.team_two_id === a.id) ||
-                    (format !== 'team' &&
-                      match.pair_one_id === a.id &&
-                      match.pair_two_id === b.id) ||
-                    (format !== 'team' &&
-                      match.pair_one_id === b.id &&
-                      match.pair_two_id === a.id)),
-              );
-              if (direct?.winner_side) {
-                const aWon =
-                  direct.team_one_id === a.id || direct.pair_one_id === a.id
-                    ? direct.winner_side === 1
-                    : direct.winner_side === 2;
-                if (aWon) return -1;
-                return 1;
-              }
-              continue;
-            }
-            const diff = value(b, key) - value(a, key);
-            if (diff) return diff;
-          }
-          return a.name.localeCompare(b.name);
-        });
+                  match.status === 'completed',
+              ),
+            (row) => row.name,
+          ),
+        );
         const automaticPositions = new Map(standings.map((row, index) => [row.id, index + 1]));
         const overrides = groupOverrides
           .filter(
@@ -1725,50 +1566,8 @@ export function TournamentPublicView({
     const categories =
       format === 'team' ? ['team'] : (config?.categories ?? ['mixed', 'men', 'women']);
     const summaries: Array<{ category: string; winners: string[] }> = [];
-    const rankingPriority =
-      config?.ranking_priority ??
-      (format === 'team'
-        ? [
-            'points',
-            'matches_won',
-            'sets_won',
-            'games_won',
-            'set_difference',
-            'game_difference',
-            'head_to_head',
-          ]
-        : [
-            'matches_won',
-            'sets_won',
-            'games_won',
-            'set_difference',
-            'game_difference',
-            'head_to_head',
-          ]);
-    const metric = (
-      row: {
-        wins: number;
-        points: number;
-        setsFor: number;
-        setsAgainst: number;
-        gamesFor: number;
-        gamesAgainst: number;
-      },
-      key: string,
-    ) =>
-      key === 'points'
-        ? row.points
-        : key === 'matches_won'
-          ? row.wins
-          : key === 'sets_won'
-            ? row.setsFor
-            : key === 'games_won'
-              ? row.gamesFor
-              : key === 'set_difference'
-                ? row.setsFor - row.setsAgainst
-                : key === 'game_difference'
-                  ? row.gamesFor - row.gamesAgainst
-                  : 0;
+    const rankingPriority = config?.ranking_priority ?? defaultRankingPriority(format === 'team');
+    const metric = tournamentRankingMetric;
     for (const category of categories) {
       const phase = format === 'team' ? 'team_knockout' : 'final_knockout';
       const knockoutEnabled = config?.phases?.[phase] !== false;
@@ -1945,7 +1744,6 @@ export function TournamentPublicView({
       return [...retained, { pair_id: pairId, court_number: court, segment_order: session }];
     });
     setLeagueCourtError('');
-    setLeagueCourtDragging(null);
   }
   function unassignLeaguePair(pairId: string, session: number) {
     setLeagueCourtDraft((current) =>
@@ -1953,7 +1751,6 @@ export function TournamentPublicView({
         (assignment) => assignment.pair_id !== pairId || assignment.segment_order !== session,
       ),
     );
-    setLeagueCourtDragging(null);
   }
   async function saveLeagueCourtAssignments(skipWarnings = false) {
     const incomplete = Array.from(
@@ -1994,29 +1791,7 @@ export function TournamentPublicView({
   }
   return (
     <section className={leagueTournament ? 'space-y-8' : 'space-y-5'}>
-      {(registrationError || registrationMessage) && (
-        <div
-          className="pointer-events-none fixed right-4 top-4 z-[100] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2"
-          aria-live="polite"
-        >
-          {registrationError && (
-            <p
-              role="alert"
-              className="pointer-events-auto rounded-md border border-destructive/30 bg-background p-3 text-sm text-destructive shadow-lg"
-            >
-              {registrationError}
-            </p>
-          )}
-          {registrationMessage && (
-            <p
-              role="status"
-              className="pointer-events-auto rounded-md border border-emerald-600/30 bg-background p-3 text-sm shadow-lg"
-            >
-              {registrationMessage}
-            </p>
-          )}
-        </div>
-      )}
+      <FloatingFeedback error={registrationError} message={registrationMessage} />
       {(canViewCompetition || !!adminContent) && (
         <>
           {!resultsOnly && winnerSummaries.length > 0 && (
@@ -2192,17 +1967,15 @@ export function TournamentPublicView({
                 </div>
                 <div className="mt-4 overflow-hidden rounded-lg border border-border">
                   {overrideEditor.rows.map((row, index) => (
-                    <div
+                    <DraggableItem
                       key={row.id}
-                      draggable
-                      onDragStart={() => setDraggedEntryId(row.id)}
+                      id={row.id}
+                      onDragStateChange={setDraggedEntryId}
                       onDragOver={(event) => event.preventDefault()}
                       onDrop={(event) => {
                         event.preventDefault();
                         if (draggedEntryId) moveOverrideRow(draggedEntryId, row.id);
-                        setDraggedEntryId(null);
                       }}
-                      onDragEnd={() => setDraggedEntryId(null)}
                       className={`flex items-center gap-3 border-b border-border p-3 last:border-b-0 ${draggedEntryId === row.id ? 'opacity-40' : ''}`}
                     >
                       <span
@@ -2256,7 +2029,7 @@ export function TournamentPublicView({
                           Promoted
                         </label>
                       </div>
-                    </div>
+                    </DraggableItem>
                   ))}
                 </div>
                 <label className="mt-4 block text-sm font-medium">
@@ -3229,23 +3002,10 @@ export function TournamentPublicView({
                                   onChange={(e) => setPartnerPhone(e.target.value)}
                                 />
                               </label>
-                              <label className="text-sm">
-                                Partner tennis skill level (optional)
-                                <select
-                                  className="mt-1 block h-10 w-full rounded-md border border-input bg-background px-3"
-                                  value={partnerSkillLevel}
-                                  onChange={(e) => setPartnerSkillLevel(e.target.value)}
-                                >
-                                  <option value="">Not specified</option>
-                                  {Array.from({ length: 10 }, (_, index) =>
-                                    (2.5 + index * 0.5).toFixed(1),
-                                  ).map((level) => (
-                                    <option key={level} value={level}>
-                                      {level}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
+                              <PartnerSkillLevelSelect
+                                value={partnerSkillLevel}
+                                onChange={setPartnerSkillLevel}
+                              />
                               <label className="text-sm">
                                 Partner gender (optional)
                                 <select
@@ -3267,23 +3027,11 @@ export function TournamentPublicView({
                               (participant) =>
                                 participant.id === partnerChoice && !participant.is_member,
                             ) && (
-                              <label className="block text-sm">
-                                Partner tennis skill level (optional)
-                                <select
-                                  className="mt-1 block h-10 w-full rounded-md border border-input bg-background px-3"
-                                  value={partnerSkillLevel}
-                                  onChange={(e) => setPartnerSkillLevel(e.target.value)}
-                                >
-                                  <option value="">Not specified</option>
-                                  {Array.from({ length: 10 }, (_, index) =>
-                                    (2.5 + index * 0.5).toFixed(1),
-                                  ).map((level) => (
-                                    <option key={level} value={level}>
-                                      {level}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
+                              <PartnerSkillLevelSelect
+                                className="block text-sm"
+                                value={partnerSkillLevel}
+                                onChange={setPartnerSkillLevel}
+                              />
                             )}
                         </div>
                       )}
@@ -4132,17 +3880,7 @@ export function TournamentPublicView({
                                         a.round_number !== b.round_number
                                       )
                                         return a.round_number - b.round_number;
-                                      const aTime = a.scheduled_at
-                                        ? new Date(a.scheduled_at).getTime()
-                                        : Number.MAX_SAFE_INTEGER;
-                                      const bTime = b.scheduled_at
-                                        ? new Date(b.scheduled_at).getTime()
-                                        : Number.MAX_SAFE_INTEGER;
-                                      return (
-                                        aTime - bTime ||
-                                        (a.court_number ?? Number.MAX_SAFE_INTEGER) -
-                                          (b.court_number ?? Number.MAX_SAFE_INTEGER)
-                                      );
+                                      return compareByScheduleThenCourt(a, b);
                                     });
                                   const isRoundRobin = phase.includes('round_robin');
                                   const isKnockout = phase.includes('knockout');
@@ -4475,215 +4213,20 @@ export function TournamentPublicView({
         </>
       )}
       {leagueCourtModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="league-assign-courts-title"
-        >
-          <div className="my-4 w-full max-w-6xl rounded-xl border border-border bg-background p-5 shadow-xl">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h2 id="league-assign-courts-title" className="text-xl font-semibold">
-                  Assign courts
-                </h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Drag each League team to a court or back to Unassigned teams. Each team uses two
-                  player places.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setLeagueCourtModalOpen(false)}
-                className="rounded-md border border-border px-3 py-2 text-sm"
-              >
-                Close
-              </button>
-            </div>
-            <div className="mt-5 space-y-6">
-              {Array.from({ length: leagueCourtSessionCount }, (_, index) => index + 1).map(
-                (session) => (
-                  <section key={session} className="rounded-lg border border-border p-3">
-                    <div className="mb-3 flex items-center justify-between">
-                      <h3 className="font-semibold">Sub-session {session}</h3>
-                      {session > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setLeagueCourtDraft((current) =>
-                              current
-                                .filter((item) => item.segment_order !== session)
-                                .map((item) => ({
-                                  ...item,
-                                  segment_order:
-                                    item.segment_order > session
-                                      ? item.segment_order - 1
-                                      : item.segment_order,
-                                })),
-                            );
-                            setLeagueCourtSessionCount((count) => count - 1);
-                          }}
-                          className="rounded-md border border-border px-3 py-1.5 text-sm"
-                        >
-                          Remove sub-session
-                        </button>
-                      )}
-                    </div>
-                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                      {Array.from({ length: courtTotal }, (_, index) => index + 1).map((court) => {
-                        const assigned = leagueCourtDraft.filter(
-                          (item) => item.segment_order === session && item.court_number === court,
-                        );
-                        return (
-                          <div
-                            key={court}
-                            onDragOver={(event) => event.preventDefault()}
-                            onDrop={(event) => {
-                              event.preventDefault();
-                              const pairId = event.dataTransfer.getData(
-                                'application/x-pctc-league-pair',
-                              );
-                              if (pairId) moveLeaguePairToCourt(pairId, court, session);
-                            }}
-                            className="min-h-44 rounded-lg border-2 border-dashed border-border bg-muted/20 p-3"
-                          >
-                            <h4 className="mb-3 text-sm font-semibold">
-                              Court {court}{' '}
-                              <span className="font-normal text-muted-foreground">
-                                ({assigned.length} teams / {assigned.length * 2} player places)
-                              </span>
-                            </h4>
-                            <div className="space-y-2">
-                              {assigned.map((assignment) => {
-                                const pair = leaguePairs.find(
-                                  (item) => item.id === assignment.pair_id,
-                                );
-                                if (!pair) return null;
-                                return (
-                                  <div
-                                    key={assignment.pair_id}
-                                    draggable
-                                    onDragStart={(event) => {
-                                      event.dataTransfer.setData(
-                                        'application/x-pctc-league-pair',
-                                        assignment.pair_id,
-                                      );
-                                      event.dataTransfer.effectAllowed = 'move';
-                                      setLeagueCourtDragging(assignment.pair_id);
-                                    }}
-                                    onDragEnd={() => setLeagueCourtDragging(null)}
-                                    className={`flex cursor-grab items-center gap-2 rounded-lg border border-border bg-background p-2 shadow-sm active:cursor-grabbing ${leagueCourtDragging === assignment.pair_id ? 'opacity-50' : ''}`}
-                                  >
-                                    <div className="min-w-0">
-                                      <p className="truncate text-sm font-medium">
-                                        {pair.player_one_name} + {pair.player_two_name}
-                                      </p>
-                                      <p className="text-xs text-muted-foreground">
-                                        Two player places
-                                      </p>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <div
-                      className="mt-3 min-h-20 rounded-lg border-2 border-dashed border-border bg-muted/30 p-3"
-                      onDragOver={(event) => event.preventDefault()}
-                      onDrop={(event) => {
-                        event.preventDefault();
-                        const pairId = event.dataTransfer.getData('application/x-pctc-league-pair');
-                        if (pairId) unassignLeaguePair(pairId, session);
-                      }}
-                    >
-                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        Unassigned teams
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {leaguePairs
-                          .filter(
-                            (pair) =>
-                              !leagueCourtDraft.some(
-                                (item) =>
-                                  item.pair_id === pair.id && item.segment_order === session,
-                              ),
-                          )
-                          .map((pair) => (
-                            <div
-                              key={pair.id}
-                              draggable
-                              onDragStart={(event) => {
-                                event.dataTransfer.setData(
-                                  'application/x-pctc-league-pair',
-                                  pair.id,
-                                );
-                                event.dataTransfer.effectAllowed = 'move';
-                                setLeagueCourtDragging(pair.id);
-                              }}
-                              onDragEnd={() => setLeagueCourtDragging(null)}
-                              className="flex cursor-grab items-center gap-2 rounded-lg border border-border bg-background p-2"
-                            >
-                              <div>
-                                <p className="text-sm font-medium">
-                                  {pair.player_one_name} + {pair.player_two_name}
-                                </p>
-                                <p className="text-xs text-muted-foreground">Two player places</p>
-                              </div>
-                            </div>
-                          ))}
-                        {!leaguePairs.length && (
-                          <p className="text-sm text-muted-foreground">
-                            No paired League teams yet.
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </section>
-                ),
-              )}
-              <button
-                type="button"
-                onClick={() => {
-                  const next = leagueCourtSessionCount + 1;
-                  const copied = leagueCourtDraft
-                    .filter((item) => item.segment_order === 1)
-                    .map((item) => ({ ...item, segment_order: next }));
-                  setLeagueCourtDraft((current) => [...current, ...copied]);
-                  setLeagueCourtSessionCount(next);
-                }}
-                className="rounded-md border border-border px-3 py-2 text-sm"
-              >
-                Add sub-session
-              </button>
-            </div>
-            {leagueCourtError && (
-              <p role="alert" className="mt-3 text-sm text-destructive">
-                {leagueCourtError}
-              </p>
-            )}
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                type="button"
-                disabled={leagueCourtSaving}
-                onClick={() => setLeagueCourtModalOpen(false)}
-                className="rounded-md border border-border px-4 py-2 text-sm"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={leagueCourtSaving || !leaguePairs.length}
-                onClick={() => void saveLeagueCourtAssignments()}
-                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
-              >
-                {leagueCourtSaving ? 'Saving…' : 'Save assignments'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <LeagueCourtAssignmentDialog
+          courtSessionCount={leagueCourtSessionCount}
+          courtTotal={courtTotal}
+          leaguePairs={leaguePairs}
+          leagueCourtDraft={leagueCourtDraft}
+          leagueCourtSaving={leagueCourtSaving}
+          leagueCourtError={leagueCourtError}
+          setLeagueCourtDraft={setLeagueCourtDraft}
+          setLeagueCourtSessionCount={setLeagueCourtSessionCount}
+          onClose={() => setLeagueCourtModalOpen(false)}
+          onMoveLeaguePairToCourt={moveLeaguePairToCourt}
+          onUnassignLeaguePair={unassignLeaguePair}
+          onSaveLeagueCourtAssignments={() => void saveLeagueCourtAssignments()}
+        />
       )}
       {leagueWithdrawTarget && (
         <ConfirmDialog

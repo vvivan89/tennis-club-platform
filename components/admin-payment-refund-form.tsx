@@ -1,9 +1,11 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button } from '@/components/ui/button';
-import { RotateCcw } from 'lucide-react';
+import {
+  RefundAmountRow,
+  RefundStatusMessage,
+  useRefundForm,
+} from '@/components/refund-form-parts';
 
 export function AdminPaymentRefundForm({
   paymentId,
@@ -13,16 +15,11 @@ export function AdminPaymentRefundForm({
   remainingMinor: number;
 }) {
   const router = useRouter();
-  const [amount, setAmount] = useState((remainingMinor / 100).toFixed(2));
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState('');
-  useEffect(() => {
-    setAmount((remainingMinor / 100).toFixed(2));
-  }, [remainingMinor]);
-  const idempotencyKey = useRef(crypto.randomUUID());
+  const form = useRefundForm(remainingMinor);
+  const { amount, idempotencyKey } = form;
   async function submit() {
-    setBusy(true);
-    setMessage('');
+    form.setBusy(true);
+    form.setMessage('');
     try {
       const response = await fetch('/api/admin/payments/refund', {
         method: 'POST',
@@ -36,55 +33,31 @@ export function AdminPaymentRefundForm({
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Refund request failed.');
-      setMessage(`Refund requested (${result.status}). Payment history has been refreshed.`);
-      setAmount((remainingMinor / 100).toFixed(2));
+      form.setMessage(`Refund requested (${result.status}). Payment history has been refreshed.`);
+      form.setAmount(form.defaultAmount);
       router.refresh();
       idempotencyKey.current = crypto.randomUUID();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Refund request failed.');
+      form.setMessage(error instanceof Error ? error.message : 'Refund request failed.');
     } finally {
-      setBusy(false);
+      form.setBusy(false);
     }
   }
   return (
     <div className="min-w-0 space-y-1">
-      <div className="flex min-w-0 items-center gap-1.5 whitespace-nowrap">
-        <label className="sr-only" htmlFor={`refund-amount-${paymentId}`}>
-          Refund amount
-        </label>
-        <input
-          id={`refund-amount-${paymentId}`}
-          aria-label={`Refund amount for ${paymentId}`}
-          className="w-24 rounded-md border border-input bg-background px-2 py-1.5 text-sm"
-          type="number"
-          min="0.01"
-          step="0.01"
-          max={(remainingMinor / 100).toFixed(2)}
-          value={amount}
-          onChange={(event) => setAmount(event.target.value)}
-        />
-        <Button
-          size="icon"
-          variant="outline"
-          title="Request refund"
-          aria-label={`Request refund for ${paymentId}`}
-          disabled={
-            busy ||
-            remainingMinor <= 0 ||
-            !Number.isFinite(Number(amount)) ||
-            Number(amount) <= 0 ||
-            Math.round(Number(amount) * 100) > remainingMinor
-          }
-          onClick={() => void submit()}
-        >
-          <RotateCcw size={16} aria-hidden="true" />
-        </Button>
-      </div>
-      {message && (
-        <p role="status" className="max-w-64 text-xs text-muted-foreground">
-          {message}
-        </p>
-      )}
+      <RefundAmountRow
+        inputId={`refund-amount-${paymentId}`}
+        amount={amount}
+        onAmountChange={form.setAmount}
+        maxAmount={form.defaultAmount}
+        inputLabel="Refund amount"
+        inputAriaLabel={`Refund amount for ${paymentId}`}
+        buttonTitle="Request refund"
+        buttonAriaLabel={`Request refund for ${paymentId}`}
+        disabled={!form.canSubmit}
+        onClick={() => void submit()}
+      />
+      <RefundStatusMessage message={form.message} />
     </div>
   );
 }

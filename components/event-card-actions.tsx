@@ -5,7 +5,9 @@ import { useRouter } from 'next/navigation';
 import { AlertCircle } from 'lucide-react';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import { registrationErrorMessage } from '@/lib/registration-error-message';
+import { dispatchEventNotificationsInBackground } from '@/lib/event-notifications';
 import { Button } from '@/components/ui/button';
+import { EventWithdrawalDialog } from '@/components/event-withdrawal-dialog';
 type CardEvent = {
   status: string;
   starts_at: string;
@@ -143,23 +145,7 @@ export function EventCardActions({ eventId }: { eventId: string }) {
       delete operationKeys.current[operation];
       router.refresh();
       setBusy(false);
-      void (async () => {
-        try {
-          const response = await fetch('/api/notifications/dispatch', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ eventId }),
-          });
-          const result = await response.json().catch(() => ({}));
-          if (!response.ok || result.failed > 0)
-            console.error('[Event registration] Email notification dispatch failed', {
-              status: response.status,
-              result,
-            });
-        } catch (emailError) {
-          console.error('[Event registration] Email notification request failed', emailError);
-        }
-      })();
+      dispatchEventNotificationsInBackground(eventId, 'Event registration');
     } catch (e) {
       console.error('[Event registration] Database update failed', e);
       setError(registrationErrorMessage(e, event?.gender_restriction ?? null));
@@ -249,59 +235,14 @@ export function EventCardActions({ eventId }: { eventId: string }) {
           {error}
         </span>
       )}
-      {confirmWithdraw && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          role="presentation"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (!busy) setConfirmWithdraw(false);
-          }}
-        >
-          <section
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby={`withdraw-title-${eventId}`}
-            aria-describedby={`withdraw-description-${eventId}`}
-            className="w-full max-w-md rounded-xl border border-border bg-background p-6 text-left shadow-xl"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-            }}
-          >
-            <h2 id={`withdraw-title-${eventId}`} className="text-lg font-semibold">
-              Withdraw from this event?
-            </h2>
-            <p
-              id={`withdraw-description-${eventId}`}
-              className="mt-2 text-sm text-muted-foreground"
-            >
-              If you withdraw, you will lose your current place. If you register again later, you
-              may need to join the waitlist and your previous place will not be restored.
-            </p>
-            <div className="mt-5 flex justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy}
-                onClick={() => setConfirmWithdraw(false)}
-              >
-                Keep my place
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="border-red-500/70 text-red-700 hover:bg-red-50 hover:text-red-800 dark:text-red-300 dark:hover:bg-red-950/40"
-                disabled={busy}
-                onClick={() => void act(true)}
-              >
-                {busy ? <TennisLoader compact label="Withdrawing" /> : 'Confirm withdrawal'}
-              </Button>
-            </div>
-          </section>
-        </div>
-      )}
+      <EventWithdrawalDialog
+        eventId={eventId}
+        open={confirmWithdraw}
+        busy={busy}
+        stopPropagation
+        onCancel={() => setConfirmWithdraw(false)}
+        onConfirm={() => void act(true)}
+      />
     </div>
   );
 }

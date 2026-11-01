@@ -7,6 +7,7 @@ import { SiteFooter } from '@/components/site-footer';
 import { MemberNav } from '@/components/member-nav';
 import { Button } from '@/components/ui/button';
 import { PaymentHistoryTable } from '@/components/payment-history-table';
+import { loadPaymentEventTitles } from '@/lib/payments/event-titles';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,81 +45,13 @@ export default async function MemberPaymentsPage() {
     succeededAt: string | null;
   }> = [];
   if (!error && payments?.length) {
-    const registrationIds = [
-      ...new Set(
-        payments
-          .filter(
-            (payment) => payment.purpose === 'event_registration' && payment.business_record_id,
-          )
-          .map((payment) => payment.business_record_id as string),
-      ),
-    ];
-    const tournamentParticipantIds = [
-      ...new Set(
-        payments
-          .filter(
-            (payment) =>
-              payment.purpose === 'tournament_registration' && payment.business_record_id,
-          )
-          .flatMap((payment) =>
-            (payment.business_record_id as string).split(',').map((id) => id.trim()),
-          )
-          .filter(Boolean),
-      ),
-    ];
-    const [{ data: registrations }, { data: tournamentParticipants }] = await Promise.all([
-      registrationIds.length
-        ? db.from('registrations').select('id,event_id').in('id', registrationIds)
-        : Promise.resolve({ data: [] }),
-      tournamentParticipantIds.length
-        ? db
-            .from('tournament_participants')
-            .select('id,event_id')
-            .in('id', tournamentParticipantIds)
-        : Promise.resolve({ data: [] }),
-    ]);
-    const registrationRows = (registrations ?? []) as Array<{ id: string; event_id: string }>;
-    const tournamentParticipantRows = (tournamentParticipants ?? []) as Array<{
-      id: string;
-      event_id: string;
-    }>;
-    const eventIds = [
-      ...new Set([
-        ...registrationRows.map((registration) => registration.event_id),
-        ...tournamentParticipantRows.map((participant) => participant.event_id),
-      ]),
-    ];
-    const { data: events } = eventIds.length
-      ? await db.from('events').select('id,title').in('id', eventIds)
-      : { data: [] };
-    const eventRows = (events ?? []) as Array<{ id: string; title: string }>;
-    const registrationById = new Map(registrationRows.map((item) => [item.id, item]));
-    const tournamentParticipantById = new Map(
-      tournamentParticipantRows.map((item) => [item.id, item]),
-    );
-    const eventById = new Map(eventRows.map((item) => [item.id, item]));
+    const eventTitleByPaymentId = await loadPaymentEventTitles(db, payments);
     rows = payments.map((payment) => {
-      const registration =
-        payment.purpose === 'event_registration' && payment.business_record_id
-          ? registrationById.get(payment.business_record_id)
-          : null;
-      const tournamentParticipant =
-        payment.purpose === 'tournament_registration' && payment.business_record_id
-          ? payment.business_record_id
-              .split(',')
-              .map((id: string) => tournamentParticipantById.get(id))
-              .find(Boolean)
-          : null;
-      const event = registration
-        ? eventById.get(registration.event_id)
-        : tournamentParticipant
-          ? eventById.get(tournamentParticipant.event_id)
-          : null;
       return {
         id: payment.id,
         provider: payment.provider ?? 'stripe',
         purpose: payment.purpose,
-        eventName: event?.title ?? null,
+        eventName: eventTitleByPaymentId.get(payment.id) ?? null,
         amountMinor: payment.amount_minor,
         currency: payment.currency,
         status: payment.status,

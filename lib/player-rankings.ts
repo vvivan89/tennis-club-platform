@@ -24,6 +24,16 @@ export function getSeasonYear(date: Date, settings: SeasonSettings): number {
   if (start <= end) return month < start ? date.getFullYear() - 1 : date.getFullYear();
   return month >= start ? date.getFullYear() : date.getFullYear() - 1;
 }
+export function getSeasonYearChoices(games: { playedAt: string }[], settings: SeasonSettings) {
+  const allSeasonYears = [
+    ...new Set(games.map((g) => getSeasonYear(new Date(g.playedAt), settings))),
+  ].sort((a, b) => b - a);
+  const currentSeasonYear = getSeasonYear(new Date(), settings);
+  const defaultYear = allSeasonYears.includes(currentSeasonYear)
+    ? currentSeasonYear
+    : (allSeasonYears[0] ?? currentSeasonYear);
+  return { allSeasonYears, currentSeasonYear, defaultYear };
+}
 export function isInSeason(date: Date, seasonYear: number, settings: SeasonSettings): boolean {
   const start = new Date(
     seasonYear,

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 const read = (path: string) => readFileSync(join(process.cwd(), path), 'utf8');
 const publicView = read('components/tournament-public-view.tsx');
+const partnerSkillSelect = read('components/partner-skill-level-select.tsx');
 const memberMenu = read('components/member-menu.tsx');
 const checkout = read('app/api/payments/checkout/route.ts');
 const cancel = read('app/api/payments/cancel/route.ts');
@@ -95,9 +96,10 @@ describe('requested tournament registration fixes', () => {
 
   it('offers optional skill levels from 2.5 through 7.0 in half-point increments', () => {
     expect(publicView).toContain('Tennis skill level (optional)');
-    expect(publicView).toContain('Partner tennis skill level (optional)');
-    expect(publicView.match(/Array\.from\(\{ length: 10 \}/g) ?? []).toHaveLength(3);
-    expect(publicView).toContain('(2.5 + index * 0.5).toFixed(1)');
+    expect(publicView.match(/<PartnerSkillLevelSelect/g) ?? []).toHaveLength(2);
+    expect(partnerSkillSelect).toContain('Partner tennis skill level (optional)');
+    expect(partnerSkillSelect).toContain('Array.from({ length: 10 }');
+    expect(partnerSkillSelect).toContain('(2.5 + index * 0.5).toFixed(1)');
     expect(migration).toContain('tennis_skill_level BETWEEN 2.5 AND 7.0');
   });
 

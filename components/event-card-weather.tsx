@@ -1,27 +1,7 @@
 'use client';
-import { useEffect, useState } from 'react';
-import { CloudFog, CloudLightning, CloudRain, CloudSnow, CloudSun, Sun } from 'lucide-react';
-import { getHourlyForecastForStart, type HourlyForecast } from '@/lib/open-meteo';
+import { useEventForecast } from '@/hooks/use-event-forecast';
 import { Badge } from '@/components/ui/badge';
-
-function iconFor(code: number) {
-  if (code === 0) return Sun;
-  if (code <= 3) return CloudSun;
-  if (code <= 48) return CloudFog;
-  if (code <= 67 || (code >= 80 && code <= 82)) return CloudRain;
-  if (code <= 77 || (code >= 85 && code <= 86)) return CloudSnow;
-  return CloudLightning;
-}
-function labelFor(code: number) {
-  if (code === 0) return 'Clear skies';
-  if (code <= 3) return code === 1 ? 'Mainly clear' : code === 2 ? 'Partly cloudy' : 'Overcast';
-  if (code <= 48) return 'Foggy';
-  if (code <= 67) return 'Rain';
-  if (code <= 77) return 'Snow';
-  if (code <= 82) return 'Rain showers';
-  if (code <= 86) return 'Snow showers';
-  return 'Thunderstorms';
-}
+import { weatherIconForCode, weatherLabelForCode } from '@/lib/weather-code';
 export function EventCardWeather({
   startsAt,
   location,
@@ -35,37 +15,9 @@ export function EventCardWeather({
   index: number;
   endsAt?: string | null;
 }) {
-  const [forecast, setForecast] = useState<HourlyForecast | null>(null);
-  const [clock, setClock] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = window.setInterval(() => setClock(Date.now()), 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
-  const startTime = new Date(startsAt).getTime();
-  const endTime = endsAt ? new Date(endsAt).getTime() : startTime + 2 * 60 * 60 * 1000;
-  const hasStarted = clock >= startTime;
-  const hasEnded = clock > endTime;
-  const forecastTarget = hasStarted ? new Date(clock + 60 * 60 * 1000).toISOString() : startsAt;
-  useEffect(() => {
-    let active = true;
-    setForecast(null);
-    if (hasEnded)
-      return () => {
-        active = false;
-      };
-    getHourlyForecastForStart(forecastTarget, location)
-      .then((result) => {
-        if (active) setForecast(result);
-      })
-      .catch(() => {
-        if (active) setForecast(null);
-      });
-    return () => {
-      active = false;
-    };
-  }, [forecastTarget, location, hasEnded]);
+  const { forecast, hasStarted, hasEnded } = useEventForecast(startsAt, endsAt, location);
   if (hasEnded) return null;
-  const Icon = forecast ? iconFor(forecast.code) : null;
+  const Icon = forecast ? weatherIconForCode(forecast.code) : null;
   const palettes = [
     'from-emerald-100 via-teal-50 to-sky-100 text-emerald-950',
     'from-amber-100 via-orange-50 to-rose-100 text-amber-950',
@@ -87,7 +39,7 @@ export function EventCardWeather({
             <p className="text-xs font-semibold uppercase tracking-[0.16em] opacity-70">
               {hasStarted ? 'Current forecast' : 'Event forecast'}
             </p>
-            <p className="mt-1 text-lg font-semibold">{labelFor(forecast.code)}</p>
+            <p className="mt-1 text-lg font-semibold">{weatherLabelForCode(forecast.code)}</p>
             <div className="mt-2 flex items-center gap-2 text-sm">
               <span className="font-semibold">{Math.round(forecast.temperature)}°C</span>
               {forecast.precipitation != null && (

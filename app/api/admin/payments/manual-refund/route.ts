@@ -1,20 +1,10 @@
 import { NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { getApprovedAdminContext } from '@/lib/admin-api-auth';
 
 export async function POST(request: Request) {
   try {
-    const auth = await createSupabaseServerClient();
-    const {
-      data: { user },
-    } = await auth.auth.getUser();
-    if (!user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
-    const { data: profile } = await auth
-      .from('profiles')
-      .select('role,application_status')
-      .eq('id', user.id)
-      .maybeSingle();
-    if (profile?.role !== 'admin' || profile.application_status !== 'approved')
-      return NextResponse.json({ error: 'Administrator access required.' }, { status: 403 });
+    const { auth, response } = await getApprovedAdminContext();
+    if (response) return response;
     const body = await request.json();
     if (
       typeof body.paymentId !== 'string' ||

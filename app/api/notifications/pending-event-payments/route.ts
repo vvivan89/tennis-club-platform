@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 import type Stripe from 'stripe';
 import { createPaymentServiceClient } from '@/lib/payments/server';
+import { markPaymentSucceeded } from '@/lib/payments/checkout-cleanup';
 import { getStripeClient } from '@/lib/payments/stripe';
+import { escapeHtml, sendResendEmail } from '@/lib/resend';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -10,19 +12,6 @@ const MINUTE = 60 * 1000;
 const DAY = 24 * 60 * MINUTE;
 const HOUR = 60 * MINUTE;
 const REMINDER_WINDOW = 5 * MINUTE;
-
-const escapeHtml = (value: string) =>
-  value.replace(
-    /[&<>"']/g,
-    (character) =>
-      ({
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#39;',
-      })[character]!,
-  );
 
 type Registration = {
   id: string;
@@ -151,17 +140,7 @@ async function reconcileRegistrationPayment(
     }
 
     if (intent && intentMatchesPayment(intent, payment)) {
-      const now = new Date().toISOString();
-      const { error: updateError } = await db
-        .from('payments')
-        .update({
-          status: 'succeeded',
-          stripe_payment_intent_id: intent.id,
-          succeeded_at: now,
-          updated_at: now,
-        })
-        .eq('id', payment.id)
-        .in('status', ['pending', 'processing', 'failed']);
+      const { error: updateError } = await markPaymentSucceeded(db, payment.id, intent.id);
       if (updateError) throw new Error(`Could not reconcile payment ${payment.id}.`);
       const { error: fulfillError } = await db.rpc('fulfill_successful_payment', {
         p_payment_id: payment.id,
@@ -262,10 +241,12 @@ async function sendReminder(
       : `Final reminder: event payment due soon — ${event.title}`;
   const html = `<p>Hello ${escapeHtml(recipient.full_name || 'member')},</p><p>Your registration for <strong>${escapeHtml(event.title)}</strong> is awaiting payment. The registration cutoff is ${escapeHtml(cutoff)} (Pacific time), in ${timeText}.</p><p>If payment is not confirmed by the cutoff, your registration will be removed and your place may be given to another member.</p><p><a href="${escapeHtml(eventUrl)}">Complete or check your event payment</a></p><p>Port Coquitlam Tennis Club</p>`;
   try {
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: fromEmail, to: [recipient.email], subject, html }),
+    const response = await sendResendEmail({
+      apiKey: resendKey,
+      from: fromEmail,
+      to: recipient.email,
+      subject,
+      html,
     });
     if (!response.ok) {
       await db.from('event_registration_payment_reminders').delete().eq('id', claimId);

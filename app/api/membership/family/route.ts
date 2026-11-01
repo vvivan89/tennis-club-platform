@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { getSignedInUser } from '@/lib/api-helpers';
+import { createServiceRoleClient } from '@/lib/supabase-service';
+import { escapeHtml as esc, sendResendEmail } from '@/lib/resend';
 type MembershipSettings = {
   season_start_month: number;
   season_start_day: number;
@@ -50,6 +51,30 @@ type FamilyAgeMember = {
   status?: string;
   profiles: { date_of_birth: string | null } | null;
 };
+function countFamilyAdultsAndChildren(members: FamilyAgeMember[]) {
+  const now = new Date();
+  return members.reduce(
+    (counts, member) => {
+      const dateOfBirth = member.profiles?.date_of_birth;
+      if (!dateOfBirth) {
+        counts.adults++;
+        return counts;
+      }
+      const born = new Date(dateOfBirth);
+      let age = now.getFullYear() - born.getFullYear();
+      if (
+        now.getMonth() < born.getMonth() ||
+        (now.getMonth() === born.getMonth() && now.getDate() < born.getDate())
+      ) {
+        age--;
+      }
+      if (age < 18) counts.children++;
+      else counts.adults++;
+      return counts;
+    },
+    { adults: 0, children: 0 },
+  );
+}
 type PaymentRecord = {
   id: string;
   purpose: string;
@@ -61,11 +86,6 @@ type PaymentRecord = {
   succeeded_at: string | null;
   refunded_amount_minor: number;
 };
-const esc = (s: string) =>
-  s.replace(
-    /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!,
-  );
 function cfgSeasonYear(settings: MembershipSettings | null, now: Date) {
   if (!settings) return now.getFullYear();
   const start = new Date(
@@ -78,16 +98,9 @@ function cfgSeasonYear(settings: MembershipSettings | null, now: Date) {
 }
 export async function GET() {
   try {
-    const s = await createSupabaseServerClient();
-    const {
-      data: { user },
-    } = await s.auth.getUser();
-    if (!user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
-    const db = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { persistSession: false, autoRefreshToken: false } },
-    );
+    const { user, response: authError } = await getSignedInUser();
+    if (authError) return authError;
+    const db = createServiceRoleClient();
     const { data: me } = await db
       .from('profiles')
       .select('id,full_name,email,date_of_birth,application_status')
@@ -208,16 +221,9 @@ export async function GET() {
 }
 export async function POST(req: Request) {
   try {
-    const s = await createSupabaseServerClient();
-    const {
-      data: { user },
-    } = await s.auth.getUser();
-    if (!user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
-    const db = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { persistSession: false, autoRefreshToken: false } },
-    );
+    const { user, response: authError } = await getSignedInUser();
+    if (authError) return authError;
+    const db = createServiceRoleClient();
     const { data: me } = await db
       .from('profiles')
       .select('id,full_name,email,application_status,date_of_birth')
@@ -233,6 +239,36 @@ export async function POST(req: Request) {
       );
     const b = await req.json();
     const action = String(b.action || '');
+    const loadCurrentWaiver = async () => {
+      const { data: waiver } = await db
+        .from('legal_document_versions')
+        .select('version')
+        .eq('document_type', 'membership_waiver')
+        .eq('is_current', true)
+        .maybeSingle();
+      if (!waiver) {
+        return {
+          waiver: null,
+          response: NextResponse.json(
+            { error: 'The current membership waiver is unavailable.' },
+            { status: 503 },
+          ),
+        };
+      }
+      if (b.waiverVersion !== undefined && b.waiverVersion !== waiver.version) {
+        return {
+          waiver: null,
+          response: NextResponse.json(
+            {
+              error:
+                'The membership waiver changed. Refresh the page and review the current version.',
+            },
+            { status: 409 },
+          ),
+        };
+      }
+      return { waiver, response: null };
+    };
     const { data: settings } = await db
       .from('membership_plan_settings')
       .select('*')
@@ -299,28 +335,10 @@ export async function POST(req: Request) {
         .select('user_id,profiles:profiles!membership_family_members_user_id_fkey(date_of_birth)')
         .eq('family_id', familyId)
         .eq('status', 'confirmed');
-      let adults = 0,
-        children = 0;
-      for (const m of [
+      const { adults, children } = countFamilyAdultsAndChildren([
         ...(confirmed ?? []),
         { user_id: target.id, profiles: { date_of_birth: target.date_of_birth } },
-      ] as FamilyAgeMember[]) {
-        const dob = m.profiles?.date_of_birth;
-        let child = false;
-        if (dob) {
-          const born = new Date(dob);
-          const now = new Date();
-          let age = now.getFullYear() - born.getFullYear();
-          if (
-            now.getMonth() < born.getMonth() ||
-            (now.getMonth() === born.getMonth() && now.getDate() < born.getDate())
-          )
-            age--;
-          child = age < 18;
-        }
-        if (child) children++;
-        else adults++;
-      }
+      ] as FamilyAgeMember[]);
       if (
         settings &&
         (adults > settings.family_max_adults || children > settings.family_max_children)
@@ -339,18 +357,10 @@ export async function POST(req: Request) {
       if (inviteErr) throw inviteErr;
       if (process.env.RESEND_API_KEY && process.env.RESEND_FROM_EMAIL) {
         const url = new URL('/member/membership', req.url).toString();
-        const mail = await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            from: process.env.RESEND_FROM_EMAIL,
-            to: [target.email],
-            subject: 'PCTC family membership invitation',
-            html: `<p>Hello ${esc(target.full_name || 'member')},</p><p>${esc(me.full_name || me.email || 'A member')} invited you to join their PCTC family membership.</p><p>Sign in to your Member Portal and confirm the invitation: <a href="${esc(url)}">Review invitation</a>.</p>`,
-          }),
+        const mail = await sendResendEmail({
+          to: target.email,
+          subject: 'PCTC family membership invitation',
+          html: `<p>Hello ${esc(target.full_name || 'member')},</p><p>${esc(me.full_name || me.email || 'A member')} invited you to join their PCTC family membership.</p><p>Sign in to your Member Portal and confirm the invitation: <a href="${esc(url)}">Review invitation</a>.</p>`,
         });
         if (!mail.ok)
           return NextResponse.json({
@@ -367,25 +377,8 @@ export async function POST(req: Request) {
           { error: 'Accept the current membership waiver before joining a family membership.' },
           { status: 400 },
         );
-      const { data: currentWaiver } = await db
-        .from('legal_document_versions')
-        .select('version')
-        .eq('document_type', 'membership_waiver')
-        .eq('is_current', true)
-        .maybeSingle();
-      if (!currentWaiver)
-        return NextResponse.json(
-          { error: 'The current membership waiver is unavailable.' },
-          { status: 503 },
-        );
-      if (b.waiverVersion !== undefined && b.waiverVersion !== currentWaiver.version)
-        return NextResponse.json(
-          {
-            error:
-              'The membership waiver changed. Refresh the page and review the current version.',
-          },
-          { status: 409 },
-        );
+      const { waiver: currentWaiver, response: waiverError } = await loadCurrentWaiver();
+      if (waiverError) return waiverError;
       const id = String(b.invitationId || '');
       const { data: inv } = await db
         .from('membership_family_members')
@@ -412,22 +405,10 @@ export async function POST(req: Request) {
           { error: 'Leave your current family before accepting another invitation.' },
           { status: 409 },
         );
-      let adults = 0,
-        children = 0;
-      for (const m of [
+      const { adults, children } = countFamilyAdultsAndChildren([
         ...(members ?? []),
         { user_id: user.id, status: 'confirmed', profiles: { date_of_birth: me.date_of_birth } },
-      ] as FamilyAgeMember[]) {
-        const dob = m.profiles?.date_of_birth;
-        let isChild = false;
-        if (dob) {
-          const d = new Date(dob);
-          const age = new Date().getFullYear() - d.getFullYear();
-          isChild = age < 18;
-        }
-        if (isChild) children++;
-        else adults++;
-      }
+      ] as FamilyAgeMember[]);
       if (
         settings &&
         (adults > settings.family_max_adults || children > settings.family_max_children)
@@ -456,25 +437,8 @@ export async function POST(req: Request) {
           { error: 'Confirm that you accept the current membership waiver.' },
           { status: 400 },
         );
-      const { data: currentWaiver } = await db
-        .from('legal_document_versions')
-        .select('version')
-        .eq('document_type', 'membership_waiver')
-        .eq('is_current', true)
-        .maybeSingle();
-      if (!currentWaiver)
-        return NextResponse.json(
-          { error: 'The current membership waiver is unavailable.' },
-          { status: 503 },
-        );
-      if (b.waiverVersion !== undefined && b.waiverVersion !== currentWaiver.version)
-        return NextResponse.json(
-          {
-            error:
-              'The membership waiver changed. Refresh the page and review the current version.',
-          },
-          { status: 409 },
-        );
+      const { waiver: currentWaiver, response: waiverError } = await loadCurrentWaiver();
+      if (waiverError) return waiverError;
       const familyId = String(b.familyId || '');
       if (!familyId) return NextResponse.json({ error: 'Family ID is required.' }, { status: 400 });
       const { data: ownFamilyMember, error: ownFamilyMemberError } = await db

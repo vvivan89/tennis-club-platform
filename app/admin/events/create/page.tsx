@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { AdminNav } from '@/components/admin-nav';
-import { SiteFooter } from '@/components/site-footer';
+import { ClubSiteFooter } from '@/components/club-site-footer';
 import { EventManagementForm } from '@/components/event-management-form';
 export default async function CreateEventPage() {
   const db = await createSupabaseServerClient();
@@ -45,13 +45,7 @@ export default async function CreateEventPage() {
           showOrganizerField={profile?.role === 'admin'}
         />
       </div>
-      <SiteFooter
-        clubName={club?.club_name}
-        shortName={club?.short_name}
-        socialLinks={
-          Array.isArray(club?.social_links) ? (club.social_links as { url: string }[]) : []
-        }
-      />
+      <ClubSiteFooter club={club} />
     </main>
   );
 }

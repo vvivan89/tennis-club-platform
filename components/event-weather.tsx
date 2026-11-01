@@ -1,37 +1,11 @@
 'use client';
 import { formatTime } from '@/lib/time-format';
 import { TennisLoader } from '@/components/tennis-loader';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { getHourlyForecastForStart, type HourlyForecast } from '@/lib/open-meteo';
-import {
-  CloudFog,
-  CloudLightning,
-  CloudRain,
-  CloudSnow,
-  CloudSun,
-  Sun,
-  Wind,
-  Droplets,
-  Thermometer,
-} from 'lucide-react';
-function iconFor(code: number) {
-  if (code === 0) return Sun;
-  if (code <= 3) return CloudSun;
-  if (code <= 48) return CloudFog;
-  if (code <= 67 || (code >= 80 && code <= 82)) return CloudRain;
-  if (code <= 77 || (code >= 85 && code <= 86)) return CloudSnow;
-  return CloudLightning;
-}
-function labelFor(code: number) {
-  if (code === 0) return 'Clear skies';
-  if (code <= 3) return code === 1 ? 'Mainly clear' : code === 2 ? 'Partly cloudy' : 'Overcast';
-  if (code <= 48) return 'Fog';
-  if (code <= 67) return 'Rain';
-  if (code <= 77) return 'Snow';
-  if (code <= 82) return 'Rain showers';
-  if (code <= 86) return 'Snow showers';
-  return 'Thunderstorms';
-}
+import { weatherIconForCode, weatherLabelForCode } from '@/lib/weather-code';
+import { useEventForecast } from '@/hooks/use-event-forecast';
+import { CloudSun, Wind, Droplets, Thermometer } from 'lucide-react';
 function compass(degrees: number) {
   return ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(degrees / 45) % 8];
 }
@@ -46,45 +20,14 @@ export function EventWeather({
   location: string;
   eventLabel?: string;
 }) {
-  const [forecast, setForecast] = useState<HourlyForecast | null>(null);
-  const [loading, setLoading] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [hourly, setHourly] = useState<Array<{ at: string; value: HourlyForecast | null }>>([]);
   const [hourlyBusy, setHourlyBusy] = useState(false);
-  const [clock, setClock] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = window.setInterval(() => setClock(Date.now()), 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
-  const startTime = new Date(startsAt).getTime();
-  const endTime = endsAt ? new Date(endsAt).getTime() : startTime + 2 * 60 * 60 * 1000;
-  const hasStarted = clock >= startTime;
-  const hasEnded = clock > endTime;
-  const forecastTarget = hasStarted ? new Date(clock + 60 * 60 * 1000).toISOString() : startsAt;
-  useEffect(() => {
-    let active = true;
-    setForecast(null);
-    if (hasEnded) {
-      setLoading(false);
-      return () => {
-        active = false;
-      };
-    }
-    setLoading(true);
-    getHourlyForecastForStart(forecastTarget, location)
-      .then((result) => {
-        if (active) setForecast(result);
-      })
-      .catch(() => {
-        if (active) setForecast(null);
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [forecastTarget, location, hasEnded]);
+  const { forecast, loading, clock, hasStarted, hasEnded, forecastTarget } = useEventForecast(
+    startsAt,
+    endsAt,
+    location,
+  );
   if (hasEnded) return null;
   async function showHourlyDetails() {
     setDetailsOpen(true);
@@ -111,7 +54,7 @@ export function EventWeather({
     }
   }
 
-  const Icon = forecast ? iconFor(forecast.code) : CloudSun;
+  const Icon = forecast ? weatherIconForCode(forecast.code) : CloudSun;
   return (
     <section className="relative overflow-hidden rounded-2xl border border-sky-200/70 bg-gradient-to-br from-sky-50 via-white to-emerald-50 p-5 shadow-sm sm:p-6">
       <div className="pointer-events-none absolute -right-12 -top-14 h-48 w-48 rounded-full bg-sky-100/70 blur-3xl" />
@@ -135,7 +78,9 @@ export function EventWeather({
                 <p className="text-2xl font-semibold tracking-tight text-slate-900">
                   {Math.round(forecast.temperature)}°C
                 </p>
-                <p className="text-sm font-medium text-slate-700">{labelFor(forecast.code)}</p>
+                <p className="text-sm font-medium text-slate-700">
+                  {weatherLabelForCode(forecast.code, 'Fog')}
+                </p>
               </div>
             </div>
           )
@@ -210,7 +155,9 @@ export function EventWeather({
                           })}
                         </td>
                         <td className="p-2">
-                          {row.value ? labelFor(row.value.code) : 'Forecast unavailable'}
+                          {row.value
+                            ? weatherLabelForCode(row.value.code, 'Fog')
+                            : 'Forecast unavailable'}
                         </td>
                         <td className="p-2">
                           {row.value ? `${Math.round(row.value.temperature)}°C` : '—'}

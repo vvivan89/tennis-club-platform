@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 import { CalendarDays, CheckCircle2, Clock3, Users } from 'lucide-react';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { AdminNav } from '@/components/admin-nav';
-import { SiteFooter } from '@/components/site-footer';
+import { ClubSiteFooter } from '@/components/club-site-footer';
 import { Button } from '@/components/ui/button';
 import { eventEditPath } from '@/lib/event-slug';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -177,13 +177,7 @@ export default async function OrganizerDashboardPage() {
           )}
         </section>
       </div>
-      <SiteFooter
-        clubName={club?.club_name}
-        shortName={club?.short_name}
-        socialLinks={
-          Array.isArray(club?.social_links) ? (club.social_links as { url: string }[]) : []
-        }
-      />
+      <ClubSiteFooter club={club} />
     </main>
   );
 }

@@ -1,12 +1,15 @@
 'use client';
 import Image from 'next/image';
 import { TennisLoader } from '@/components/tennis-loader';
+import { dispatchEventNotificationsInBackground } from '@/lib/event-notifications';
+import { FormFeedback } from '@/components/form-feedback';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import { Button } from '@/components/ui/button';
 import { SearchableMemberSelect } from '@/components/searchable-member-select';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { AssignmentDropZone, DraggableItem } from '@/components/drag-drop';
 import { calculateLadderSession, type LadderMetric } from '@/lib/social-doubles-ladder';
 import { registrationErrorMessage } from '@/lib/registration-error-message';
 
@@ -78,6 +81,33 @@ function validateAssignments(participants: Participant[], assignments: Assignmen
       });
   return warnings;
 }
+function getEligibility(
+  p: { id: string; gender?: string | null },
+  {
+    genderRestriction,
+    membershipRequired,
+    paidMembershipUserIds,
+  }: {
+    genderRestriction?: string | null;
+    membershipRequired?: boolean;
+    paidMembershipUserIds: Set<string>;
+  },
+) {
+  const genderEligible = !genderRestriction || p.gender?.toLowerCase() === genderRestriction;
+  const genderStatus =
+    genderRestriction && !genderEligible ? `Gender ${p.gender || 'not specified'}` : undefined;
+  const membershipEligible = !membershipRequired || paidMembershipUserIds.has(p.id);
+  const membershipStatus =
+    membershipRequired && !membershipEligible
+      ? 'Cannot register: requires an active, paid membership.'
+      : undefined;
+  return {
+    genderEligible,
+    membershipEligible,
+    eligibilityReasons: [genderStatus, membershipStatus].filter(Boolean).join(' · '),
+  };
+}
+
 export function EventEditManagement({
   eventId,
   startsAt,
@@ -306,23 +336,7 @@ export function EventEditManagement({
     }
   }
   function notifyInBackground() {
-    void (async () => {
-      try {
-        const response = await fetch('/api/notifications/dispatch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ eventId }),
-        });
-        const result = await response.json().catch(() => ({}));
-        if (!response.ok || result.failed > 0)
-          console.error('[Event management] Email notification dispatch failed', {
-            status: response.status,
-            result,
-          });
-      } catch (e) {
-        console.error('[Event management] Email notification request failed', e);
-      }
-    })();
+    dispatchEventNotificationsInBackground(eventId, 'Event management');
   }
   useEffect(() => {
     void load();
@@ -764,19 +778,12 @@ export function EventEditManagement({
     () =>
       people
         .map((p) => {
-          const genderEligible =
-            !genderRestriction || p.gender?.toLowerCase() === genderRestriction;
-          const genderStatus =
-            genderRestriction && !genderEligible
-              ? `Gender ${p.gender || 'not specified'}`
-              : undefined;
-          const membershipEligible = !membershipRequired || paidMembershipUserIds.has(p.id);
-          const membershipStatus =
-            membershipRequired && !membershipEligible
-              ? 'Cannot register: requires an active, paid membership.'
-              : undefined;
+          const { genderEligible, membershipEligible, eligibilityReasons } = getEligibility(p, {
+            genderRestriction,
+            membershipRequired,
+            paidMembershipUserIds,
+          });
           const alreadyRegistered = activeIds.has(p.id) || usedUserIds.has(p.id);
-          const eligibilityReasons = [genderStatus, membershipStatus].filter(Boolean).join(' · ');
           return {
             ...p,
             available: genderEligible && membershipEligible && !alreadyRegistered,
@@ -808,18 +815,11 @@ export function EventEditManagement({
           const existing = participants.find((x) => x.user_id === p.id);
           const waitlisted = existing?.status === 'waitlisted';
           const confirmed = existing?.status === 'confirmed';
-          const genderEligible =
-            !genderRestriction || p.gender?.toLowerCase() === genderRestriction;
-          const genderStatus =
-            genderRestriction && !genderEligible
-              ? `Gender ${p.gender || 'not specified'}`
-              : undefined;
-          const membershipEligible = !membershipRequired || paidMembershipUserIds.has(p.id);
-          const membershipStatus =
-            membershipRequired && !membershipEligible
-              ? 'Cannot register: requires an active, paid membership.'
-              : undefined;
-          const eligibilityReasons = [genderStatus, membershipStatus].filter(Boolean).join(' · ');
+          const { genderEligible, membershipEligible, eligibilityReasons } = getEligibility(p, {
+            genderRestriction,
+            membershipRequired,
+            paidMembershipUserIds,
+          });
           return {
             ...p,
             available:
@@ -897,16 +897,7 @@ export function EventEditManagement({
           </ul>
         </div>
       )}
-      {error && (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      )}
-      {message && (
-        <p role="status" className="text-sm">
-          {message}
-        </p>
-      )}
+      <FormFeedback error={error} message={message} />
       {!courtChangesLocked && (
         <div className="flex justify-end">
           <Button onClick={openCourtModal}>Assign courts</Button>
@@ -1098,14 +1089,12 @@ export function EventEditManagement({
                   </div>
                   <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                     {[1, 2, 3, 4].map((court) => (
-                      <div
+                      <AssignmentDropZone
+                        variant="court"
                         key={court}
-                        onDragOver={(e) => e.preventDefault()}
-                        onDrop={(e) => {
-                          e.preventDefault();
+                        onDrop={() => {
                           if (dragging) movePlayer(dragging, court, si);
                         }}
-                        className="min-h-44 rounded-lg border-2 border-dashed border-border bg-muted/20 p-3"
                       >
                         <h4 className="mb-3 text-sm font-semibold">
                           Court {court}{' '}
@@ -1118,16 +1107,12 @@ export function EventEditManagement({
                             const p = participants.find((x) => x.registration_id === id);
                             if (!p) return null;
                             return (
-                              <div
+                              <DraggableItem
                                 key={id}
-                                draggable
-                                onDragStart={(event) => {
-                                  setDragging(id);
-                                  event.dataTransfer?.setData('text/plain', id);
-                                  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
-                                }}
-                                onDragEnd={() => setDragging(null)}
-                                className="flex cursor-grab items-center gap-2 rounded-lg border border-border bg-background p-2 shadow-sm active:cursor-grabbing"
+                                id={id}
+                                appearance="assignment"
+                                onDragStateChange={setDragging}
+                                className="shadow-sm"
                               >
                                 {p.avatar_url ? (
                                   <Image
@@ -1156,18 +1141,16 @@ export function EventEditManagement({
                                     {p.tennis_skill_level ?? '—'}
                                   </p>
                                 </div>
-                              </div>
+                              </DraggableItem>
                             );
                           })}
                         </div>
-                      </div>
+                      </AssignmentDropZone>
                     ))}
                   </div>
-                  <div
-                    className="mt-3 min-h-20 rounded-lg border-2 border-dashed border-border bg-muted/30 p-3"
-                    onDragOver={(event) => event.preventDefault()}
+                  <AssignmentDropZone
+                    variant="unassigned"
                     onDrop={(event) => {
-                      event.preventDefault();
                       const id = dragging || event.dataTransfer.getData('text/plain');
                       if (!id) return;
                       setSessions((old) =>
@@ -1198,16 +1181,11 @@ export function EventEditManagement({
                             ![1, 2, 3, 4].some((c) => session[c].includes(p.registration_id)),
                         )
                         .map((p) => (
-                          <div
+                          <DraggableItem
                             key={p.registration_id}
-                            draggable
-                            onDragStart={(event) => {
-                              setDragging(p.registration_id);
-                              event.dataTransfer.setData('text/plain', p.registration_id);
-                              event.dataTransfer.effectAllowed = 'move';
-                            }}
-                            onDragEnd={() => setDragging(null)}
-                            className="flex cursor-grab items-center gap-2 rounded-lg border border-border bg-background p-2"
+                            id={p.registration_id}
+                            appearance="assignment"
+                            onDragStateChange={setDragging}
                           >
                             <div className="grid h-10 w-10 place-items-center rounded-full bg-secondary text-sm font-semibold">
                               {(p.full_name || '?')
@@ -1224,10 +1202,10 @@ export function EventEditManagement({
                                 {records[p.user_id]?.losses ?? 0} · {p.tennis_skill_level ?? '—'}
                               </p>
                             </div>
-                          </div>
+                          </DraggableItem>
                         ))}
                     </div>
-                  </div>
+                  </AssignmentDropZone>
                 </section>
               ))}
               <Button variant="outline" onClick={addSession}>

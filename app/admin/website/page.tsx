@@ -1,10 +1,12 @@
 'use client';
 import { TennisLoader } from '@/components/tennis-loader';
+import { FormFeedback } from '@/components/form-feedback';
 import { AdminSectionTabs } from '@/components/admin-section-tabs';
 import { SiteFooter } from '@/components/site-footer';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
+import { getAdminBrowserClient, requireBrowserUser } from '@/lib/supabase-browser-user';
 import { AdminNav } from '@/components/admin-nav';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -73,19 +75,8 @@ export default function WebsiteAdminPage() {
     );
     let active = true;
     async function load() {
-      const db = createSupabaseBrowserClient();
-      const {
-        data: { user },
-      } = await db.auth.getUser();
-      if (!user) {
-        router.replace('/login?next=/admin/website');
-        return;
-      }
-      const { data: me } = await db.from('profiles').select('role').eq('id', user.id).maybeSingle();
-      if (me?.role !== 'admin') {
-        router.replace('/member/dashboard');
-        return;
-      }
+      const db = await getAdminBrowserClient(router, '/login?next=/admin/website');
+      if (!db) return;
       const { data, error } = await db
         .from('news')
         .select('id,title,body,published,published_at,created_at')
@@ -111,11 +102,7 @@ export default function WebsiteAdminPage() {
     setError('');
     setMessage('');
     try {
-      const db = createSupabaseBrowserClient();
-      const {
-        data: { user },
-      } = await db.auth.getUser();
-      if (!user) throw new Error('Please sign in again.');
+      const { db, user } = await requireBrowserUser('Please sign in again.');
       const { data, error } = await db
         .from('news')
         .insert({ title: title.trim(), body: body.trim(), published: false, created_by: user.id })
@@ -206,16 +193,7 @@ export default function WebsiteAdminPage() {
         <AdminSectionTabs section="publications" />
         <p className="eyebrow">Website content management</p>
         <h1 className="section-title">Publications</h1>
-        {error && (
-          <p role="alert" className="mb-4 text-sm text-destructive">
-            {error}
-          </p>
-        )}
-        {message && (
-          <p role="status" className="mb-4 text-sm">
-            {message}
-          </p>
-        )}
+        <FormFeedback error={error} message={message} className="mb-4" />
         {activeTab === 'news' && (
           <section>
             <Card>

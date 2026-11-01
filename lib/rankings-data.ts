@@ -1,5 +1,6 @@
-import { createClient } from '@supabase/supabase-js';
+import { createServiceRoleClient } from '@/lib/supabase-service';
 import type { RankingPlayer, SeasonSettings } from '@/lib/player-rankings';
+import { calculatePlayerStats } from '@/lib/player-rankings';
 
 type ProfileRow = {
   id: string;
@@ -73,9 +74,7 @@ export async function getRankingsData(): Promise<RankingsData> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error('Server-side Supabase configuration is missing.');
-  const admin = createClient(url, key, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
+  const admin = createServiceRoleClient(url, key);
   const [
     { data: profiles },
     { data: memberships },
@@ -227,39 +226,15 @@ export async function getRankingsData(): Promise<RankingsData> {
     },
   );
   games.push(...tournamentGames);
-  const players: RankingPlayer[] = approved.map((p) => {
-    let gamesWon = 0,
-      gamesLost = 0,
-      setsWon = 0,
-      setsLost = 0,
-      gamesPlayed = 0;
-    for (const game of games) {
-      if (!game.playerIds.includes(p.id)) continue;
-      const onOne = game.sideOneIds.includes(p.id);
-      const won = onOne ? game.scoreOne : game.scoreTwo;
-      const lost = onOne ? game.scoreTwo : game.scoreOne;
-      gamesWon += won;
-      gamesLost += lost;
-      gamesPlayed++;
-      if (won > lost) setsWon++;
-      else if (won < lost) setsLost++;
-    }
-    const totalGames = gamesWon + gamesLost,
-      totalSets = setsWon + setsLost;
-    return {
+  const players: RankingPlayer[] = calculatePlayerStats(
+    approved.map((p) => ({
       id: p.id,
       name: p.full_name?.trim() || p.email || 'Player',
       gender: p.gender ?? null,
       skillRating: p.tennis_skill_level ? Number(p.tennis_skill_level) : null,
-      gamesWon,
-      gamesLost,
-      setsWon,
-      setsLost,
-      gamesPercentage: totalGames ? (gamesWon / totalGames) * 100 : 0,
-      setsPercentage: totalSets ? (setsWon / totalSets) * 100 : 0,
-      gamesPlayed,
-    };
-  });
+    })),
+    games,
+  );
   const profileById = new Map(
     approved.map((p) => [p.id, p.full_name?.trim() || p.email || 'Player']),
   );

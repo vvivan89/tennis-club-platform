@@ -1,18 +1,21 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 
-export async function createSupabaseServerClient() {
-  const cookieStore = cookies();
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key =
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+export function getSupabasePublicConfig() {
+  return {
+    url: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    key:
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+  };
+}
 
-  if (!url || !key) {
-    throw new Error(
-      'Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY in .env.local.',
-    );
-  }
-
+/** Cookie-backed server client; Server Components set `ignoreCookieWriteErrors` as they cannot always write cookies. */
+export function createCookieSupabaseClient(
+  url: string,
+  key: string,
+  cookieStore: ReturnType<typeof cookies>,
+  { ignoreCookieWriteErrors = false }: { ignoreCookieWriteErrors?: boolean } = {},
+) {
   return createServerClient(url, key, {
     cookies: {
       getAll() {
@@ -27,10 +30,23 @@ export async function createSupabaseServerClient() {
       ) {
         try {
           cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
-        } catch {
-          // Server Components cannot always write cookies. Middleware refreshes sessions.
+        } catch (error) {
+          // Middleware refreshes sessions when a Server Component cannot write cookies.
+          if (!ignoreCookieWriteErrors) throw error;
         }
       },
     },
   });
+}
+
+export async function createSupabaseServerClient() {
+  const { url, key } = getSupabasePublicConfig();
+
+  if (!url || !key) {
+    throw new Error(
+      'Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY in .env.local.',
+    );
+  }
+
+  return createCookieSupabaseClient(url, key, cookies(), { ignoreCookieWriteErrors: true });
 }

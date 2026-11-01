@@ -1,24 +1,15 @@
 import { NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { getApprovedAdminContext } from '@/lib/admin-api-auth';
 import { createPaymentServiceClient } from '@/lib/payments/server';
 import { getStripeClient } from '@/lib/payments/stripe';
+import { upsertStripeRefund } from '@/lib/payments/refund-records';
 
 export const runtime = 'nodejs';
 
 export async function POST(request: Request) {
   try {
-    const auth = await createSupabaseServerClient();
-    const {
-      data: { user },
-    } = await auth.auth.getUser();
-    if (!user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
-    const { data: profile } = await auth
-      .from('profiles')
-      .select('role,application_status')
-      .eq('id', user.id)
-      .maybeSingle();
-    if (profile?.role !== 'admin' || profile.application_status !== 'approved')
-      return NextResponse.json({ error: 'Administrator access required.' }, { status: 403 });
+    const { user, response } = await getApprovedAdminContext();
+    if (response) return response;
 
     const body = (await request.json()) as {
       paymentId?: string;
@@ -72,18 +63,7 @@ export async function POST(request: Request) {
     );
     // Persist the returned Stripe refund immediately; the webhook remains the
     // authoritative retry/reconciliation path if this request is interrupted.
-    const { error: refundRowError } = await db.from('payment_refunds').upsert(
-      {
-        payment_id: payment.id,
-        stripe_refund_id: refund.id,
-        amount_minor: refund.amount,
-        currency: refund.currency.toLowerCase(),
-        status: refund.status ?? 'pending',
-        reason: refund.reason ?? null,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'stripe_refund_id' },
-    );
+    const refundRowError = await upsertStripeRefund(db, payment.id, refund);
     if (refundRowError)
       throw new Error('Stripe accepted the refund but its local record could not be saved.');
     const stripe = getStripeClient();

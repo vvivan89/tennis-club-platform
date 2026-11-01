@@ -6,6 +6,7 @@ import { FormEvent, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
+import { requireBrowserUser } from '@/lib/supabase-browser-user';
 import { formatPhoneNumber } from '@/lib/format-phone';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -140,11 +141,7 @@ export default function ProfilePage() {
     try {
       if (!phone.trim()) throw new Error('Phone number is required.');
       if (!tennisSkillLevel) throw new Error('Select your tennis skill rating.');
-      const supabase = createSupabaseBrowserClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) throw new Error('Please sign in again.');
+      const { db: supabase, user } = await requireBrowserUser('Please sign in again.');
       const { data: updatedProfile, error: updateError } = await supabase
         .from('profiles')
         .update({
@@ -179,11 +176,7 @@ export default function ProfilePage() {
     setError('');
     setMessage('');
     try {
-      const supabase = createSupabaseBrowserClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) throw new Error('Please sign in again.');
+      const { db: supabase, user } = await requireBrowserUser('Please sign in again.');
       const { error: updateError } = await supabase
         .from('profiles')
         .update({
@@ -213,11 +206,7 @@ export default function ProfilePage() {
     setError('');
     setMessage('');
     try {
-      const supabase = createSupabaseBrowserClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) throw new Error('Please sign in again.');
+      const { db: supabase, user } = await requireBrowserUser('Please sign in again.');
       const { error: updateError } = await supabase
         .from('profiles')
         .update({
@@ -254,11 +243,7 @@ export default function ProfilePage() {
     setError('');
     setMessage('');
     try {
-      const supabase = createSupabaseBrowserClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) throw new Error('Please sign in again.');
+      const { db: supabase, user } = await requireBrowserUser('Please sign in again.');
       const ext =
         (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
       const path = `${user.id}/avatar-${Date.now()}.${ext}`;

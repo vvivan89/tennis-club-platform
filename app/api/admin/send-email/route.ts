@@ -1,27 +1,22 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { checkAdminRole, getConfiguredServiceClient, getSignedInUser } from '@/lib/api-helpers';
+import { escapeHtml, sendResendEmail } from '@/lib/resend';
 const clean = (s: string) =>
   s.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '').replace(/\son\w+\s*=\s*(['"]).*?\1/gi, '');
 export async function POST(request: Request) {
   try {
-    const session = await createSupabaseServerClient();
-    const {
-      data: { user },
-    } = await session.auth.getUser();
-    if (!user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL,
-      key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!url || !key || !process.env.RESEND_API_KEY || !process.env.RESEND_FROM_EMAIL)
-      return NextResponse.json({ error: 'Email service is not configured.' }, { status: 503 });
-    const db = createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
-    const { data: me } = await db
-      .from('profiles')
-      .select('role,application_status')
-      .eq('id', user.id)
-      .maybeSingle();
-    if (me?.role !== 'admin' || me.application_status !== 'approved')
-      return NextResponse.json({ error: 'Administrator access required.' }, { status: 403 });
+    const { user, response: authError } = await getSignedInUser();
+    if (authError) return authError;
+    const { db, response: configError } = getConfiguredServiceClient(
+      'Email service is not configured.',
+    );
+    if (configError || !process.env.RESEND_API_KEY || !process.env.RESEND_FROM_EMAIL)
+      return (
+        configError ??
+        NextResponse.json({ error: 'Email service is not configured.' }, { status: 503 })
+      );
+    const adminError = await checkAdminRole(db, user.id, { approved: true });
+    if (adminError) return adminError;
     const body = await request.json();
     const subject = String(body.subject ?? '')
       .trim()
@@ -72,19 +67,11 @@ export async function POST(request: Request) {
           failed++;
           continue;
         }
-        const greeting = `<p>Hello ${String(p.full_name || 'member').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)},</p>`;
-        const res = await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            from: process.env.RESEND_FROM_EMAIL,
-            to: [p.email],
-            subject,
-            html: `${greeting}${html}<p>Port Coquitlam Tennis Club</p>`,
-          }),
+        const greeting = `<p>Hello ${escapeHtml(String(p.full_name || 'member'))},</p>`;
+        const res = await sendResendEmail({
+          to: p.email,
+          subject,
+          html: `${greeting}${html}<p>Port Coquitlam Tennis Club</p>`,
         });
         if (res.ok) sent++;
         else failed++;

@@ -65,7 +65,7 @@ describe('tournament management foundation', () => {
   it('supports tournament formats, scoring configuration, rules, group draws and public competition tabs', () => {
     expect(form).toContain('Doubles tournament');
     expect(form).toContain('Team tournament');
-    expect(form).toContain('TournamentRulesEditor');
+    expect(form).toContain('RichTextEditor');
     expect(form).toContain('team_two_sets_bonus_third');
     expect(form).toContain('two_sets_then_third');
     expect(management).toContain('Random group draw');

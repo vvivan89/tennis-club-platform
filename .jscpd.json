@@ -1,0 +1,13 @@
+{
+  "minTokens": 50,
+  "minLines": 5,
+  "ignore": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/*.test.js",
+    "**/*.spec.ts",
+    "**/tests/**",
+    "**/__tests__/**",
+    "*.sql"
+  ]
+}

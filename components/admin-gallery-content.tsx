@@ -1,15 +1,16 @@
 'use client';
 import Image from 'next/image';
 import { TennisLoader } from '@/components/tennis-loader';
+import { FormFeedback } from '@/components/form-feedback';
 import { AdminSectionTabs } from '@/components/admin-section-tabs';
 import { useEffect, useState, type FormEvent } from 'react';
-import { useRouter } from 'next/navigation';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import { AdminNav } from '@/components/admin-nav';
 import { SiteFooter } from '@/components/site-footer';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { useApprovedAdminPage } from '@/hooks/use-approved-admin-page';
 
 type Album = {
   id: string;
@@ -28,7 +29,6 @@ type Photo = {
   alt_text?: string | null;
 };
 export function AdminGalleryContent({ embedded = false }: { embedded?: boolean }) {
-  const router = useRouter();
   const [albums, setAlbums] = useState<Album[]>([]);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [title, setTitle] = useState('');
@@ -45,50 +45,16 @@ export function AdminGalleryContent({ embedded = false }: { embedded?: boolean }
     description: string;
     onConfirm: () => void;
   } | null>(null);
-  const [club, setClub] = useState({
-    club_name: 'Port Coquitlam Tennis Club',
-    short_name: 'PCTC',
-    social_links: [] as { url: string }[],
-  });
   async function load() {
     const db = createSupabaseBrowserClient();
-    const [{ data: a }, { data: p }, { data: c }] = await Promise.all([
+    const [{ data: a }, { data: p }] = await Promise.all([
       db.from('gallery_albums').select('*').order('created_at', { ascending: false }),
       db.from('gallery_photos').select('*').order('sort_order').order('created_at'),
-      db
-        .from('club_settings')
-        .select('club_name,short_name,social_links')
-        .eq('id', 1)
-        .maybeSingle(),
     ]);
     setAlbums((a ?? []) as Album[]);
     setPhotos((p ?? []) as Photo[]);
-    if (c)
-      setClub({
-        club_name: c.club_name || 'Port Coquitlam Tennis Club',
-        short_name: c.short_name || 'PCTC',
-        social_links: Array.isArray(c.social_links) ? c.social_links : [],
-      });
   }
-  useEffect(() => {
-    const db = createSupabaseBrowserClient();
-    db.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user) {
-        router.replace('/login?next=/admin/website?tab=gallery');
-        return;
-      }
-      const { data } = await db
-        .from('profiles')
-        .select('role,application_status')
-        .eq('id', user.id)
-        .maybeSingle();
-      if (data?.role !== 'admin' || data?.application_status !== 'approved') {
-        router.replace('/member/dashboard');
-        return;
-      }
-      void load();
-    });
-  }, [router]);
+  useApprovedAdminPage('/login?next=/admin/website?tab=gallery', () => void load());
   async function createAlbum(e: FormEvent) {
     e.preventDefault();
     setError('');
@@ -280,16 +246,7 @@ export function AdminGalleryContent({ embedded = false }: { embedded?: boolean }
             />{' '}
             Publish album immediately
           </label>
-          {error && (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          )}
-          {message && (
-            <p role="status" className="text-sm">
-              {message}
-            </p>
-          )}
+          <FormFeedback error={error} message={message} />
           <Button disabled={busy}>
             {busy ? <TennisLoader compact label="Saving" /> : 'Create album'}
           </Button>
@@ -422,13 +379,7 @@ export function AdminGalleryContent({ embedded = false }: { embedded?: boolean }
           </div>
         </section>
       </div>
-      {!embedded && (
-        <SiteFooter
-          clubName={club.club_name}
-          shortName={club.short_name}
-          socialLinks={club.social_links}
-        />
-      )}
+      {!embedded && <SiteFooter />}
       {confirmation && (
         <ConfirmDialog
           open

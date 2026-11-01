@@ -1,13 +1,9 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-const esc = (s: string) =>
-  s.replace(
-    /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!,
-  );
+import { isCronAuthorized } from '@/lib/api-helpers';
+import { createServiceRoleClient } from '@/lib/supabase-service';
+import { escapeHtml as esc, sendResendEmail } from '@/lib/resend';
 export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || request.headers.get('authorization') !== `Bearer ${secret}`)
+  if (!isCronAuthorized(request))
     return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 });
   if (
     !process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -16,11 +12,7 @@ export async function GET(request: Request) {
     !process.env.RESEND_FROM_EMAIL
   )
     return NextResponse.json({ error: 'Email service is not configured.' }, { status: 503 });
-  const db = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY,
-    { auth: { persistSession: false, autoRefreshToken: false } },
-  );
+  const db = createServiceRoleClient();
   const { data: cfg } = await db
     .from('membership_plan_settings')
     .select('*')
@@ -111,18 +103,10 @@ export async function GET(request: Request) {
       type === 'before'
         ? `The PCTC membership season begins on ${season.start.toISOString().slice(0, 10)}. Please renew your membership before the season starts.`
         : `The PCTC membership season began on ${season.start.toISOString().slice(0, 10)} and we have not recorded a payment for you. Please renew your membership.`;
-    const resp = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: process.env.RESEND_FROM_EMAIL,
-        to: [p.email],
-        subject,
-        html: `<p>Hello ${esc(p.full_name || 'member')},</p><p>${esc(text)}</p><p><a href="${new URL('/member/membership', request.url).toString()}">View your member portal</a></p>`,
-      }),
+    const resp = await sendResendEmail({
+      to: p.email,
+      subject,
+      html: `<p>Hello ${esc(p.full_name || 'member')},</p><p>${esc(text)}</p><p><a href="${new URL('/member/membership', request.url).toString()}">View your member portal</a></p>`,
     });
     if (resp.ok) {
       await db

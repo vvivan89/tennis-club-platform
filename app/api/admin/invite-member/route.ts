@@ -1,21 +1,16 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { checkAdminRole, getConfiguredServiceClient, getSignedInUser } from '@/lib/api-helpers';
 const validLevels = new Set(['2.5', '3.0', '3.5', '4.0', '4.5', '5.0', '5.5', '6.0', '6.5', '7.0']);
 export async function POST(request: Request) {
   try {
-    const session = await createSupabaseServerClient();
     const {
-      data: { user },
-    } = await session.auth.getUser();
-    if (!user) return NextResponse.json({ error: 'Sign in as an administrator.' }, { status: 401 });
-    const { data: me } = await session
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .maybeSingle();
-    if (me?.role !== 'admin')
-      return NextResponse.json({ error: 'Administrator access required.' }, { status: 403 });
+      auth: session,
+      user,
+      response: authError,
+    } = await getSignedInUser('Sign in as an administrator.');
+    if (authError) return authError;
+    const adminError = await checkAdminRole(session, user.id);
+    if (adminError) return adminError;
     const body = await request.json();
     const full_name = String(body.full_name ?? '').trim();
     const email = String(body.email ?? '')
@@ -28,16 +23,11 @@ export async function POST(request: Request) {
         { error: 'Name, valid email, phone, and skill rating are required.' },
         { status: 400 },
       );
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!url || !key)
-      return NextResponse.json(
-        { error: 'Server configuration is missing SUPABASE_SERVICE_ROLE_KEY.' },
-        { status: 500 },
-      );
-    const admin = createClient(url, key, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
+    const { db: admin, response: configError } = getConfiguredServiceClient(
+      'Server configuration is missing SUPABASE_SERVICE_ROLE_KEY.',
+      500,
+    );
+    if (configError) return configError;
     const origin = new URL(request.url).origin;
     const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
       redirectTo: `${origin}/auth/callback?next=/reset-password`,

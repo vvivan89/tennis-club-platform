@@ -1,35 +1,27 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { escapeHtml, sendResendEmail } from '@/lib/resend';
+import {
+  checkAdminRole,
+  getConfiguredServiceClient,
+  getSignedInUser,
+  jsonError,
+} from '@/lib/api-helpers';
 export async function POST(request: Request) {
   try {
-    const session = await createSupabaseServerClient();
-    const {
-      data: { user },
-    } = await session.auth.getUser();
-    if (!user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
-    const { data: me } = await session
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .maybeSingle();
-    if (me?.role !== 'admin')
-      return NextResponse.json({ error: 'Administrator access required.' }, { status: 403 });
+    const { auth: session, user, response: authError } = await getSignedInUser();
+    if (authError) return authError;
+    const adminError = await checkAdminRole(session, user.id);
+    if (adminError) return adminError;
     const body = await request.json();
     const userId = String(body.userId || '');
     const action = String(body.action || '');
     if (!userId || !['approve', 'dismiss'].includes(action))
-      return NextResponse.json({ error: 'Invalid application action.' }, { status: 400 });
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!url || !key)
-      return NextResponse.json(
-        { error: 'Server configuration is missing SUPABASE_SERVICE_ROLE_KEY.' },
-        { status: 500 },
-      );
-    const admin = createClient(url, key, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
+      return jsonError('Invalid application action.', 400);
+    const { db: admin, response: configError } = getConfiguredServiceClient(
+      'Server configuration is missing SUPABASE_SERVICE_ROLE_KEY.',
+      500,
+    );
+    if (configError) return configError;
     const { data: app, error: readError } = await admin
       .from('profiles')
       .select('id,email,full_name,application_status')
@@ -67,15 +59,12 @@ export async function POST(request: Request) {
           'Email was not sent: the approved account has no email address in its profile.';
       else
         try {
-          const emailResponse = await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              from: fromEmail,
-              to: [app.email],
-              subject: 'Your PCTC application has been approved',
-              html: `<p>Hello ${String(app.full_name || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)},</p><p>Your Port Coquitlam Tennis Club account has been approved. You can now sign in and access member features.</p><p><a href="${new URL('/login', request.url).toString()}">Sign in to PCTC</a></p>`,
-            }),
+          const emailResponse = await sendResendEmail({
+            apiKey: resendKey,
+            from: fromEmail,
+            to: app.email,
+            subject: 'Your PCTC application has been approved',
+            html: `<p>Hello ${escapeHtml(String(app.full_name || ''))},</p><p>Your Port Coquitlam Tennis Club account has been approved. You can now sign in and access member features.</p><p><a href="${new URL('/login', request.url).toString()}">Sign in to PCTC</a></p>`,
           });
           const raw = await emailResponse.text();
           let payload: Record<string, unknown> = {};

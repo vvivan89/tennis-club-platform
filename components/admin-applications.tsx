@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { TennisLoader } from '@/components/tennis-loader';
+import { FormFeedback } from '@/components/form-feedback';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 export type ApplicationRow = {
@@ -54,16 +55,7 @@ export function AdminApplications({ applications }: { applications: ApplicationR
   }
   return (
     <div className="space-y-4">
-      {error && (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      )}
-      {message && (
-        <p role="status" className="text-sm">
-          {message}
-        </p>
-      )}
+      <FormFeedback error={error} message={message} />
       {applications.length ? (
         applications.map((a) => (
           <article key={a.id} className="rounded-xl border border-border p-5">

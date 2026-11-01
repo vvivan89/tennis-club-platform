@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { getSignedInUser } from '@/lib/api-helpers';
 import { createPaymentServiceClient } from '@/lib/payments/server';
+import { markPaymentSucceeded } from '@/lib/payments/checkout-cleanup';
 import { getStripeClient } from '@/lib/payments/stripe';
 
 export const runtime = 'nodejs';
@@ -65,19 +66,11 @@ async function reconcileCompletedCheckout(
         'Stripe confirms payment for a locally closed payment. Administrator review is required.',
       );
     }
-    const now = new Date().toISOString();
-    const { data: updated, error } = await db
-      .from('payments')
-      .update({
-        status: 'succeeded',
-        stripe_payment_intent_id: intent.id,
-        succeeded_at: now,
-        updated_at: now,
-      })
-      .eq('id', payment.id)
-      .in('status', ['pending', 'processing', 'failed'])
-      .select('id')
-      .maybeSingle();
+    const {
+      updated,
+      error,
+      succeededAt: now,
+    } = await markPaymentSucceeded(db, payment.id, intent.id);
     if (error) throw new Error('Could not reconcile the confirmed Stripe payment.');
     if (!updated) {
       const { data: latest, error: latestError } = await db
@@ -109,10 +102,7 @@ async function reconcileCompletedCheckout(
 
 export async function GET(request: Request) {
   try {
-    const auth = await createSupabaseServerClient();
-    const {
-      data: { user },
-    } = await auth.auth.getUser();
+    const { user } = await getSignedInUser();
     const params = new URL(request.url).searchParams;
     const sessionId = params.get('session_id');
     const paymentId = params.get('payment_id');

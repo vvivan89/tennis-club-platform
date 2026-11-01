@@ -4,6 +4,7 @@ import { createPaymentServiceClient } from '@/lib/payments/server';
 import { AdminNav } from '@/components/admin-nav';
 import { AdminPaymentsWorkspace } from '@/components/admin-payments-workspace';
 import { syncPaymentProceeds } from '@/lib/payments/proceeds';
+import { loadPaymentEventTitles } from '@/lib/payments/event-titles';
 
 export const dynamic = 'force-dynamic';
 
@@ -85,69 +86,18 @@ export default async function AdminPaymentsPage() {
 
   if (!error && payments?.length) {
     const userIds = [...new Set(payments.map((payment) => payment.user_id).filter(Boolean))];
-    const registrationIds = [
-      ...new Set(
-        payments
-          .filter(
-            (payment) => payment.purpose === 'event_registration' && payment.business_record_id,
-          )
-          .map((payment) => payment.business_record_id as string),
-      ),
-    ];
-    const tournamentParticipantIds = [
-      ...new Set(
-        payments
-          .filter(
-            (payment) =>
-              payment.purpose === 'tournament_registration' && payment.business_record_id,
-          )
-          .flatMap((payment) =>
-            (payment.business_record_id as string).split(',').map((id) => id.trim()),
-          )
-          .filter(Boolean),
-      ),
-    ];
-    const [{ data: profiles }, { data: registrations }, { data: tournamentParticipants }] =
-      await Promise.all([
-        userIds.length
-          ? db.from('profiles').select('id,full_name,email').in('id', userIds)
-          : Promise.resolve({ data: [] }),
-        registrationIds.length
-          ? db.from('registrations').select('id,event_id').in('id', registrationIds)
-          : Promise.resolve({ data: [] }),
-        tournamentParticipantIds.length
-          ? db
-              .from('tournament_participants')
-              .select('id,event_id')
-              .in('id', tournamentParticipantIds)
-          : Promise.resolve({ data: [] }),
-      ]);
+    const [eventTitleByPaymentId, { data: profiles }] = await Promise.all([
+      loadPaymentEventTitles(db, payments),
+      userIds.length
+        ? db.from('profiles').select('id,full_name,email').in('id', userIds)
+        : Promise.resolve({ data: [] }),
+    ]);
     const profileRows = (profiles ?? []) as Array<{
       id: string;
       full_name: string | null;
       email: string | null;
     }>;
-    const registrationRows = (registrations ?? []) as Array<{ id: string; event_id: string }>;
-    const tournamentParticipantRows = (tournamentParticipants ?? []) as Array<{
-      id: string;
-      event_id: string;
-    }>;
-    const eventIds = [
-      ...new Set([
-        ...registrationRows.map((registration) => registration.event_id),
-        ...tournamentParticipantRows.map((participant) => participant.event_id),
-      ]),
-    ];
-    const { data: events } = eventIds.length
-      ? await db.from('events').select('id,title').in('id', eventIds)
-      : { data: [] };
-    const eventRows = (events ?? []) as Array<{ id: string; title: string }>;
     const profileById = new Map(profileRows.map((item) => [item.id, item]));
-    const registrationById = new Map(registrationRows.map((item) => [item.id, item]));
-    const tournamentParticipantById = new Map(
-      tournamentParticipantRows.map((item) => [item.id, item]),
-    );
-    const eventById = new Map(eventRows.map((item) => [item.id, item]));
 
     await Promise.all(
       payments
@@ -186,29 +136,13 @@ export default async function AdminPaymentsPage() {
     );
     rows = payments.map((payment) => {
       const person = profileById.get(payment.user_id);
-      const registration =
-        payment.purpose === 'event_registration' && payment.business_record_id
-          ? registrationById.get(payment.business_record_id)
-          : null;
-      const tournamentParticipant =
-        payment.purpose === 'tournament_registration' && payment.business_record_id
-          ? payment.business_record_id
-              .split(',')
-              .map((id) => tournamentParticipantById.get(id))
-              .find(Boolean)
-          : null;
-      const event = registration
-        ? eventById.get(registration.event_id)
-        : tournamentParticipant
-          ? eventById.get(tournamentParticipant.event_id)
-          : null;
       const remaining = payment.amount_minor - payment.refunded_amount_minor;
       return {
         id: payment.id,
         provider: payment.provider ?? 'stripe',
         manualReviewStatus: payment.manual_review_status ?? null,
         purpose: payment.purpose,
-        eventName: event?.title ?? null,
+        eventName: eventTitleByPaymentId.get(payment.id) ?? null,
         amountMinor: payment.amount_minor,
         currency: payment.currency,
         status: payment.status,

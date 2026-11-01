@@ -1,16 +1,55 @@
 'use client';
 import { formatDateTime } from '@/lib/time-format';
+import { useTimedFeedback } from '@/hooks/use-timed-feedback';
 import { TennisLoader } from '@/components/tennis-loader';
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import { registrationErrorMessage } from '@/lib/registration-error-message';
+import { dispatchEventNotificationsInBackground } from '@/lib/event-notifications';
 import { Button } from '@/components/ui/button';
 import { EventWeather } from '@/components/event-weather';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { EventWithdrawalDialog } from '@/components/event-withdrawal-dialog';
+import {
+  InteracPaymentInstructionsDialog,
+  type InteracPaymentNotice,
+} from '@/components/interac-payment-instructions-dialog';
 import { Pencil, Trash2 } from 'lucide-react';
 
+function RosterSelect({
+  label,
+  placeholder,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  placeholder: string;
+  value: string;
+  options: { registration_id: string; full_name: string | null }[];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="space-y-1 text-sm">
+      {label}
+      <select
+        required
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="block h-10 w-full rounded-md border border-input bg-background px-3"
+      >
+        <option value="">{placeholder}</option>
+        {options.map((p) => (
+          <option key={p.registration_id} value={p.registration_id}>
+            {p.full_name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
 type Roster = {
   registration_id: string;
   user_id: string;
@@ -106,24 +145,8 @@ export function EventDetailClient({
   const [liveRemainingSpots, setLiveRemainingSpots] = useState<number>(remainingSpots);
   const [liveCourts, setLiveCourts] = useState<Court[]>(courts);
   const [view, setView] = useState<'courts' | 'list'>('list');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
-  useEffect(() => {
-    if (!error && !message) return;
-    const timer = window.setTimeout(() => {
-      setError('');
-      setMessage('');
-    }, 3000);
-    return () => window.clearTimeout(timer);
-  }, [error, message]);
-  const [interacNotice, setInteracNotice] = useState<{
-    amount: string;
-    recipientEmail: string;
-    paymentId: string;
-    instructions: string;
-    message: string;
-  } | null>(null);
+  const { busy, setBusy, error, setError, message, setMessage } = useTimedFeedback();
+  const [interacNotice, setInteracNotice] = useState<InteracPaymentNotice | null>(null);
   const [confirmWithdraw, setConfirmWithdraw] = useState(false);
   const [scoreCourt, setScoreCourt] = useState('');
   const [scorePlayerOne, setScorePlayerOne] = useState('');
@@ -244,23 +267,7 @@ export function EventDetailClient({
   }, [roster, currentRegistrationId, currentStatus, currentPaymentStatus, remainingSpots]);
 
   function notifyInBackground() {
-    void (async () => {
-      try {
-        const response = await fetch('/api/notifications/dispatch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ eventId: event.id }),
-        });
-        const mail = await response.json().catch(() => ({}));
-        if (!response.ok || mail.failed > 0)
-          console.error('[Event detail] Email notification dispatch failed', {
-            status: response.status,
-            result: mail,
-          });
-      } catch (e) {
-        console.error('[Event detail] Email notification request failed', e);
-      }
-    })();
+    dispatchEventNotificationsInBackground(event.id, 'Event detail');
   }
   async function refreshRoster() {
     const [{ data: nextRoster, error: rosterError }, { data: ownRegs, error: regError }] =
@@ -875,57 +882,16 @@ export function EventDetailClient({
           </p>
         )}
       </section>
-      {confirmWithdraw && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          role="presentation"
-          onClick={() => {
-            if (!busy) setConfirmWithdraw(false);
-          }}
-        >
-          <section
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby={`withdraw-title-${event.id}`}
-            aria-describedby={`withdraw-description-${event.id}`}
-            className="w-full max-w-md rounded-xl border border-border bg-background p-6 text-left shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 id={`withdraw-title-${event.id}`} className="text-lg font-semibold">
-              Withdraw from this event?
-            </h2>
-            <p
-              id={`withdraw-description-${event.id}`}
-              className="mt-2 text-sm text-muted-foreground"
-            >
-              If you withdraw, you will lose your current place. If you register again later, you
-              may need to join the waitlist, and your previous place will not be restored.
-            </p>
-            <div className="mt-5 flex justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy}
-                onClick={() => setConfirmWithdraw(false)}
-              >
-                Keep my place
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="border-red-500/70 text-red-700 hover:bg-red-50 hover:text-red-800 dark:text-red-300 dark:hover:bg-red-950/40"
-                disabled={busy}
-                onClick={() => {
-                  setConfirmWithdraw(false);
-                  void withdraw();
-                }}
-              >
-                {busy ? <TennisLoader compact label="Withdrawing" /> : 'Confirm withdrawal'}
-              </Button>
-            </div>
-          </section>
-        </div>
-      )}
+      <EventWithdrawalDialog
+        eventId={event.id}
+        open={confirmWithdraw}
+        busy={busy}
+        onCancel={() => setConfirmWithdraw(false)}
+        onConfirm={() => {
+          setConfirmWithdraw(false);
+          void withdraw();
+        }}
+      />
       {canViewParticipants && (
         <>
           <section>
@@ -1269,43 +1235,25 @@ export function EventDetailClient({
                       </select>
                     </label>
                     {isManager && scoreCourt && (
-                      <label className="space-y-1 text-sm">
-                        Team player
-                        <select
-                          required
-                          value={scorePlayerOne}
-                          onChange={(e) => {
-                            setScorePlayerOne(e.target.value);
-                            setPartner('');
-                          }}
-                          className="block h-10 w-full rounded-md border border-input bg-background px-3"
-                        >
-                          <option value="">Select player</option>
-                          {courtPlayers.map((p) => (
-                            <option key={p.registration_id} value={p.registration_id}>
-                              {p.full_name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                      <RosterSelect
+                        label="Team player"
+                        placeholder="Select player"
+                        value={scorePlayerOne}
+                        options={courtPlayers}
+                        onChange={(value) => {
+                          setScorePlayerOne(value);
+                          setPartner('');
+                        }}
+                      />
                     )}
                     {doublesCourt && (
-                      <label className="space-y-1 text-sm">
-                        Partner
-                        <select
-                          required
-                          value={partner}
-                          onChange={(e) => setPartner(e.target.value)}
-                          className="block h-10 w-full rounded-md border border-input bg-background px-3"
-                        >
-                          <option value="">Select partner</option>
-                          {partnerOptions.map((p) => (
-                            <option key={p.registration_id} value={p.registration_id}>
-                              {p.full_name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                      <RosterSelect
+                        label="Partner"
+                        placeholder="Select partner"
+                        value={partner}
+                        options={partnerOptions}
+                        onChange={setPartner}
+                      />
                     )}
                     <label className="space-y-1 text-sm">
                       {isManager ? 'Team score' : 'Your team score'}
@@ -1366,48 +1314,9 @@ export function EventDetailClient({
         onConfirm={() => void deleteScore()}
         onCancel={() => setDeletingScore(null)}
       />
-      <ConfirmDialog
-        open={!!interacNotice}
-        title="Interac e-Transfer instructions"
-        description={
-          interacNotice ? (
-            <div className="space-y-4">
-              <p className="text-muted-foreground">
-                Your payment request has been created. Send the amount below by e-Transfer.
-              </p>
-              <div className="rounded-lg border border-border bg-muted/40 p-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Amount to send
-                </p>
-                <p className="mt-1 text-xl font-semibold">{interacNotice.amount}</p>
-                <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Send to
-                </p>
-                <p className="mt-1 break-all font-medium">{interacNotice.recipientEmail}</p>
-                <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Payment reference
-                </p>
-                <p className="mt-1 break-all font-mono text-xs">{interacNotice.paymentId}</p>
-              </div>
-              {interacNotice.instructions.trim() && (
-                <div className="rounded-lg border-2 border-primary/40 bg-primary/5 p-4">
-                  <p className="mb-2 text-sm font-semibold text-primary">
-                    Payment instructions from the club
-                  </p>
-                  <p className="whitespace-pre-line leading-relaxed">
-                    {interacNotice.instructions}
-                  </p>
-                </div>
-              )}
-              {interacNotice.message && (
-                <p className="text-sm text-muted-foreground">{interacNotice.message}</p>
-              )}
-            </div>
-          ) : null
-        }
-        confirmLabel="Got it"
-        onConfirm={() => setInteracNotice(null)}
-        onCancel={() => setInteracNotice(null)}
+      <InteracPaymentInstructionsDialog
+        notice={interacNotice}
+        onClose={() => setInteracNotice(null)}
       />
     </div>
   );

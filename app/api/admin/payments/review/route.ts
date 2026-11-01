@@ -1,19 +1,10 @@
 import { NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { getApprovedAdminContext } from '@/lib/admin-api-auth';
+import { sendResendEmail } from '@/lib/resend';
 import { createPaymentServiceClient } from '@/lib/payments/server';
 export async function POST(request: Request) {
-  const auth = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await auth.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
-  const { data: profile } = await auth
-    .from('profiles')
-    .select('role,application_status')
-    .eq('id', user.id)
-    .maybeSingle();
-  if (profile?.role !== 'admin' || profile.application_status !== 'approved')
-    return NextResponse.json({ error: 'Administrator access required.' }, { status: 403 });
+  const { auth, response } = await getApprovedAdminContext();
+  if (response) return response;
   try {
     const body = await request.json();
     if (typeof body.paymentId !== 'string' || !['confirm', 'reject'].includes(body.action))
@@ -64,22 +55,15 @@ export async function POST(request: Request) {
           const approved = body.action === 'confirm';
           const from =
             process.env.RESEND_FROM_EMAIL || process.env.RESEND_FROM || process.env.EMAIL_FROM!;
-          const response = await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              from,
-              to: [member.email],
-              subject: approved
-                ? 'PCTC Interac payment confirmed'
-                : 'PCTC Interac payment requires attention',
-              text: approved
-                ? `Hello ${member.full_name || 'member'},\n\nThe club has confirmed your Interac payment of ${((outcome.amountMinor || 0) / 100).toFixed(2)} ${(outcome.currency || 'CAD').toUpperCase()}. Your associated membership or event registration has been updated.\n\nPayment reference: ${body.paymentId}`
-                : `Hello ${member.full_name || 'member'},\n\nThe club could not confirm your Interac payment request. Reason: ${typeof body.note === 'string' ? body.note : 'Please contact the club.'}\n\nPayment reference: ${body.paymentId}`,
-            }),
+          const response = await sendResendEmail({
+            from,
+            to: member.email,
+            subject: approved
+              ? 'PCTC Interac payment confirmed'
+              : 'PCTC Interac payment requires attention',
+            text: approved
+              ? `Hello ${member.full_name || 'member'},\n\nThe club has confirmed your Interac payment of ${((outcome.amountMinor || 0) / 100).toFixed(2)} ${(outcome.currency || 'CAD').toUpperCase()}. Your associated membership or event registration has been updated.\n\nPayment reference: ${body.paymentId}`
+              : `Hello ${member.full_name || 'member'},\n\nThe club could not confirm your Interac payment request. Reason: ${typeof body.note === 'string' ? body.note : 'Please contact the club.'}\n\nPayment reference: ${body.paymentId}`,
           });
           if (response.ok)
             await service

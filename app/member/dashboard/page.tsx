@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { Pencil } from 'lucide-react';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { getClubDisplay } from '@/lib/club-display';
 import { Button } from '@/components/ui/button';
 import { SiteHeader } from '@/components/site-header';
 import { SiteFooter } from '@/components/site-footer';
@@ -148,11 +149,7 @@ export default async function DashboardPage() {
     latestPayment?.business_record_id === latestMembership?.id ? latestPayment : null;
 
   if (profile?.application_status !== 'approved') {
-    const clubName = club?.club_name || 'Port Coquitlam Tennis Club';
-    const shortName = club?.short_name || 'PCTC';
-    const socials = Array.isArray(club?.social_links)
-      ? (club.social_links as { url: string }[])
-      : [];
+    const { clubName, shortName, socialLinks: socials } = getClubDisplay(club);
     return (
       <main className="flex min-h-screen flex-col bg-background text-foreground">
         <SiteHeader clubName={clubName} shortName={shortName} />
@@ -207,9 +204,7 @@ export default async function DashboardPage() {
       return now.getMonth() + 1 === month && now.getDate() === day;
     })(),
   );
-  const clubName = club?.club_name || 'Port Coquitlam Tennis Club';
-  const shortName = club?.short_name || 'PCTC';
-  const socials = Array.isArray(club?.social_links) ? (club.social_links as { url: string }[]) : [];
+  const { clubName, shortName, socialLinks: socials } = getClubDisplay(club);
   return (
     <main className="flex min-h-screen flex-col bg-background text-foreground">
       <SiteHeader clubName={clubName} shortName={shortName} />

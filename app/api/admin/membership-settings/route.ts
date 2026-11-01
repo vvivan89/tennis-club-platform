@@ -1,15 +1,11 @@
 import { NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { checkAdminRole, getSignedInUser } from '@/lib/api-helpers';
 export async function POST(req: Request) {
   try {
-    const s = await createSupabaseServerClient();
-    const {
-      data: { user },
-    } = await s.auth.getUser();
-    if (!user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
-    const { data: me } = await s.from('profiles').select('role').eq('id', user.id).maybeSingle();
-    if (me?.role !== 'admin')
-      return NextResponse.json({ error: 'Administrator access required.' }, { status: 403 });
+    const { auth: s, user, response: authError } = await getSignedInUser();
+    if (authError) return authError;
+    const adminError = await checkAdminRole(s, user.id);
+    if (adminError) return adminError;
     const b = await req.json();
     const start = new Date(`${b.season_start_date}T12:00:00Z`),
       end = new Date(`${b.season_end_date}T12:00:00Z`);

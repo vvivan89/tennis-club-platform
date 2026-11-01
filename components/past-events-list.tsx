@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { eventPath } from '@/lib/event-slug';
+import { eventDateLabel as dateLabel } from '@/lib/event-format';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 type EventRow = {
@@ -19,16 +20,6 @@ type EventRow = {
   status: string;
   event_type: string;
 };
-function dateLabel(value: string) {
-  return new Intl.DateTimeFormat('en-CA', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(new Date(value));
-}
 export function PastEventsList({ events }: { events: EventRow[] }) {
   const [query, setQuery] = useState('');
   const filtered = useMemo(

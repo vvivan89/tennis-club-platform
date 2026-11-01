@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 import { randomUUID } from 'node:crypto';
-import { createClient } from '@supabase/supabase-js';
-import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { createServiceRoleClient } from '@/lib/supabase-service';
+import { sendResendEmail } from '@/lib/resend';
+import { getSignedInUser } from '@/lib/api-helpers';
+import { canceledPaymentPatch } from '@/lib/payments/checkout-cleanup';
 import { createPendingPayment } from '@/lib/payments/server';
 import { getStripeClient } from '@/lib/payments/stripe';
 
@@ -23,7 +25,7 @@ function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error('Payment storage is not configured on the server.');
-  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  return createServiceRoleClient(url, key);
 }
 
 function seasonDates(settings: {
@@ -64,10 +66,7 @@ function seasonDates(settings: {
 
 export async function POST(request: Request) {
   try {
-    const auth = await createSupabaseServerClient();
-    const {
-      data: { user },
-    } = await auth.auth.getUser();
+    const { user } = await getSignedInUser();
     const body = (await request.json()) as CheckoutBody;
     if (!user && (body.purpose !== 'tournament_registration' || body.provider === 'interac')) {
       return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
@@ -666,11 +665,7 @@ export async function POST(request: Request) {
           }
           const { data: canceled, error: cancelError } = await db
             .from('payments')
-            .update({
-              status: 'canceled',
-              canceled_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            })
+            .update(canceledPaymentPatch())
             .eq('id', prior.id)
             .eq('provider', 'stripe')
             .eq('status', 'pending')
@@ -784,18 +779,11 @@ export async function POST(request: Request) {
         try {
           const from =
             process.env.RESEND_FROM_EMAIL || process.env.RESEND_FROM || process.env.EMAIL_FROM!;
-          const emailResponse = await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              from,
-              to: [profile!.email],
-              subject: 'PCTC Interac payment instructions',
-              text: `Your PCTC Interac payment request is pending.\n\nAmount: ${(amountMinor / 100).toFixed(2)} CAD\nSend to: ${methodSettings.interac_recipient_email}\nPayment reference: ${paymentId}\n\n${methodSettings.interac_instructions}\n\nYour membership or event registration will be finalized after the club confirms receipt.`,
-            }),
+          const emailResponse = await sendResendEmail({
+            from,
+            to: profile!.email,
+            subject: 'PCTC Interac payment instructions',
+            text: `Your PCTC Interac payment request is pending.\n\nAmount: ${(amountMinor / 100).toFixed(2)} CAD\nSend to: ${methodSettings.interac_recipient_email}\nPayment reference: ${paymentId}\n\n${methodSettings.interac_instructions}\n\nYour membership or event registration will be finalized after the club confirms receipt.`,
           });
           if (emailResponse.ok)
             await db
@@ -919,11 +907,7 @@ export async function POST(request: Request) {
         if (existingSession.status === 'expired') {
           const { data: canceledRow, error: cancelError } = await db
             .from('payments')
-            .update({
-              status: 'canceled',
-              canceled_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            })
+            .update(canceledPaymentPatch())
             .eq('id', existingPayment.id)
             .in('status', ['pending', 'processing', 'failed'])
             .select('id')

@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { AdminNav } from '@/components/admin-nav';
-import { SiteFooter } from '@/components/site-footer';
+import { ClubSiteFooter } from '@/components/club-site-footer';
 import { Button } from '@/components/ui/button';
 import { AdminEventsTable } from '@/components/admin-events-table';
 export default async function EventsAdminPage() {
@@ -85,13 +85,7 @@ export default async function EventsAdminPage() {
           automatic when a participant withdraws or is removed.
         </p>
       </div>
-      <SiteFooter
-        clubName={club?.club_name}
-        shortName={club?.short_name}
-        socialLinks={
-          Array.isArray(club?.social_links) ? (club.social_links as { url: string }[]) : []
-        }
-      />
+      <ClubSiteFooter club={club} />
     </main>
   );
 }
