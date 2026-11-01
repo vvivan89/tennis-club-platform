@@ -3,8 +3,6 @@ import { TennisLoader } from '@/components/tennis-loader';
 import { useEffect } from 'react';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
-import Link from '@tiptap/extension-link';
-import Underline from '@tiptap/extension-underline';
 
 export function RichTextEditor({
   value,
@@ -14,7 +12,7 @@ export function RichTextEditor({
   onChange: (html: string) => void;
 }) {
   const editor = useEditor({
-    extensions: [StarterKit, Underline, Link.configure({ openOnClick: false, autolink: true })],
+    extensions: [StarterKit.configure({ link: { openOnClick: false, autolink: true } })],
     content: value,
     immediatelyRender: false,
     onUpdate: ({ editor }) => onChange(editor.getHTML()),
@@ -23,7 +21,8 @@ export function RichTextEditor({
     },
   });
   useEffect(() => {
-    if (editor && editor.getHTML() !== value) editor.commands.setContent(value || '<p></p>', false);
+    if (editor && editor.getHTML() !== value)
+      editor.commands.setContent(value || '<p></p>', { emitUpdate: false });
   }, [value, editor]);
   if (!editor)
     return (

@@ -56,26 +56,50 @@ const PAYMENT_STATUSES = [
 export function PaymentHistoryTable({
   rows,
   admin = false,
+  userId,
 }: {
   rows: PaymentRow[];
   admin?: boolean;
+  userId?: string;
 }) {
   const router = useRouter();
+  const [realtimeConnected, setRealtimeConnected] = useState(false);
   useEffect(() => {
+    let active = true;
+    setRealtimeConnected(false);
     const db = createSupabaseBrowserClient();
     const channel = db
-      .channel('payment-history-live-updates')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'payments' }, () => {
-        router.refresh();
-      })
-      .subscribe();
-    // Keep history synchronized if realtime is temporarily unavailable.
-    const timer = setInterval(() => router.refresh(), 15000);
+      .channel(`payment-history-live-updates-${userId ?? 'member'}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'payments',
+          ...(userId ? { filter: `user_id=eq.${userId}` } : {}),
+        },
+        () => router.refresh(),
+      )
+      .subscribe((status) => {
+        if (active) setRealtimeConnected(status === 'SUBSCRIBED');
+      });
     return () => {
-      clearInterval(timer);
+      active = false;
       void db.removeChannel(channel);
     };
-  }, [router]);
+  }, [router, userId]);
+  useEffect(() => {
+    if (realtimeConnected) return;
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') router.refresh();
+    };
+    const timer = window.setInterval(refreshWhenVisible, 60_000);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  }, [realtimeConnected, router]);
   const [search, setSearch] = useState('');
   const [purpose, setPurpose] = useState('all');
   const [status, setStatus] = useState('all');

@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 
-export async function GET(_request: Request, { params }: { params: { eventId: string } }) {
+export async function GET(
+  _request: Request,
+  { params: paramsPromise }: { params: Promise<{ eventId: string }> },
+) {
+  const params = await paramsPromise;
   if (
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
       params.eventId,

@@ -7,12 +7,13 @@ const mocks = vi.hoisted(() => ({
   recipients: [
     { id: 'recipient-1', email: 'member@example.com', full_name: `A <Member>` },
     { id: 'recipient-2', email: null, full_name: null },
-  ],
+  ] as Array<{ id: string; email: string | null; full_name: string | null }>,
   history: null as null | { message: string },
   createClient: vi.fn(),
   fetch: vi.fn(),
   insertedHistory: [] as Array<Record<string, unknown>>,
   profileIds: [] as string[][],
+  eqCalls: [] as Array<[string, string, unknown]>,
 }));
 
 vi.mock('@/lib/supabase-server', () => ({
@@ -35,8 +36,13 @@ function serviceClient() {
           selection = columns;
           return query;
         },
-        eq: () => query,
+        eq: (column: string, value: unknown) => {
+          mocks.eqCalls.push([table, column, value]);
+          return query;
+        },
         or: () => query,
+        order: () => query,
+        range: () => query,
         in: (_column: string, ids: string[]) => {
           mocks.profileIds.push(ids);
           return query;
@@ -94,6 +100,7 @@ beforeEach(() => {
   mocks.history = null;
   mocks.insertedHistory = [];
   mocks.profileIds = [];
+  mocks.eqCalls = [];
   mocks.createClient.mockImplementation(serviceClient);
   mocks.fetch.mockReset();
   vi.stubGlobal('fetch', mocks.fetch);
@@ -121,9 +128,71 @@ describe('POST /api/admin/send-email', () => {
   });
 
   it('requires a subject and non-script body text', async () => {
-    expect((await POST(request({ subject: ' ', html: '<script>alert(1)</script>' }))).status).toBe(
-      400,
+    expect(
+      (await POST(request({ subject: ' ', html: '<script>alert(1)</script>', group: 'all' })))
+        .status,
+    ).toBe(400);
+  });
+
+  it('rejects a missing or unknown recipient group instead of defaulting to everyone', async () => {
+    for (const group of [undefined, '', 'everyone', 'ALL']) {
+      const response = await POST(request({ subject: 'Notice', html: '<p>Hi</p>', group }));
+      expect(response.status).toBe(400);
+    }
+    expect(mocks.fetch).not.toHaveBeenCalled();
+    expect(mocks.eqCalls.filter(([, column]) => column === 'application_status')).toHaveLength(0);
+  });
+
+  it('only emails approved members, whatever the group', async () => {
+    mocks.fetch.mockResolvedValue(new Response('{}', { status: 200 }));
+    await POST(request({ subject: 'Notice', html: '<p>Hi</p>', group: 'all' }));
+    expect(mocks.eqCalls).toContainEqual(['profiles', 'application_status', 'approved']);
+    expect(mocks.eqCalls).not.toContainEqual(['profiles', 'email_newsletter', true]);
+
+    mocks.eqCalls = [];
+    await POST(request({ subject: 'Notice', html: '<p>Hi</p>', group: 'newsletter' }));
+    expect(mocks.eqCalls).toContainEqual(['profiles', 'application_status', 'approved']);
+    expect(mocks.eqCalls).toContainEqual(['profiles', 'email_newsletter', true]);
+
+    mocks.eqCalls = [];
+    await POST(request({ subject: 'Notice', html: '<p>Hi</p>', group: 'active_members' }));
+    expect(mocks.eqCalls).toContainEqual(['profiles', 'application_status', 'approved']);
+  });
+
+  it('returns the recipient count for a preview without sending anything', async () => {
+    const response = await POST(request({ group: 'all', preview: true }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ recipientCount: 1, group: 'all' });
+    expect(mocks.fetch).not.toHaveBeenCalled();
+    expect(mocks.insertedHistory).toHaveLength(0);
+  });
+
+  it('rejects oversized content and groups above the recipient cap', async () => {
+    const tooLong = await POST(
+      request({ subject: 'Notice', html: `<p>${'x'.repeat(100_001)}</p>`, group: 'all' }),
     );
+    expect(tooLong.status).toBe(413);
+
+    mocks.recipients = Array.from({ length: 501 }, (_, index) => ({
+      id: `r-${index}`,
+      email: `r${index}@example.com`,
+      full_name: null,
+    }));
+    const tooMany = await POST(request({ subject: 'Notice', html: '<p>Hi</p>', group: 'all' }));
+    expect(tooMany.status).toBe(422);
+    expect((await tooMany.json()).error).toContain('501');
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+
+  it('sends with an idempotency key so repeated identical sends are dropped by the provider', async () => {
+    mocks.fetch.mockResolvedValue(new Response('{}', { status: 200 }));
+    await POST(request({ subject: 'Notice', html: '<p>Hi</p>', group: 'all' }));
+    await POST(request({ subject: 'Notice', html: '<p>Hi</p>', group: 'all' }));
+    await POST(request({ subject: 'Different', html: '<p>Hi</p>', group: 'all' }));
+    const keys = mocks.fetch.mock.calls.map(([, init]) => init.headers['Idempotency-Key']);
+    expect(keys[0]).toMatch(/^announcement:[0-9a-f]{32}:recipient-1$/);
+    expect(keys[1]).toBe(keys[0]);
+    expect(keys[2]).not.toBe(keys[0]);
   });
 
   it('sanitizes active markup, escapes names, counts failures, and records a history row', async () => {

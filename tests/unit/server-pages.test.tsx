@@ -95,7 +95,7 @@ function findElement(
   }
   if (!isValidElement(node)) return null;
   if (node.type === type) return node as React.ReactElement<Record<string, unknown>>;
-  return findElement(node.props.children, type);
+  return findElement((node.props as { children?: React.ReactNode }).children, type);
 }
 
 function findHref(
@@ -110,8 +110,9 @@ function findHref(
     return null;
   }
   if (!isValidElement(node)) return null;
-  if (node.props.href === href) return node as React.ReactElement<Record<string, unknown>>;
-  return findHref(node.props.children, href);
+  if ((node.props as { href?: string }).href === href)
+    return node as React.ReactElement<Record<string, unknown>>;
+  return findHref((node.props as { children?: React.ReactNode }).children, href);
 }
 
 beforeEach(() => {
@@ -145,7 +146,9 @@ describe('server-rendered data pages', () => {
     await expect(AdminMembersPage({})).rejects.toThrow('redirect:/member/dashboard');
 
     mocks.singles.profiles = { role: 'admin' };
-    const defaults = await AdminMembersPage({ searchParams: { tab: 'membership-types' } });
+    const defaults = await AdminMembersPage({
+      searchParams: Promise.resolve({ tab: 'membership-types' }),
+    });
     expect(findElement(defaults, 'membership-types-admin')?.props.initial).toMatchObject({
       single_price_cad: 0,
       family_price_cad: 0,
@@ -163,7 +166,9 @@ describe('server-rendered data pages', () => {
       season_end_month: 10,
       season_end_day: 1,
     };
-    const saved = await AdminMembersPage({ searchParams: { tab: 'membership-types' } });
+    const saved = await AdminMembersPage({
+      searchParams: Promise.resolve({ tab: 'membership-types' }),
+    });
     expect(findElement(saved, 'membership-types-admin')?.props.initial).toMatchObject({
       single_price_cad: 180,
       family_price_cad: 260,
@@ -450,11 +455,11 @@ describe('server-rendered data pages', () => {
         scoreTwo: 2,
       },
     ];
-    const valid = await RankingsPage({ searchParams: { season: 'all' } });
+    const valid = await RankingsPage({ searchParams: Promise.resolve({ season: 'all' }) });
     const validSelector = findElement(valid, 'rankings-table')?.props.competitionSelector;
     expect(isValidElement(validSelector)).toBe(true);
     expect((validSelector as React.ReactElement<{ value: string }>).props.value).toBe('all');
-    const invalid = await RankingsPage({ searchParams: { season: 'bogus' } });
+    const invalid = await RankingsPage({ searchParams: Promise.resolve({ season: 'bogus' }) });
     const invalidSelector = findElement(invalid, 'rankings-table')?.props.competitionSelector;
     expect(isValidElement(invalidSelector)).toBe(true);
     expect((invalidSelector as React.ReactElement<{ value: string }>).props.value).not.toBe(
@@ -529,7 +534,7 @@ describe('server-rendered data pages', () => {
       { user_id: 'p5', initial_position: 5, initial_points: 9 },
     ];
 
-    const page = await RankingsPage({ searchParams: { ladder: 'current' } });
+    const page = await RankingsPage({ searchParams: Promise.resolve({ ladder: 'current' }) });
     const table = findElement(page, 'rankings-table');
     const selector = table?.props.competitionSelector;
     expect(isValidElement(selector)).toBe(true);
@@ -663,7 +668,7 @@ describe('server-rendered data pages', () => {
     (mocks.rankingData as { profileById: Map<string, string> }).profileById = new Map([
       ['opponent-1', 'Opponent One'],
     ]);
-    const page = await MemberResultsPage({ searchParams: { season: 'all' } });
+    const page = await MemberResultsPage({ searchParams: Promise.resolve({ season: 'all' }) });
     expect(findElement(page, 'season-selector')?.props.season).toBe('all');
     const { container } = render(page);
     expect(container).toHaveTextContent('Opening Social');
@@ -677,7 +682,9 @@ describe('server-rendered data pages', () => {
       role: 'member',
     };
     (mocks.rankingData as { eligibleUserIds: Set<string> }).eligibleUserIds = new Set(['member-1']);
-    const page = await MemberResultsPage({ searchParams: { season: ['nonsense', 'all'] } });
+    const page = await MemberResultsPage({
+      searchParams: Promise.resolve({ season: ['nonsense', 'all'] }),
+    });
     expect(findElement(page, 'season-selector')?.props.season).not.toBe('nonsense');
     const { container } = render(page);
     expect(container).toHaveTextContent('Not ranked');
@@ -724,13 +731,15 @@ describe('server-rendered data pages', () => {
       },
     ];
     mocks.singles.club_settings = { club_name: 'Club', short_name: 'C', social_links: [] };
-    const article = await PublicationPage({ params: { slug: 'season_opening' } });
+    const article = await PublicationPage({ params: Promise.resolve({ slug: 'season_opening' }) });
     const { container } = render(article);
     expect(screen.getByRole('heading', { name: 'Season Opening' })).toBeInTheDocument();
     expect(container.querySelector('.prose')).toHaveTextContent('Welcome back');
 
     mocks.rows.news = [];
-    await expect(PublicationPage({ params: { slug: 'missing' } })).rejects.toThrow('not-found');
+    await expect(PublicationPage({ params: Promise.resolve({ slug: 'missing' }) })).rejects.toThrow(
+      'not-found',
+    );
   });
 
   it('renders club contact mail/phone/map/social links with formatted phone values', async () => {

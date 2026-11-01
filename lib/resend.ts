@@ -11,6 +11,8 @@ type ResendEmail = {
   html?: string;
   text?: string;
   apiKey?: string;
+  /** Resend drops repeat sends with the same key for 24 hours. */
+  idempotencyKey?: string;
 };
 
 export function sendResendEmail({
@@ -20,10 +22,15 @@ export function sendResendEmail({
   html,
   text,
   apiKey = process.env.RESEND_API_KEY,
+  idempotencyKey,
 }: ResendEmail) {
   return fetch('https://api.resend.com/emails', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
+    },
     body: JSON.stringify({ from, to: [to], subject, html, text }),
   });
 }

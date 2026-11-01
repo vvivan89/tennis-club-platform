@@ -13,7 +13,12 @@ import { TournamentManagement } from '@/components/tournament-management';
 import { TournamentPublicView } from '@/components/tournament-public-view';
 import { PublicOrganizerContacts } from '@/components/public-organizer-contacts';
 
-export default async function EventDetailsPage({ params }: { params: { slug: string } }) {
+export default async function EventDetailsPage({
+  params: paramsPromise,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
+  const params = await paramsPromise;
   const db = await createSupabaseServerClient();
   const [
     {

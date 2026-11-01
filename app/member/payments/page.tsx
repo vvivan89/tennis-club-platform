@@ -77,7 +77,7 @@ export default async function MemberPaymentsPage() {
             Payment history is temporarily unavailable.
           </p>
         ) : rows.length ? (
-          <PaymentHistoryTable rows={rows} />
+          <PaymentHistoryTable rows={rows} userId={user.id} />
         ) : (
           <p className="mt-6 rounded-xl border border-border p-5 text-sm text-muted-foreground">
             No payments found.

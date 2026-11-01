@@ -13,7 +13,7 @@ export function getSupabasePublicConfig() {
 export function createCookieSupabaseClient(
   url: string,
   key: string,
-  cookieStore: ReturnType<typeof cookies>,
+  cookieStore: Awaited<ReturnType<typeof cookies>>,
   { ignoreCookieWriteErrors = false }: { ignoreCookieWriteErrors?: boolean } = {},
 ) {
   return createServerClient(url, key, {
@@ -48,5 +48,7 @@ export async function createSupabaseServerClient() {
     );
   }
 
-  return createCookieSupabaseClient(url, key, cookies(), { ignoreCookieWriteErrors: true });
+  return createCookieSupabaseClient(url, key, await cookies(), {
+    ignoreCookieWriteErrors: true,
+  });
 }

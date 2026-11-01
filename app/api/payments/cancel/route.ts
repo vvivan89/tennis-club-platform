@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSignedInUser } from '@/lib/api-helpers';
+import { enforceRateLimit } from '@/lib/rate-limit';
 import { createPaymentServiceClient } from '@/lib/payments/server';
 import {
   expireCheckoutSession,
@@ -14,6 +15,13 @@ const conflict = (error: string) => NextResponse.json({ error }, { status: 409 }
 export async function POST(request: Request) {
   try {
     const { user } = await getSignedInUser();
+    const limited = await enforceRateLimit(request, {
+      name: 'payment-cancel',
+      limit: 30,
+      windowSeconds: 600,
+      userId: user?.id,
+    });
+    if (limited) return limited;
     const body = (await request.json()) as {
       registrationId?: string;
       paymentId?: string;

@@ -122,7 +122,7 @@ beforeEach(() => setup(null));
 
 describe('EventDetailsPage', () => {
   it('renders published events for anonymous users without requesting private contacts', async () => {
-    const page = await EventDetailsPage({ params: { slug: 'spring-open' } });
+    const page = await EventDetailsPage({ params: Promise.resolve({ slug: 'spring-open' }) });
     render(page);
     expect(screen.getByRole('heading', { name: 'Spring Open' })).toBeInTheDocument();
     expect(mocks.rpcs).not.toContain('event_organizer_contacts');
@@ -143,7 +143,7 @@ describe('EventDetailsPage', () => {
         phones: ['604-555-0111'],
       },
     ];
-    const page = await EventDetailsPage({ params: { slug: 'spring-open' } });
+    const page = await EventDetailsPage({ params: Promise.resolve({ slug: 'spring-open' }) });
     render(page);
     expect(screen.getByText('Jordan Organizer')).toBeInTheDocument();
     expect(screen.getByText('Tournament director')).toBeInTheDocument();
@@ -158,18 +158,20 @@ describe('EventDetailsPage', () => {
     setup({ id: 'member-1' });
     mocks.singles.profiles = { role: 'member', application_status: 'approved' };
     mocks.contacts = [];
-    const page = await EventDetailsPage({ params: { slug: 'spring-open' } });
+    const page = await EventDetailsPage({ params: Promise.resolve({ slug: 'spring-open' }) });
     render(page);
     expect(screen.queryByText('Event organizer')).not.toBeInTheDocument();
   });
 
   it('uses not-found behavior for missing events and private drafts viewed by non-managers', async () => {
     mocks.singles.events = null;
-    await expect(EventDetailsPage({ params: { slug: 'missing' } })).rejects.toThrow('not-found');
+    await expect(
+      EventDetailsPage({ params: Promise.resolve({ slug: 'missing' }) }),
+    ).rejects.toThrow('not-found');
     setup({ id: 'member-1' }, { ...publishedEvent, status: 'draft', created_by: 'another-user' });
-    await expect(EventDetailsPage({ params: { slug: 'spring-open' } })).rejects.toThrow(
-      'not-found',
-    );
+    await expect(
+      EventDetailsPage({ params: Promise.resolve({ slug: 'spring-open' }) }),
+    ).rejects.toThrow('not-found');
   });
 });
 
@@ -185,7 +187,9 @@ describe('tournament event page integration', () => {
       allow_non_member_registration: false,
     };
     setup(null, tournamentEvent);
-    const anonymousPage = await EventDetailsPage({ params: { slug: 'spring-open' } });
+    const anonymousPage = await EventDetailsPage({
+      params: Promise.resolve({ slug: 'spring-open' }),
+    });
     render(anonymousPage);
     expect(screen.getByTestId('tournament-public-view')).toBeInTheDocument();
     expect(screen.queryByTestId('tournament-management')).not.toBeInTheDocument();
@@ -194,7 +198,9 @@ describe('tournament event page integration', () => {
     cleanup();
     setup({ id: 'organizer-1' }, tournamentEvent);
     mocks.singles.profiles = { role: 'organizer', application_status: 'approved' };
-    const managerPage = await EventDetailsPage({ params: { slug: 'spring-open' } });
+    const managerPage = await EventDetailsPage({
+      params: Promise.resolve({ slug: 'spring-open' }),
+    });
     render(managerPage);
     expect(screen.getByTestId('tournament-management')).toBeInTheDocument();
     expect(screen.getByTestId('tournament-public-view')).toBeInTheDocument();

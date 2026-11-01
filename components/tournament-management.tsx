@@ -34,6 +34,7 @@ import {
 import {
   compareByScheduleThenCourt,
   hasTwoPlayersPerTeam,
+  parseBracketSlots,
   pairMatchPlayerRows,
   roundNumbersByMatch,
   type TournamentMatchCore,
@@ -2450,14 +2451,7 @@ export function TournamentManagement({
         const ids = isTeam
           ? [match.team_one_id, match.team_two_id]
           : [match.pair_one_id, match.pair_two_id];
-        let slots: Array<string | null> = [];
-        try {
-          const notes = JSON.parse(match.notes || '{}') as {
-            slot_one?: string | null;
-            slot_two?: string | null;
-          };
-          slots = [notes.slot_one ?? null, notes.slot_two ?? null];
-        } catch {}
+        const slots = parseBracketSlots(match.notes);
         return ids.map(
           (id, index) =>
             id || (slots[index] && slots[index] !== 'Bye' ? `slot:${slots[index]}` : null),

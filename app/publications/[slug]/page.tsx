@@ -6,6 +6,7 @@ import { getClubDisplay } from '@/lib/club-display';
 import { newsPathSlug } from '@/lib/news-slug';
 import { SiteHeader } from '@/components/site-header';
 import { SiteFooter } from '@/components/site-footer';
+import { sanitizeHtml } from '@/lib/sanitize-html';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +17,12 @@ type NewsArticle = {
   published_at: string | null;
 };
 
-export default async function PublicationPage({ params }: { params: { slug: string } }) {
+export default async function PublicationPage({
+  params: paramsPromise,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
+  const params = await paramsPromise;
   const db = await createSupabaseServerClient();
   const [{ data: articleRows, error }, { data: settings }] = await Promise.all([
     db.from('news').select('id,title,body,published_at').eq('published', true),
@@ -57,7 +63,7 @@ export default async function PublicationPage({ params }: { params: { slug: stri
         </header>
         <div
           className="prose prose-sm max-w-none break-words text-foreground sm:prose-base"
-          dangerouslySetInnerHTML={{ __html: article.body }}
+          dangerouslySetInnerHTML={{ __html: sanitizeHtml(article.body) }}
         />
       </article>
       <SiteFooter clubName={clubName} shortName={shortName} socialLinks={socialLinks} />

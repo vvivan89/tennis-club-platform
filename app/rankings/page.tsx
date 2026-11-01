@@ -17,12 +17,12 @@ import {
 } from '@/lib/player-rankings';
 
 type Props = {
-  searchParams?: {
+  searchParams?: Promise<{
     season?: string | string[];
     ladder?: string | string[];
     tournament?: string | string[];
     league?: string | string[];
-  };
+  }>;
 };
 const formatPoints = (value: number) => {
   const formatted = `${value > 0 ? '+' : ''}${value}`;
@@ -36,7 +36,8 @@ const describeLadderPoints = (points: number[]) =>
     `3rd ${formatPoints(Number(points[2] ?? -1))}`,
     `4th ${formatPoints(Number(points[3] ?? -2))}`,
   ].join(', ');
-export default async function RankingsPage({ searchParams }: Props) {
+export default async function RankingsPage({ searchParams: searchParamsPromise }: Props) {
+  const searchParams = await searchParamsPromise;
   const db = await createSupabaseServerClient();
   const {
     data: { user },

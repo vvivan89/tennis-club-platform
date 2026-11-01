@@ -32,6 +32,7 @@ import {
   defaultRankingPriority,
   tournamentRankingMetric,
 } from '@/lib/tournament-standings';
+import { sanitizeHtml } from '@/lib/sanitize-html';
 import {
   compareByScheduleThenCourt,
   compareByScheduleThenMatchNumber,
@@ -110,28 +111,6 @@ type Match = TournamentMatchCore & {
   opponent_two_name: string | null;
   notes?: string | null;
 };
-function safeRulesHtml(input: string) {
-  if (typeof window === 'undefined')
-    return input
-      .replace(/<(script|style|iframe|object|embed)[\s\S]*?<\/\1>/gi, '')
-      .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-      .replace(/javascript:/gi, '');
-  const parsed = new DOMParser().parseFromString(input, 'text/html');
-  parsed
-    .querySelectorAll('script,style,iframe,object,embed,form,button,input')
-    .forEach((node) => node.remove());
-  parsed.body.querySelectorAll('*').forEach((node) => {
-    [...node.attributes].forEach((attribute) => {
-      if (attribute.name.toLowerCase().startsWith('on')) node.removeAttribute(attribute.name);
-      if (
-        (attribute.name === 'href' || attribute.name === 'src') &&
-        /^\s*javascript:/i.test(attribute.value)
-      )
-        node.removeAttribute(attribute.name);
-    });
-  });
-  return parsed.body.innerHTML;
-}
 const categoryLabel = (value: string) =>
   ({
     mixed: 'Mixed doubles',
@@ -2088,7 +2067,7 @@ export function TournamentPublicView({
             <section className="rounded-lg border border-border p-4" aria-label="Tournament rules">
               <div
                 className="prose prose-sm max-w-none dark:prose-invert"
-                dangerouslySetInnerHTML={{ __html: safeRulesHtml(rulesHtml || '') }}
+                dangerouslySetInnerHTML={{ __html: sanitizeHtml(rulesHtml) }}
               />
             </section>
           ) : tab === 'overview' ? (

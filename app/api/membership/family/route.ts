@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { getSignedInUser } from '@/lib/api-helpers';
 import { createServiceRoleClient } from '@/lib/supabase-service';
 import { escapeHtml as esc, sendResendEmail } from '@/lib/resend';
+import { getSiteOrigin } from '@/lib/site-url';
+import { enforceRateLimit } from '@/lib/rate-limit';
 type MembershipSettings = {
   season_start_month: number;
   season_start_day: number;
@@ -223,6 +225,13 @@ export async function POST(req: Request) {
   try {
     const { user, response: authError } = await getSignedInUser();
     if (authError) return authError;
+    const limited = await enforceRateLimit(req, {
+      name: 'family-invite',
+      limit: 30,
+      windowSeconds: 3600,
+      userId: user.id,
+    });
+    if (limited) return limited;
     const db = createServiceRoleClient();
     const { data: me } = await db
       .from('profiles')
@@ -356,7 +365,7 @@ export async function POST(req: Request) {
         .insert({ family_id: familyId, user_id: targetId, invited_by: user.id, status: 'pending' });
       if (inviteErr) throw inviteErr;
       if (process.env.RESEND_API_KEY && process.env.RESEND_FROM_EMAIL) {
-        const url = new URL('/member/membership', req.url).toString();
+        const url = new URL('/member/membership', getSiteOrigin(req)).toString();
         const mail = await sendResendEmail({
           to: target.email,
           subject: 'PCTC family membership invitation',

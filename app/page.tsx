@@ -12,6 +12,7 @@ import { EventCardWeather } from '@/components/event-card-weather';
 import { newsPathSlug } from '@/lib/news-slug';
 import { eventPath } from '@/lib/event-slug';
 import { eventPriceLabel as money, type EventRow } from '@/lib/event-format';
+import { sanitizeHtml } from '@/lib/sanitize-html';
 
 type ClubEvent = EventRow & { status: 'draft' | 'published' | 'cancelled' };
 const demoEvents: ClubEvent[] = [
@@ -202,7 +203,7 @@ export default function Home() {
                 <CardContent className="flex flex-1 flex-col">
                   <div
                     className="prose prose-sm mt-2 line-clamp-2 max-w-none overflow-hidden text-muted-foreground"
-                    dangerouslySetInnerHTML={{ __html: item.body }}
+                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(item.body) }}
                   />
                   <Link
                     href={`/publications/${newsPathSlug(item, news)}`}

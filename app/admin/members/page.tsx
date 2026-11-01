@@ -27,9 +27,9 @@ type FamilyMemberRow = {
 export default async function MembersAdminPage({
   searchParams,
 }: {
-  searchParams?: { tab?: string };
+  searchParams?: Promise<{ tab?: string }>;
 }) {
-  const params = searchParams;
+  const params = await searchParams;
   const tab = params?.tab ?? 'members';
   const db = await createSupabaseServerClient();
   const {

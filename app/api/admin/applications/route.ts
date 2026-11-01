@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { escapeHtml, sendResendEmail } from '@/lib/resend';
+import { getSiteOrigin } from '@/lib/site-url';
 import {
   checkAdminRole,
   getConfiguredServiceClient,
@@ -64,7 +65,7 @@ export async function POST(request: Request) {
             from: fromEmail,
             to: app.email,
             subject: 'Your PCTC application has been approved',
-            html: `<p>Hello ${escapeHtml(String(app.full_name || ''))},</p><p>Your Port Coquitlam Tennis Club account has been approved. You can now sign in and access member features.</p><p><a href="${new URL('/login', request.url).toString()}">Sign in to PCTC</a></p>`,
+            html: `<p>Hello ${escapeHtml(String(app.full_name || ''))},</p><p>Your Port Coquitlam Tennis Club account has been approved. You can now sign in and access member features.</p><p><a href="${new URL('/login', getSiteOrigin(request)).toString()}">Sign in to PCTC</a></p>`,
           });
           const raw = await emailResponse.text();
           let payload: Record<string, unknown> = {};

@@ -1,6 +1,20 @@
 import { NextResponse } from 'next/server';
 import { getSignedInUser, getConfiguredServiceClient } from '@/lib/api-helpers';
 import { escapeHtml as esc, sendResendEmail } from '@/lib/resend';
+import { getSiteOrigin } from '@/lib/site-url';
+import { mapInChunks } from '@/lib/async';
+
+const SEND_CONCURRENCY = 10;
+/** A claim older than this is assumed to belong to a crashed run and may be retaken. */
+const CLAIM_TIMEOUT_MS = 5 * 60 * 1000;
+
+type RegistrationRow = {
+  event_id: string;
+  user_id: string;
+  status: string;
+  queue_position: number | null;
+};
+type QueueItem = { id: string; event_id: string; user_id: string; notification_type: string };
 
 const templates: Record<string, { subject: string; intro: string }> = {
   registration_created: {
@@ -72,48 +86,90 @@ export async function POST(request: Request) {
         { status: 503 },
       );
     }
-    const { data: queue, error } = await admin
+    const claimTimeoutBefore = new Date(Date.now() - CLAIM_TIMEOUT_MS).toISOString();
+    // Unclaimed, or claimed so long ago that the claiming run must have died.
+    const claimable = `claimed_at.is.null,claimed_at.lt.${claimTimeoutBefore}`;
+    const { data: pending, error } = await admin
       .from('event_notification_queue')
-      .select('id,event_id,user_id,notification_type')
+      .select('id')
       .in('event_id', eventIds)
       .is('sent_at', null)
+      .or(claimable)
       .order('created_at')
       .limit(100);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    let sent = 0;
-    let failed = 0;
-    const errors: { eventId: string; userId: string; email: string | null; error: string }[] = [];
-    for (const item of queue ?? []) {
-      const [{ data: recipient }, { data: event }, { data: reg }] = await Promise.all([
-        admin
-          .from('profiles')
-          .select(
-            'email,full_name,email_registration_updates,email_waitlist_updates,email_event_cancellations,email_registration_reminders,email_new_events,email_newsletter',
-          )
-          .eq('id', item.user_id)
-          .maybeSingle(),
-        admin
-          .from('events')
-          .select('title,slug,starts_at,location')
-          .eq('id', item.event_id)
-          .maybeSingle(),
-        admin
-          .from('registrations')
-          .select('status,queue_position,created_at')
-          .eq('event_id', item.event_id)
-          .eq('user_id', item.user_id)
-          .in('status', ['confirmed', 'waitlisted'])
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-      ]);
-      const preferenceKey: Record<string, string> = {
-        registration_created: 'email_registration_updates',
-        registration_cancelled: 'email_registration_updates',
-        event_cancelled: 'email_event_cancellations',
-        waitlist_confirmed: 'email_waitlist_updates',
-        new_event_created: 'email_new_events',
-      };
+    const pendingIds = (pending ?? []).map((row) => row.id as string);
+    const { data: claimedRows, error: claimError } = pendingIds.length
+      ? await admin
+          .from('event_notification_queue')
+          .update({ claimed_at: new Date().toISOString() })
+          .in('id', pendingIds)
+          .is('sent_at', null)
+          .or(claimable)
+          .select('id,event_id,user_id,notification_type')
+      : { data: [], error: null };
+    if (claimError) return NextResponse.json({ error: claimError.message }, { status: 500 });
+    const queue = (claimedRows ?? []) as QueueItem[];
+
+    const releaseClaims = async (ids: string[]) => {
+      if (ids.length)
+        await admin.from('event_notification_queue').update({ claimed_at: null }).in('id', ids);
+    };
+
+    const userIds = [...new Set(queue.map((item) => item.user_id))];
+    const queueEventIds = [...new Set(queue.map((item) => item.event_id))];
+    const [recipientsResult, eventsResult, registrationsResult] = queue.length
+      ? await Promise.all([
+          admin
+            .from('profiles')
+            .select(
+              'id,email,full_name,email_registration_updates,email_waitlist_updates,email_event_cancellations,email_registration_reminders,email_new_events,email_newsletter',
+            )
+            .in('id', userIds),
+          admin.from('events').select('id,title,slug,starts_at,location').in('id', queueEventIds),
+          admin
+            .from('registrations')
+            .select('event_id,user_id,status,queue_position,created_at')
+            .in('event_id', queueEventIds)
+            .in('user_id', userIds)
+            .in('status', ['confirmed', 'waitlisted'])
+            .order('created_at', { ascending: false }),
+        ])
+      : [null, null, null];
+    if (recipientsResult?.error || eventsResult?.error || registrationsResult?.error) {
+      await releaseClaims(queue.map((item) => item.id));
+      return NextResponse.json({ error: 'Could not load notification details.' }, { status: 500 });
+    }
+    const recipientById = new Map(
+      (recipientsResult?.data ?? []).map((r) => [r.id as string, r] as const),
+    );
+    const eventById = new Map((eventsResult?.data ?? []).map((e) => [e.id as string, e] as const));
+    // Rows are newest first, so the first one seen per event and user is the latest.
+    const registrationByKey = new Map<string, RegistrationRow>();
+    for (const reg of (registrationsResult?.data ?? []) as RegistrationRow[]) {
+      const registrationKey = `${reg.event_id}:${reg.user_id}`;
+      if (!registrationByKey.has(registrationKey)) registrationByKey.set(registrationKey, reg);
+    }
+
+    const preferenceKey: Record<string, string> = {
+      registration_created: 'email_registration_updates',
+      registration_cancelled: 'email_registration_updates',
+      event_cancelled: 'email_event_cancellations',
+      waitlist_confirmed: 'email_waitlist_updates',
+      new_event_created: 'email_new_events',
+    };
+
+    type Outcome =
+      | { status: 'sent' | 'skipped' }
+      | {
+          status: 'failed';
+          error: { eventId: string; userId: string; email: string | null; error: string };
+        };
+
+    const processItem = async (item: QueueItem): Promise<Outcome> => {
+      const recipient = recipientById.get(item.user_id);
+      const event = eventById.get(item.event_id);
+      const reg = registrationByKey.get(`${item.event_id}:${item.user_id}`);
       const pref = preferenceKey[item.notification_type];
       if (pref && recipient && recipient[pref as keyof typeof recipient] === false) {
         await admin
@@ -124,18 +180,31 @@ export async function POST(request: Request) {
           })
           .eq('id', item.id)
           .is('sent_at', null);
-        continue;
+        return { status: 'skipped' };
       }
       const template = templates[item.notification_type];
-      if (!recipient?.email || !event || !template) {
+      const fail = async (reason: string): Promise<Outcome> => {
+        // Release the claim so the next dispatch can retry.
         await admin
           .from('event_notification_queue')
-          .update({ last_error: 'Missing recipient, event, or template.' })
+          .update({ last_error: reason, claimed_at: null })
           .eq('id', item.id);
-        failed++;
-        continue;
-      }
-      const eventUrl = new URL(`/events/${event.slug || item.event_id}`, request.url).toString();
+        return {
+          status: 'failed',
+          error: {
+            eventId: item.event_id,
+            userId: item.user_id,
+            email: recipient?.email ?? null,
+            error: reason,
+          },
+        };
+      };
+      if (!recipient?.email || !event || !template)
+        return fail('Missing recipient, event, or template.');
+      const eventUrl = new URL(
+        `/events/${event.slug || item.event_id}`,
+        getSiteOrigin(request),
+      ).toString();
       const name = esc(recipient.full_name || 'member');
       const title = esc(event.title);
       const status =
@@ -153,19 +222,6 @@ export async function POST(request: Request) {
               : template.subject
           : template.subject;
       const html = `<p>Hello ${name},</p><p>${template.intro}</p><h2>${title}</h2><p>${esc(new Date(event.starts_at).toLocaleString('en-CA'))}${event.location ? ` · ${esc(event.location)}` : ''}</p>${status ? `<p><strong>Registration status:</strong> ${esc(status)}</p>` : ''}<p><a href="${esc(eventUrl)}">View event details</a></p><p>Port Coquitlam Tennis Club</p>`;
-      const recordFailure = async (reason: string) => {
-        await admin
-          .from('event_notification_queue')
-          .update({ last_error: reason })
-          .eq('id', item.id);
-        errors.push({
-          eventId: item.event_id,
-          userId: item.user_id,
-          email: recipient.email,
-          error: reason,
-        });
-        failed++;
-      };
       try {
         const response = await sendResendEmail({
           apiKey: resendKey,
@@ -173,29 +229,37 @@ export async function POST(request: Request) {
           to: recipient.email,
           subject,
           html,
+          idempotencyKey: `event-notification:${item.id}`,
         });
-        if (response.ok) {
-          await admin
-            .from('event_notification_queue')
-            .update({ sent_at: new Date().toISOString(), last_error: null })
-            .eq('id', item.id)
-            .is('sent_at', null);
-          sent++;
-        } else {
+        if (!response.ok) {
           const detail = (await response.text()).slice(0, 1000);
-          await recordFailure(
-            `Resend HTTP ${response.status}: ${detail || 'No error details returned.'}`,
-          );
+          return fail(`Resend HTTP ${response.status}: ${detail || 'No error details returned.'}`);
         }
       } catch (e) {
-        await recordFailure(e instanceof Error ? e.message : 'Email send failed');
+        return fail(e instanceof Error ? e.message : 'Email send failed');
       }
-    }
+      const { error: markError } = await admin
+        .from('event_notification_queue')
+        .update({ sent_at: new Date().toISOString(), last_error: null })
+        .eq('id', item.id)
+        .is('sent_at', null);
+      if (markError)
+        console.error('[Notifications] Could not mark queue item sent', {
+          id: item.id,
+          message: markError.message,
+        });
+      return { status: 'sent' };
+    };
+
+    const outcomes = await mapInChunks(queue, SEND_CONCURRENCY, processItem);
+    const sent = outcomes.filter((o) => o.status === 'sent').length;
+    const errors = outcomes.flatMap((o) => (o.status === 'failed' ? [o.error] : []));
+    const failed = errors.length;
     return NextResponse.json({
       success: failed === 0,
       sent,
       failed,
-      pending: (queue ?? []).length - sent - failed,
+      pending: queue.length - sent - failed,
       errors,
     });
   } catch (e) {

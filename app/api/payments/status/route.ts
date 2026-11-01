@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSignedInUser } from '@/lib/api-helpers';
+import { enforceRateLimit } from '@/lib/rate-limit';
 import { createPaymentServiceClient } from '@/lib/payments/server';
 import { markPaymentSucceeded } from '@/lib/payments/checkout-cleanup';
 import { getStripeClient } from '@/lib/payments/stripe';
@@ -103,6 +104,13 @@ async function reconcileCompletedCheckout(
 export async function GET(request: Request) {
   try {
     const { user } = await getSignedInUser();
+    const limited = await enforceRateLimit(request, {
+      name: 'payment-status',
+      limit: 300,
+      windowSeconds: 600,
+      userId: user?.id,
+    });
+    if (limited) return limited;
     const params = new URL(request.url).searchParams;
     const sessionId = params.get('session_id');
     const paymentId = params.get('payment_id');

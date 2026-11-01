@@ -17,10 +17,10 @@ describe('legacy administration routes', () => {
     expect(() => LegacyAdminTab()).toThrow('redirect:/admin/members?tab=applications');
   });
 
-  it('moves legacy legal tabs to documents while preserving encoded query values', () => {
-    expect(() => LegacyAdminLegalPage({ searchParams: { tab: ['terms of use'] } })).toThrow(
-      'redirect:/admin/documents?tab=terms%20of%20use',
-    );
-    expect(() => LegacyAdminLegalPage({})).toThrow('redirect:/admin/documents');
+  it('moves legacy legal tabs to documents while preserving encoded query values', async () => {
+    await expect(
+      LegacyAdminLegalPage({ searchParams: Promise.resolve({ tab: ['terms of use'] }) }),
+    ).rejects.toThrow('redirect:/admin/documents?tab=terms%20of%20use');
+    await expect(LegacyAdminLegalPage({})).rejects.toThrow('redirect:/admin/documents');
   });
 });

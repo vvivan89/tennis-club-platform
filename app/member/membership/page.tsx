@@ -13,6 +13,7 @@ import {
   type InteracPaymentNotice,
 } from '@/components/interac-payment-instructions-dialog';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
+import { sanitizeHtml } from '@/lib/sanitize-html';
 type Profile = {
   id: string;
   full_name: string | null;
@@ -450,7 +451,9 @@ export default function MembershipPortal() {
                     </summary>
                     <div
                       className="prose prose-sm dark:prose-invert mt-3 max-w-none"
-                      dangerouslySetInnerHTML={{ __html: state.currentWaiver.body_html }}
+                      dangerouslySetInnerHTML={{
+                        __html: sanitizeHtml(state.currentWaiver.body_html),
+                      }}
                     />
                   </details>
                   <label className="mt-3 flex items-start gap-2 text-sm">

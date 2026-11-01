@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { RichTextEditor } from '@/components/rich-text-editor';
 import { AdminGalleryContent } from '@/components/admin-gallery-content';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { sanitizeHtml } from '@/lib/sanitize-html';
 
 type NewsItem = {
   id: string;
@@ -33,7 +34,7 @@ type EmailItem = {
   sent_at: string;
 };
 const recipientLabel: Record<string, string> = {
-  all: 'All users',
+  all: 'All approved members',
   active_members: 'Active members',
   admins: 'Administrators',
   organizers: 'Organizers',
@@ -55,6 +56,7 @@ export default function WebsiteAdminPage() {
   const [emailBody, setEmailBody] = useState('');
   const [emailGroup, setEmailGroup] = useState('all');
   const [emailBusy, setEmailBusy] = useState(false);
+  const [emailConfirmCount, setEmailConfirmCount] = useState<number | null>(null);
   async function loadEmailHistory() {
     try {
       const response = await fetch('/api/admin/email-history');
@@ -159,22 +161,51 @@ export default function WebsiteAdminPage() {
     }
     setItems(items.filter((x) => x.id !== id));
   }
-  async function sendEmail(e: FormEvent) {
+  async function postAnnouncement(extra: Record<string, unknown>) {
+    const response = await fetch('/api/admin/send-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subject: emailSubject, html: emailBody, group: emailGroup, ...extra }),
+    });
+    const result = await response.json().catch(() => ({}));
+    return { response, result };
+  }
+  function failEmail(response: Response, result: { error?: string }) {
+    console.error('[Website admin] Email send failed', { status: response.status, result });
+    setError(
+      response.status >= 400 && response.status < 500 && result.error
+        ? result.error
+        : 'Could not send email. Please try again.',
+    );
+  }
+  async function previewEmail(e: FormEvent) {
     e.preventDefault();
     setEmailBusy(true);
     setError('');
     setMessage('');
     try {
-      const response = await fetch('/api/admin/send-email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subject: emailSubject, html: emailBody, group: emailGroup }),
-      });
-      const result = await response.json();
-      if (!response.ok) {
-        console.error('[Website admin] Email send failed', { status: response.status, result });
-        throw new Error('email-send-failed');
+      const { response, result } = await postAnnouncement({ preview: true });
+      if (!response.ok) return failEmail(response, result);
+      if (!result.recipientCount) {
+        setError('This group has no recipients with an email address.');
+        return;
       }
+      setEmailConfirmCount(result.recipientCount);
+    } catch (e) {
+      console.error('[Website admin] Email preview failed', e);
+      setError('Could not send email. Please try again.');
+    } finally {
+      setEmailBusy(false);
+    }
+  }
+  async function sendEmail() {
+    setEmailConfirmCount(null);
+    setEmailBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      const { response, result } = await postAnnouncement({});
+      if (!response.ok) return failEmail(response, result);
       setMessage(`Email announcement sent: ${result.sent} successful, ${result.failed} failed.`);
       setEmailSubject('');
       setEmailBody('');
@@ -248,7 +279,7 @@ export default function WebsiteAdminPage() {
                           )}
                           <div
                             className="prose prose-sm mt-2 max-w-none text-muted-foreground"
-                            dangerouslySetInnerHTML={{ __html: item.body }}
+                            dangerouslySetInnerHTML={{ __html: sanitizeHtml(item.body) }}
                           />
                         </div>
                         <div className="flex gap-2">
@@ -286,7 +317,7 @@ export default function WebsiteAdminPage() {
                 </p>
               </CardHeader>
               <CardContent>
-                <form onSubmit={sendEmail} className="space-y-4">
+                <form onSubmit={previewEmail} className="space-y-4">
                   <label className="block space-y-1.5 text-sm font-medium">
                     Recipient group
                     <select
@@ -294,7 +325,8 @@ export default function WebsiteAdminPage() {
                       onChange={(e) => setEmailGroup(e.target.value)}
                       className="block h-10 w-full rounded-md border border-input bg-background px-3"
                     >
-                      <option value="all">All users</option>
+                      <option value="all">All approved members (ignores email preferences)</option>
+                      <option value="newsletter">Newsletter subscribers</option>
                       <option value="active_members">Active members</option>
                       <option value="admins">Administrators</option>
                       <option value="organizers">Organizers</option>
@@ -314,7 +346,8 @@ export default function WebsiteAdminPage() {
                     <RichTextEditor value={emailBody} onChange={setEmailBody} />
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Administrative emails are sent regardless of individual email preferences.
+                    Only approved members are emailed. All groups except Newsletter subscribers
+                    ignore individual email preferences.
                   </p>
                   <Button disabled={emailBusy}>
                     {emailBusy ? (
@@ -350,7 +383,7 @@ export default function WebsiteAdminPage() {
                         </div>
                         <div
                           className="prose prose-sm mt-3 max-w-none text-muted-foreground"
-                          dangerouslySetInnerHTML={{ __html: item.body_html }}
+                          dangerouslySetInnerHTML={{ __html: sanitizeHtml(item.body_html) }}
                         />
                       </CardContent>
                     </Card>
@@ -366,6 +399,18 @@ export default function WebsiteAdminPage() {
         )}
       </div>
       <SiteFooter />
+      <ConfirmDialog
+        open={emailConfirmCount !== null}
+        title="Send email announcement?"
+        description={
+          emailGroup === 'all'
+            ? `This will email all ${emailConfirmCount} approved members, including those who have opted out of newsletters.`
+            : `This will email ${emailConfirmCount} recipient${emailConfirmCount === 1 ? '' : 's'}.`
+        }
+        confirmLabel="Send"
+        onCancel={() => setEmailConfirmCount(null)}
+        onConfirm={() => void sendEmail()}
+      />
       {deleteNewsId && (
         <ConfirmDialog
           open

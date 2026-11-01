@@ -96,3 +96,16 @@ export function hasTwoPlayersPerTeam(
       ).length === 2,
   );
 }
+
+/** Knockout match notes hold JSON slot labels; free-text or empty notes mean no slot data. */
+export function parseBracketSlots(notes: string | null | undefined): Array<string | null> {
+  try {
+    const parsed = JSON.parse(notes || '{}') as {
+      slot_one?: string | null;
+      slot_two?: string | null;
+    };
+    return [parsed.slot_one ?? null, parsed.slot_two ?? null];
+  } catch {
+    return [null, null];
+  }
+}

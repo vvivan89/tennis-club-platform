@@ -4,7 +4,8 @@ const mocks = vi.hoisted(() => ({
   secret: 'cron-key',
   tables: {} as Record<string, unknown[]>,
   singleResults: [] as unknown[],
-  logInsertError: null as null | { message: string },
+  logInsertError: null as null | { message: string; code?: string },
+  tableErrors: {} as Record<string, { message: string }>,
   eventQueryError: null as null | { message: string },
   fetch: vi.fn(),
   createClient: vi.fn(),
@@ -24,6 +25,8 @@ function serviceClient() {
         gte: () => query,
         lte: () => query,
         in: () => query,
+        order: () => query,
+        range: () => query,
         insert: (payload: unknown) => {
           operation = 'insert';
           values = payload;
@@ -42,7 +45,8 @@ function serviceClient() {
               ? { data: null, error: mocks.logInsertError }
               : {
                   data: mocks.tables[`${table}.${operation}`] ?? mocks.tables[table] ?? [],
-                  error: table === 'events' ? mocks.eventQueryError : null,
+                  error:
+                    table === 'events' ? mocks.eventQueryError : (mocks.tableErrors[table] ?? null),
                 };
           return Promise.resolve(response).then(resolve, reject);
         },
@@ -61,6 +65,7 @@ beforeEach(() => {
   mocks.tables = {};
   mocks.singleResults = [];
   mocks.logInsertError = null;
+  mocks.tableErrors = {};
   mocks.eventQueryError = null;
   mocks.calls = [];
   mocks.createClient.mockImplementation(serviceClient);
@@ -101,57 +106,102 @@ describe('GET /api/notifications/reminders', () => {
     expect(await empty.json()).toEqual({ success: true, sent: 0, failed: 0, events: 0 });
   });
 
-  it('skips registered members, escapes mail content, and removes the dedupe log after provider failure', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-10-22T12:00:00Z'));
-    mocks.tables.events = [
-      {
-        id: 'event-1',
-        slug: null,
-        title: '<Club Finals>',
-        starts_at: '2026-11-10T18:00:00Z',
-        location: '<Court 1>',
-        registration_opens_at: '2026-10-22T11:50:00Z',
-      },
-    ];
-    mocks.tables.profiles = [
-      { id: 'registered', email: 'registered@example.com', full_name: 'Registered' },
-      { id: 'unregistered', email: 'unregistered@example.com', full_name: '<Member>' },
-    ];
-    mocks.singleResults = [{ id: 'existing-registration' }, null];
-    const response = await GET(request());
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ success: true, sent: 0, failed: 1, events: 1 });
-    expect(mocks.fetch).toHaveBeenCalledOnce();
-    const email = JSON.parse(mocks.fetch.mock.calls[0][1].body as string);
-    expect(email.to).toEqual(['unregistered@example.com']);
-    expect(email.html).toContain('&lt;Member&gt;');
-    expect(email.html).toContain('&lt;Club Finals&gt;');
-    expect(email.html).not.toContain('<Club Finals>');
-    expect(mocks.calls).toContainEqual(
-      expect.objectContaining({ table: 'event_email_log', operation: 'insert' }),
-    );
-    expect(mocks.calls).toContainEqual(
-      expect.objectContaining({ table: 'event_email_log', operation: 'delete' }),
-    );
-  });
+  describe('with an event whose registration just opened', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-10-22T12:00:00Z'));
+      mocks.tables.events = [
+        {
+          id: 'event-1',
+          slug: null,
+          title: '<Club Finals>',
+          starts_at: '2026-11-10T18:00:00Z',
+          location: '<Court 1>',
+          registration_opens_at: '2026-10-22T11:50:00Z',
+        },
+      ];
+      mocks.tables.profiles = [
+        { id: 'registered', email: 'registered@example.com', full_name: 'Registered' },
+        { id: 'already-reminded', email: 'logged@example.com', full_name: 'Logged' },
+        { id: 'no-email', email: null, full_name: 'No Email' },
+        { id: 'unregistered', email: 'unregistered@example.com', full_name: '<Member>' },
+      ];
+      mocks.tables.registrations = [{ user_id: 'registered' }];
+      mocks.tables.event_email_log = [{ user_id: 'already-reminded' }];
+      mocks.fetch.mockResolvedValue(new Response('{}', { status: 200 }));
+    });
 
-  it('does not send duplicate reminder when the dedupe log insert fails', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-10-22T12:00:00Z'));
-    mocks.tables.events = [
-      {
-        id: 'event-1',
-        title: 'Open',
-        starts_at: '2026-11-10T18:00:00Z',
-        registration_opens_at: '2026-10-22T11:50:00Z',
-      },
-    ];
-    mocks.tables.profiles = [{ id: 'member-1', email: 'member@example.com', full_name: 'Member' }];
-    mocks.singleResults = [null];
-    mocks.logInsertError = { message: 'already logged' };
-    const response = await GET(request());
-    expect(await response.json()).toEqual({ success: true, sent: 0, failed: 0, events: 1 });
-    expect(mocks.fetch).not.toHaveBeenCalled();
+    it('mails only unregistered, not-yet-reminded members with an idempotency key, then records it', async () => {
+      const response = await GET(request());
+      expect(await response.json()).toEqual({ success: true, sent: 1, failed: 0, events: 1 });
+      expect(mocks.fetch).toHaveBeenCalledOnce();
+      const [, init] = mocks.fetch.mock.calls[0];
+      const email = JSON.parse(init.body as string);
+      expect(email.to).toEqual(['unregistered@example.com']);
+      expect(email.html).toContain('&lt;Member&gt;');
+      expect(email.html).toContain('&lt;Club Finals&gt;');
+      expect(email.html).not.toContain('<Club Finals>');
+      expect(init.headers['Idempotency-Key']).toBe('registration-reminder:event-1:unregistered');
+      expect(mocks.calls).toEqual([
+        {
+          table: 'event_email_log',
+          operation: 'insert',
+          values: {
+            event_id: 'event-1',
+            user_id: 'unregistered',
+            email_type: 'registration_reminder',
+          },
+        },
+      ]);
+    });
+
+    it('records nothing and counts a failure when the provider rejects the email, so the next run retries', async () => {
+      mocks.fetch.mockResolvedValue(new Response('provider rejected', { status: 500 }));
+      const response = await GET(request());
+      expect(await response.json()).toEqual({ success: true, sent: 0, failed: 1, events: 1 });
+      expect(mocks.calls).toHaveLength(0);
+    });
+
+    it('counts a failure when sending throws', async () => {
+      mocks.fetch.mockRejectedValue(new Error('network down'));
+      const response = await GET(request());
+      expect(await response.json()).toMatchObject({ sent: 0, failed: 1 });
+      expect(mocks.calls).toHaveLength(0);
+    });
+
+    it('still counts the reminder as sent when a parallel run already recorded it', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mocks.logInsertError = { message: 'duplicate key', code: '23505' };
+      const response = await GET(request());
+      expect(await response.json()).toMatchObject({ sent: 1, failed: 0 });
+      expect(error).not.toHaveBeenCalled();
+    });
+
+    it('logs but does not fail when recording the sent reminder fails for another reason', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mocks.logInsertError = { message: 'db down' };
+      const response = await GET(request());
+      expect(await response.json()).toMatchObject({ sent: 1, failed: 0 });
+      expect(error).toHaveBeenCalledWith(
+        '[Reminders] Could not record sent reminder',
+        expect.objectContaining({ eventId: 'event-1' }),
+      );
+    });
+
+    it('sends nothing for an event when registrations or the reminder log cannot be read', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mocks.tableErrors.registrations = { message: 'boom' };
+      const response = await GET(request());
+      expect(await response.json()).toMatchObject({ sent: 0, failed: 0, events: 1 });
+      expect(mocks.fetch).not.toHaveBeenCalled();
+      expect(error).toHaveBeenCalled();
+    });
+
+    it('returns 500 when recipients cannot be loaded', async () => {
+      mocks.tableErrors.profiles = { message: 'boom' };
+      const response = await GET(request());
+      expect(response.status).toBe(500);
+      expect(mocks.fetch).not.toHaveBeenCalled();
+    });
   });
 });

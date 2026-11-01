@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
-  esbuild: { jsx: 'automatic' },
+  oxc: { jsx: { runtime: 'automatic' } },
   resolve: {
     alias: {
       '@': root,
@@ -13,21 +13,19 @@ export default defineConfig({
     },
   },
   test: {
-    include: ['tests/unit/**/*.test.ts', 'tests/unit/**/*.test.tsx'],
-    environment: 'node',
-    environmentMatchGlobs: [['tests/unit/**/*.test.tsx', 'jsdom']],
     setupFiles: ['./tests/setup.ts'],
-    minWorkers: 1,
-    maxWorkers: 1,
-    pool: 'vmForks',
-    poolOptions: {
-      vmForks: {
-        memoryLimit: '512MB',
+    projects: [
+      {
+        extends: true,
+        test: { name: 'node', include: ['tests/unit/**/*.test.ts'], environment: 'node' },
       },
-    },
+      {
+        extends: true,
+        test: { name: 'dom', include: ['tests/unit/**/*.test.tsx'], environment: 'jsdom' },
+      },
+    ],
     coverage: {
       provider: 'v8',
-      all: true,
       include: ['app/**/*.{ts,tsx}', 'components/**/*.{ts,tsx}', 'lib/**/*.{ts,tsx}'],
       exclude: ['**/*.d.ts'],
       reporter: ['text', 'html'],

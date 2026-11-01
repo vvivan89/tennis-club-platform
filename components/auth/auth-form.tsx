@@ -4,6 +4,7 @@ import { TennisLoader } from '@/components/tennis-loader';
 import { FormEvent, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { safeRedirectPath } from '@/lib/safe-redirect';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import { formatPhoneNumber } from '@/lib/format-phone';
 import { Button } from '@/components/ui/button';
@@ -62,7 +63,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
           p_source: 'web',
           p_metadata: {},
         });
-        router.replace(searchParams.get('next') || '/member/dashboard');
+        router.replace(safeRedirectPath(searchParams.get('next'), '/member/dashboard'));
         router.refresh();
       } else if (mode === 'signup') {
         const { data, error: authError } = await supabase.auth.signUp({

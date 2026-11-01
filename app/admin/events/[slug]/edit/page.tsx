@@ -7,7 +7,12 @@ import { findEventBySlugAlias } from '@/lib/event-alias';
 import { EventManagementForm } from '@/components/event-management-form';
 import { eventPath, eventEditPath } from '@/lib/event-slug';
 import { EventEditManagement } from '@/components/event-edit-management';
-export default async function EditEventPage({ params }: { params: { slug: string } }) {
+export default async function EditEventPage({
+  params: paramsPromise,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
+  const params = await paramsPromise;
   const db = await createSupabaseServerClient();
   const {
     data: { user },

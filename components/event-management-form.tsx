@@ -6,6 +6,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import { requireBrowserUser } from '@/lib/supabase-browser-user';
+import { dispatchEventNotificationsInBackground } from '@/lib/event-notifications';
 import { reorderRankingPriority, type TournamentConfig } from '@/lib/tournament-config';
 import { calculateLadderSession, type LadderMetric } from '@/lib/social-doubles-ladder';
 import { Button } from '@/components/ui/button';
@@ -552,13 +553,7 @@ export function EventManagementForm({
           if (leagueError) throw leagueError;
         }
         if (v.status === 'cancelled') {
-          try {
-            await fetch('/api/notifications/dispatch', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ eventIds: notifyIds }),
-            });
-          } catch {}
+          dispatchEventNotificationsInBackground(notifyIds, 'Event management');
         }
         setMessage(
           applyToSeries && v.series_id
@@ -900,11 +895,10 @@ export function EventManagementForm({
           );
         if (linkError) throw linkError;
       }
-      void fetch('/api/notifications/dispatch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ eventIds: (created ?? []).map((x) => x.id) }),
-      }).catch(() => {});
+      dispatchEventNotificationsInBackground(
+        (created ?? []).map((x) => x.id),
+        'Event management',
+      );
       setMessage(`${created?.length ?? rows.length} event${rows.length === 1 ? '' : 's'} created.`);
       router.push('/admin/events');
       router.refresh();

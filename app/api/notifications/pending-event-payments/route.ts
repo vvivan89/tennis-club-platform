@@ -4,6 +4,8 @@ import { createPaymentServiceClient } from '@/lib/payments/server';
 import { markPaymentSucceeded } from '@/lib/payments/checkout-cleanup';
 import { getStripeClient } from '@/lib/payments/stripe';
 import { escapeHtml, sendResendEmail } from '@/lib/resend';
+import { isCronAuthorized } from '@/lib/api-helpers';
+import { getSiteOrigin } from '@/lib/site-url';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -233,7 +235,7 @@ async function sendReminder(
     timeStyle: 'short',
     timeZone: 'America/Vancouver',
   });
-  const eventUrl = new URL(`/events/${event.slug || event.id}`, request.url).toString();
+  const eventUrl = new URL(`/events/${event.slug || event.id}`, getSiteOrigin(request)).toString();
   const timeText = reminderType === '24h' ? 'about 24 hours' : 'about one hour';
   const subject =
     reminderType === '24h'
@@ -264,8 +266,7 @@ async function sendReminder(
 }
 
 export async function GET(request: Request) {
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret || request.headers.get('authorization') !== `Bearer ${cronSecret}`) {
+  if (!isCronAuthorized(request)) {
     return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 });
   }
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

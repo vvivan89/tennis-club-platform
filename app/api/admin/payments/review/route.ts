@@ -64,14 +64,20 @@ export async function POST(request: Request) {
             text: approved
               ? `Hello ${member.full_name || 'member'},\n\nThe club has confirmed your Interac payment of ${((outcome.amountMinor || 0) / 100).toFixed(2)} ${(outcome.currency || 'CAD').toUpperCase()}. Your associated membership or event registration has been updated.\n\nPayment reference: ${body.paymentId}`
               : `Hello ${member.full_name || 'member'},\n\nThe club could not confirm your Interac payment request. Reason: ${typeof body.note === 'string' ? body.note : 'Please contact the club.'}\n\nPayment reference: ${body.paymentId}`,
+            idempotencyKey: `interac-outcome:${body.paymentId}:${body.action}`,
           });
-          if (response.ok)
-            await service
+          if (response.ok) {
+            const marked = await service
               .from('payments')
               .update({ manual_outcome_sent_at: new Date().toISOString() })
               .eq('id', body.paymentId)
               .is('manual_outcome_sent_at', null);
-          else
+            if (marked?.error)
+              console.error('[Admin payments] Could not record outcome email as sent', {
+                paymentId: body.paymentId,
+                message: marked.error.message,
+              });
+          } else
             console.error('[Admin payments] Outcome email failed', {
               paymentId: body.paymentId,
               status: response.status,

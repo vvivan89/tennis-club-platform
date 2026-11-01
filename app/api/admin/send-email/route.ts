@@ -1,8 +1,17 @@
 import { NextResponse } from 'next/server';
 import { checkAdminRole, getConfiguredServiceClient, getSignedInUser } from '@/lib/api-helpers';
+import { createHash } from 'node:crypto';
+import { enforceRateLimit } from '@/lib/rate-limit';
+import {
+  isEmailGroup,
+  loadEmailRecipients,
+  MAX_EMAIL_HTML_LENGTH,
+  MAX_EMAIL_RECIPIENTS,
+} from '@/lib/email-audience';
 import { escapeHtml, sendResendEmail } from '@/lib/resend';
-const clean = (s: string) =>
-  s.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '').replace(/\son\w+\s*=\s*(['"]).*?\1/gi, '');
+import { sanitizeHtml } from '@/lib/sanitize-html';
+const SEND_CONCURRENCY = 10;
+
 export async function POST(request: Request) {
   try {
     const { user, response: authError } = await getSignedInUser();
@@ -17,63 +26,65 @@ export async function POST(request: Request) {
       );
     const adminError = await checkAdminRole(db, user.id, { approved: true });
     if (adminError) return adminError;
+    const limited = await enforceRateLimit(request, {
+      name: 'send-email',
+      limit: 30,
+      windowSeconds: 3600,
+      userId: user.id,
+    });
+    if (limited) return limited;
     const body = await request.json();
+    const group = String(body.group ?? '');
+    if (!isEmailGroup(group))
+      return NextResponse.json({ error: 'Choose a valid recipient group.' }, { status: 400 });
+    const recipients = await loadEmailRecipients(db, group);
+    const deliverable = recipients.filter((r) => r.email);
+    if (body.preview === true)
+      return NextResponse.json({ recipientCount: deliverable.length, group });
     const subject = String(body.subject ?? '')
       .trim()
       .slice(0, 180);
-    const html = clean(String(body.html ?? ''));
-    const group = String(body.group ?? 'all');
+    const rawHtml = String(body.html ?? '');
+    if (rawHtml.length > MAX_EMAIL_HTML_LENGTH)
+      return NextResponse.json({ error: 'The email content is too long.' }, { status: 413 });
+    const html = sanitizeHtml(rawHtml);
     if (!subject || !html.replace(/<[^>]+>/g, '').trim())
       return NextResponse.json(
         { error: 'Subject and email content are required.' },
         { status: 400 },
       );
-    let ids: string[] = [];
-    if (group === 'newsletter') {
-      const { data } = await db
-        .from('profiles')
-        .select('id')
-        .eq('application_status', 'approved')
-        .eq('email_newsletter', true);
-      ids = (data ?? []).map((x) => x.id);
-    } else if (group === 'admins' || group === 'organizers') {
-      const { data } = await db
-        .from('profiles')
-        .select('id')
-        .eq('role', group === 'admins' ? 'admin' : 'organizer')
-        .eq('application_status', 'approved');
-      ids = (data ?? []).map((x) => x.id);
-    } else if (group === 'active_members') {
-      const { data } = await db
-        .from('memberships')
-        .select('user_id')
-        .eq('status', 'active')
-        .or(`ends_on.is.null,ends_on.gte.${new Date().toISOString().slice(0, 10)}`);
-      ids = [...new Set((data ?? []).map((x) => x.user_id))];
-    } else {
-      const { data } = await db.from('profiles').select('id');
-      ids = (data ?? []).map((x) => x.id);
-    }
+    if (recipients.length > MAX_EMAIL_RECIPIENTS)
+      return NextResponse.json(
+        {
+          error: `This group has ${recipients.length} recipients; at most ${MAX_EMAIL_RECIPIENTS} can be emailed at once. Choose a smaller group.`,
+        },
+        { status: 422 },
+      );
+    // Identical announcements to the same person within 24h are dropped by Resend (guards double-clicks).
+    const contentKey = createHash('sha256')
+      .update(`${user.id}\n${group}\n${subject}\n${html}`)
+      .digest('hex')
+      .slice(0, 32);
     let sent = 0,
-      failed = 0;
-    for (let i = 0; i < ids.length; i += 50) {
-      const batch = ids.slice(i, i + 50);
-      const { data: profiles } = await db
-        .from('profiles')
-        .select('id,email,full_name')
-        .in('id', batch);
-      for (const p of profiles ?? []) {
-        if (!p.email) {
-          failed++;
-          continue;
-        }
-        const greeting = `<p>Hello ${escapeHtml(String(p.full_name || 'member'))},</p>`;
-        const res = await sendResendEmail({
-          to: p.email,
-          subject,
-          html: `${greeting}${html}<p>Port Coquitlam Tennis Club</p>`,
-        });
-        if (res.ok) sent++;
+      failed = recipients.length - deliverable.length;
+    for (let i = 0; i < deliverable.length; i += SEND_CONCURRENCY) {
+      const results = await Promise.all(
+        deliverable.slice(i, i + SEND_CONCURRENCY).map(async (p) => {
+          try {
+            const res = await sendResendEmail({
+              to: p.email!,
+              subject,
+              html: `<p>Hello ${escapeHtml(String(p.full_name || 'member'))},</p>${html}<p>Port Coquitlam Tennis Club</p>`,
+              idempotencyKey: `announcement:${contentKey}:${p.id}`,
+            });
+            return res.ok;
+          } catch {
+            return false;
+          }
+        }),
+      );
+      for (const ok of results) {
+        if (ok) sent++;
         else failed++;
       }
     }

@@ -15,7 +15,7 @@ import {
 } from '@/lib/player-rankings';
 import { SeasonSelector } from '@/components/season-selector';
 
-type Props = { searchParams?: { season?: string | string[] } };
+type Props = { searchParams?: Promise<{ season?: string | string[] }> };
 function StatCard({
   title,
   subtitle,
@@ -70,7 +70,8 @@ function StatCard({
   );
 }
 
-export default async function MemberStatsPage({ searchParams }: Props) {
+export default async function MemberStatsPage({ searchParams: searchParamsPromise }: Props) {
+  const searchParams = await searchParamsPromise;
   const session = await createSupabaseServerClient();
   const {
     data: { user },

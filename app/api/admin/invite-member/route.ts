@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server';
+import { getSiteOrigin } from '@/lib/site-url';
+import { enforceRateLimit } from '@/lib/rate-limit';
 import { checkAdminRole, getConfiguredServiceClient, getSignedInUser } from '@/lib/api-helpers';
 const validLevels = new Set(['2.5', '3.0', '3.5', '4.0', '4.5', '5.0', '5.5', '6.0', '6.5', '7.0']);
 export async function POST(request: Request) {
@@ -23,12 +25,19 @@ export async function POST(request: Request) {
         { error: 'Name, valid email, phone, and skill rating are required.' },
         { status: 400 },
       );
+    const limited = await enforceRateLimit(request, {
+      name: 'invite-member',
+      limit: 20,
+      windowSeconds: 3600,
+      userId: user.id,
+    });
+    if (limited) return limited;
     const { db: admin, response: configError } = getConfiguredServiceClient(
       'Server configuration is missing SUPABASE_SERVICE_ROLE_KEY.',
       500,
     );
     if (configError) return configError;
-    const origin = new URL(request.url).origin;
+    const origin = getSiteOrigin(request);
     const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
       redirectTo: `${origin}/auth/callback?next=/reset-password`,
       data: { full_name, phone, tennis_skill_level },

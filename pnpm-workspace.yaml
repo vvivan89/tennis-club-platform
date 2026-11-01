@@ -1,3 +1,5 @@
 allowBuilds:
-  esbuild: set this to true or false
-  unrs-resolver: set this to true or false
+  esbuild: false
+  unrs-resolver: false
+overrides:
+  next>postcss: ^8.5.32

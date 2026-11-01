@@ -113,6 +113,8 @@ beforeEach(() => {
   mocks.fetch.mockReset().mockImplementation(async (url: string, init?: RequestInit) => {
     if (url === '/api/admin/email-history')
       return new Response(JSON.stringify({ items: [] }), { status: 200 });
+    if (init?.method === 'POST' && JSON.parse(String(init.body)).preview)
+      return new Response(JSON.stringify({ recipientCount: 3 }), { status: 200 });
     if (init?.method === 'POST')
       return new Response(JSON.stringify({ sent: 2, failed: 1 }), { status: 200 });
     return new Response('{}', { status: 200 });
@@ -341,10 +343,20 @@ describe('admin client pages', () => {
         .closest('form') as HTMLFormElement,
     );
 
+    expect(await screen.findByText('This will email 3 recipients.')).toBeInTheDocument();
+    expect(
+      mocks.fetch.mock.calls.filter(
+        ([, init]) => init?.method === 'POST' && !JSON.parse(String(init.body)).preview,
+      ),
+    ).toHaveLength(0);
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+
     expect(
       await screen.findByText('Email announcement sent: 2 successful, 1 failed.'),
     ).toBeInTheDocument();
-    const request = mocks.fetch.mock.calls.find(([, init]) => init?.method === 'POST');
+    const request = mocks.fetch.mock.calls.find(
+      ([, init]) => init?.method === 'POST' && !JSON.parse(String(init.body)).preview,
+    );
     expect(request?.[0]).toBe('/api/admin/send-email');
     expect(JSON.parse(request?.[1]?.body as string)).toEqual({
       subject: 'Court closure',
@@ -352,6 +364,31 @@ describe('admin client pages', () => {
       group: 'active_members',
     });
     await waitFor(() => expect(mocks.fetch).toHaveBeenCalledWith('/api/admin/email-history'));
+  });
+
+  it('asks for confirmation naming the audience before emailing all approved members', async () => {
+    window.history.replaceState({}, '', '/admin/website?tab=announcements');
+    const user = userEvent.setup();
+    render(<WebsiteAdminPage />);
+    await user.type(await screen.findByLabelText('Email subject'), 'Season update');
+    await user.type(screen.getByLabelText('Rich text content'), '<p>News</p>');
+    expect(screen.getByLabelText('Recipient group')).toHaveValue('all');
+    fireEvent.submit(
+      screen
+        .getByRole('button', { name: 'Send email announcement' })
+        .closest('form') as HTMLFormElement,
+    );
+    expect(
+      await screen.findByText(
+        'This will email all 3 approved members, including those who have opted out of newsletters.',
+      ),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(
+      mocks.fetch.mock.calls.filter(
+        ([, init]) => init?.method === 'POST' && !JSON.parse(String(init.body)).preview,
+      ),
+    ).toHaveLength(0);
   });
 
   it('creates a news draft, publishes and unpublishes it, then confirms deletion', async () => {

@@ -64,7 +64,7 @@ function find(node: ReactNode, type: string): React.ReactElement<Record<string, 
     }
   if (!isValidElement(node)) return null;
   if (node.type === type) return node as React.ReactElement<Record<string, unknown>>;
-  return find(node.props.children, type);
+  return find((node.props as { children?: React.ReactNode }).children, type);
 }
 beforeEach(() => {
   mocks.user = { id: 'admin-1' };
@@ -115,15 +115,15 @@ describe('admin event pages', () => {
     mocks.responses['profiles.maybeSingle'] = [{ role: 'organizer' }];
     mocks.responses['events.maybeSingle'] = [event];
     mocks.responses['club_settings.maybeSingle'] = [club];
-    await expect(EditEventPage({ params: { slug: 'spring-open' } })).rejects.toThrow(
-      'redirect:/admin/events',
-    );
+    await expect(
+      EditEventPage({ params: Promise.resolve({ slug: 'spring-open' }) }),
+    ).rejects.toThrow('redirect:/admin/events');
 
     mocks.user = { id: 'creator-1' };
     mocks.responses['profiles.maybeSingle'] = [{ role: 'organizer' }];
     mocks.responses['events.maybeSingle'] = [{ ...event, organizer_id: null }];
     mocks.responses['club_settings.maybeSingle'] = [club];
-    const page = await EditEventPage({ params: { slug: 'spring-open' } });
+    const page = await EditEventPage({ params: Promise.resolve({ slug: 'spring-open' }) });
     expect(find(page, 'event-management-form')?.props.showOrganizerField).toBe(false);
   });
 
@@ -133,7 +133,7 @@ describe('admin event pages', () => {
       mocks.responses['events.maybeSingle'] = [{ ...event, ...eventOverrides }];
       mocks.responses['club_settings.maybeSingle'] = [club];
       mocks.responses['profiles.then'] = [[]];
-      return EditEventPage({ params: { slug: 'spring-open' } });
+      return EditEventPage({ params: Promise.resolve({ slug: 'spring-open' }) });
     };
 
     const doubles = await renderEvent({ event_type: 'tournament', tournament_format: 'doubles' });
@@ -156,8 +156,8 @@ describe('admin event pages', () => {
     mocks.responses['events.maybeSingle'] = [null, event];
     mocks.responses['club_settings.maybeSingle'] = [club];
     mocks.responses['event_slug_aliases.maybeSingle'] = [{ event_id: event.id }];
-    await expect(EditEventPage({ params: { slug: 'old-spring-slug' } })).rejects.toThrow(
-      'redirect:/admin/events/spring-open/edit',
-    );
+    await expect(
+      EditEventPage({ params: Promise.resolve({ slug: 'old-spring-slug' }) }),
+    ).rejects.toThrow('redirect:/admin/events/spring-open/edit');
   });
 });

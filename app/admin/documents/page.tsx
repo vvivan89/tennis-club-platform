@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { RichTextEditor } from '@/components/rich-text-editor';
 import { AdminDocumentsContent } from '@/components/admin-documents-content';
+import { sanitizeHtml } from '@/lib/sanitize-html';
 
 type DocType = 'membership_waiver' | 'terms_of_use' | 'disclaimer';
 type LegalVersion = {
@@ -211,7 +212,7 @@ export default function AdminLegalPage() {
                     <div className="border-t border-border p-4">
                       <div
                         className="prose prose-sm max-w-none dark:prose-invert"
-                        dangerouslySetInnerHTML={{ __html: v.body_html }}
+                        dangerouslySetInnerHTML={{ __html: sanitizeHtml(v.body_html) }}
                       />
                     </div>
                   </details>

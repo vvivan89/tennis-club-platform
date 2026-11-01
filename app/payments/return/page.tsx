@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { safeRedirectPath } from '@/lib/safe-redirect';
 
 type PaymentStatus = {
   id: string;
@@ -20,13 +21,7 @@ function PaymentReturnContent() {
   const sessionId = params.get('session_id');
   const paymentId = params.get('payment_id');
   const canceled = params.get('canceled') === '1';
-  const requestedReturnTo = params.get('return_to') || '/member/payments';
-  const validatedReturnTo =
-    requestedReturnTo.startsWith('/') &&
-    !requestedReturnTo.startsWith('//') &&
-    !requestedReturnTo.includes('\\')
-      ? requestedReturnTo
-      : '/member/payments';
+  const validatedReturnTo = safeRedirectPath(params.get('return_to'), '/member/payments');
   const returnTo = (() => {
     if (!canceled) return validatedReturnTo;
     const parsed = new URL(validatedReturnTo, 'https://pctc.invalid');

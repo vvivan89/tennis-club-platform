@@ -76,7 +76,7 @@ describe('RichTextEditor', () => {
     mocks.options?.onUpdate({ editor: mocks.editor });
     expect(onChange).toHaveBeenCalledWith('<p>updated</p>');
     rerender(<RichTextEditor value="" onChange={onChange} />);
-    expect(mocks.setContent).toHaveBeenCalledWith('<p></p>', false);
+    expect(mocks.setContent).toHaveBeenCalledWith('<p></p>', { emitUpdate: false });
     prompt.mockRestore();
   });
 });

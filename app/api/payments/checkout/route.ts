@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { randomUUID } from 'node:crypto';
 import { createServiceRoleClient } from '@/lib/supabase-service';
 import { sendResendEmail } from '@/lib/resend';
+import { safeRedirectPath } from '@/lib/safe-redirect';
+import { getSiteOrigin } from '@/lib/site-url';
+import { enforceRateLimit } from '@/lib/rate-limit';
 import { getSignedInUser } from '@/lib/api-helpers';
 import { canceledPaymentPatch } from '@/lib/payments/checkout-cleanup';
 import { createPendingPayment } from '@/lib/payments/server';
@@ -67,6 +70,13 @@ function seasonDates(settings: {
 export async function POST(request: Request) {
   try {
     const { user } = await getSignedInUser();
+    const limited = await enforceRateLimit(request, {
+      name: 'checkout',
+      limit: 30,
+      windowSeconds: 600,
+      userId: user?.id,
+    });
+    if (limited) return limited;
     const body = (await request.json()) as CheckoutBody;
     if (!user && (body.purpose !== 'tournament_registration' || body.provider === 'interac')) {
       return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
@@ -784,14 +794,20 @@ export async function POST(request: Request) {
             to: profile!.email,
             subject: 'PCTC Interac payment instructions',
             text: `Your PCTC Interac payment request is pending.\n\nAmount: ${(amountMinor / 100).toFixed(2)} CAD\nSend to: ${methodSettings.interac_recipient_email}\nPayment reference: ${paymentId}\n\n${methodSettings.interac_instructions}\n\nYour membership or event registration will be finalized after the club confirms receipt.`,
+            idempotencyKey: `interac-instructions:${paymentId}`,
           });
-          if (emailResponse.ok)
-            await db
+          if (emailResponse.ok) {
+            const marked = await db
               .from('payments')
               .update({ manual_instructions_sent_at: new Date().toISOString() })
               .eq('id', paymentId)
               .is('manual_instructions_sent_at', null);
-          else
+            if (marked?.error)
+              console.error('[Payments] Could not record Interac instructions as sent', {
+                paymentId,
+                message: marked.error.message,
+              });
+          } else
             console.error('[Payments] Interac instructions email failed', {
               paymentId,
               status: emailResponse.status,
@@ -815,18 +831,9 @@ export async function POST(request: Request) {
       });
     }
 
-    const origin = new URL(request.url).origin;
-    const requestedReturnTo =
-      body.returnTo?.trim() || (body.purpose === 'membership' ? '/member/membership' : '/events');
-    // Only accept same-origin relative paths; never allow an external redirect.
-    const returnTo =
-      requestedReturnTo.startsWith('/') &&
-      !requestedReturnTo.startsWith('//') &&
-      !requestedReturnTo.includes('\\')
-        ? requestedReturnTo
-        : body.purpose === 'membership'
-          ? '/member/membership'
-          : '/events';
+    const origin = getSiteOrigin(request);
+    const defaultReturnTo = body.purpose === 'membership' ? '/member/membership' : '/events';
+    const returnTo = safeRedirectPath(body.returnTo?.trim(), defaultReturnTo);
     const returnLabel =
       body.returnLabel?.trim().slice(0, 120) ||
       (body.purpose === 'membership' ? 'Back to membership' : 'Back to event');

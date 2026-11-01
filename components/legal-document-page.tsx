@@ -1,6 +1,7 @@
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { SiteHeader } from '@/components/site-header';
 import { ClubSiteFooter } from '@/components/club-site-footer';
+import { sanitizeHtml } from '@/lib/sanitize-html';
 
 export async function renderLegalDocumentPage({
   documentType,
@@ -37,7 +38,7 @@ export async function renderLegalDocumentPage({
         )}
         <div
           className="prose prose-sm mt-6 max-w-3xl dark:prose-invert"
-          dangerouslySetInnerHTML={{ __html: doc?.body_html || fallbackBody }}
+          dangerouslySetInnerHTML={{ __html: sanitizeHtml(doc?.body_html || fallbackBody) }}
         />
       </article>
       <ClubSiteFooter club={club} />

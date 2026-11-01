@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
@@ -43,7 +44,13 @@ export async function checkAdminRole(
   return null;
 }
 
+/** Constant-time check of a `Bearer <secret>` authorization header. */
+export function matchesBearerSecret(header: string | null, secret: string | undefined) {
+  if (!secret || !header) return false;
+  const digest = (value: string) => createHash('sha256').update(value).digest();
+  return timingSafeEqual(digest(header), digest(`Bearer ${secret}`));
+}
+
 export function isCronAuthorized(request: Request) {
-  const secret = process.env.CRON_SECRET;
-  return !!secret && request.headers.get('authorization') === `Bearer ${secret}`;
+  return matchesBearerSecret(request.headers.get('authorization'), process.env.CRON_SECRET);
 }
