@@ -64,9 +64,6 @@ export function SiteFooter({
           </span>
         </Link>
         <div className="flex flex-wrap items-center gap-3">
-          <Link href="/contacts" className="hover:text-foreground">
-            Contacts
-          </Link>
           <Link href="/legal/terms" className="hover:text-foreground">
             Terms &amp; Conditions
           </Link>

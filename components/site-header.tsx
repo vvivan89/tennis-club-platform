@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { MemberMenu } from '@/components/member-menu';
 import { useSiteHeaderState } from '@/components/site-header-state';
-import { CalendarDays, Images, ContactRound, Files, Trophy } from 'lucide-react';
+import { CalendarDays, Images, ContactRound, Files, Trophy, CircleHelp } from 'lucide-react';
 
 export const SiteHeader = memo(function SiteHeader({
   clubName,
@@ -14,7 +14,7 @@ export const SiteHeader = memo(function SiteHeader({
 }: {
   clubName: string;
   shortName: string;
-  active?: 'home' | 'events' | 'contacts' | 'gallery' | '';
+  active?: 'home' | 'events' | 'contacts' | 'gallery' | 'help' | '';
 }) {
   const pathname = usePathname();
   const { logoUrl, canSeeDocuments, canSeeRankings } = useSiteHeaderState();
@@ -24,7 +24,8 @@ export const SiteHeader = memo(function SiteHeader({
     (key === 'contacts' && pathname === '/contacts') ||
     (key === 'gallery' && pathname.startsWith('/gallery')) ||
     (key === 'documents' && pathname === '/documents') ||
-    (key === 'rankings' && pathname === '/rankings');
+    (key === 'rankings' && pathname === '/rankings') ||
+    (key === 'help' && pathname.startsWith('/help'));
   const navClass = (selected: boolean) =>
     `rounded-md px-3 py-2 transition-colors ${selected ? 'bg-secondary text-foreground font-medium' : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground'}`;
   return (
@@ -98,13 +99,21 @@ export const SiteHeader = memo(function SiteHeader({
               Documents
             </Link>
           )}
+          <Link
+            href="/help/public"
+            aria-current={current('help') ? 'page' : undefined}
+            className={`${navClass(current('help'))} inline-flex items-center gap-1.5`}
+          >
+            <CircleHelp className="h-4 w-4" />
+            Help
+          </Link>
         </nav>
         <div className="flex justify-end">
           <MemberMenu />
         </div>
       </div>
       <nav
-        className="flex items-center justify-center gap-1 border-t border-border/50 px-4 py-2 text-sm md:hidden"
+        className="flex flex-wrap items-center justify-center gap-1 border-t border-border/50 px-4 py-2 text-sm md:hidden"
         aria-label="Main navigation mobile"
       >
         <Link
@@ -146,6 +155,14 @@ export const SiteHeader = memo(function SiteHeader({
             Documents
           </Link>
         )}
+        <Link
+          href="/help/public"
+          aria-current={current('help') ? 'page' : undefined}
+          className={`${navClass(current('help'))} inline-flex items-center gap-1`}
+        >
+          <CircleHelp className="h-4 w-4" />
+          Help
+        </Link>
       </nav>
     </header>
   );

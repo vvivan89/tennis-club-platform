@@ -124,4 +124,26 @@ describe('site navigation authorization and session actions', () => {
     expect(screen.getAllByRole('link', { name: 'Rankings' })).toHaveLength(2);
     expect(screen.getByRole('img', { name: 'Club logo' })).toHaveAttribute('src', '/logo.svg');
   });
+
+  it('shows Help as a direct top-level link, without a dropdown', () => {
+    render(<SiteHeader clubName="Club" shortName="C" active="" />);
+    expect(screen.getAllByRole('link', { name: 'Help' })).toHaveLength(2);
+    expect(screen.getAllByRole('link', { name: 'Help' })[0]).toHaveAttribute(
+      'href',
+      '/help/public',
+    );
+    expect(screen.queryByText('Help home')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Admin guide' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Organizer guide' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Member guide' })).not.toBeInTheDocument();
+  });
+
+  it('keeps role guide links out of the top navigation', () => {
+    mocks.state = { ...mocks.state, approved: true, isOrganizer: true };
+    render(<SiteHeader clubName="Club" shortName="C" active="" />);
+    expect(screen.getAllByRole('link', { name: 'Help' })).toHaveLength(2);
+    expect(screen.queryByRole('link', { name: 'Organizer guide' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Member guide' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Admin guide' })).not.toBeInTheDocument();
+  });
 });

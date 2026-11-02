@@ -1,12 +1,22 @@
 # Demo data seeder
 
-Run from the project root with `npm run seed:demo`. Before running, open `scripts/seed-demo-data.mjs` and paste your Supabase project URL and server-side secret/service-role key into the constants near the top. Do not commit the key.
+Run from the project root with `pnpm seed:demo`. Configure `SUPABASE_URL` (or `NEXT_PUBLIC_SUPABASE_URL`), `SUPABASE_SERVICE_ROLE_KEY`, and `PCTC_DEMO_PASSWORD` in `.env.local`, `.env`, or your shell. Do not commit the service-role key.
+
+## Removing demo data
+
+To inspect what the standalone cleanup command would remove, run `pnpm clean:demo`. It is a dry run by default and does not modify the database. To apply the cleanup, pass `--apply` and confirm the Supabase project ref shown by the dry run:
+
+```sh
+pnpm clean:demo -- --apply --confirm-project-ref <project-ref>
+```
+
+The project ref is the subdomain in the configured URL, for example `abcdefgh` in `https://abcdefgh.supabase.co`. The command deletes demo Auth accounts along with their profile records, memberships, family data that contains only demo accounts, payments/refunds, registrations, demo events and dependent event data, and demo-authored news. It detaches demo accounts from retained records' creator/audit fields. It does not truncate tables or remove unrelated users or event data. Use only against your development/test project.
 
 ## What the reset removes
 
 The seeder first removes records created by earlier runs of this seeder: Auth users matching `demo.admin@example.com` and `demo.member###@example.com`, memberships and family records belonging to those users, their registrations/payments, events with the `pctc-demo-` slug prefix, demo-authored news, and associated event/notification data. It then recreates the dataset. It does not truncate tables or delete unrelated users/events/news. The reset also clears references to the old demo accounts from a few optional audit/creator fields so those demo Auth users can be deleted cleanly.
 
-This is a destructive reset of the seeder-owned demo dataset. Use only against your development/test Supabase project.
+The seeder's reset-before-seeding step is also destructive for prior seeder-owned data. The standalone cleanup command is the option for removing demo data without recreating it.
 
 ## Scores and the two-day rule
 

@@ -9,6 +9,7 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "seed:demo": "node scripts/seed-demo-data.mjs",
+    "clean:demo": "node scripts/clean-demo-data.mjs",
     "lint:fix": "next lint --fix",
     "format": "prettier --write \"app/**/*.{js,jsx,ts,tsx,css,md}\" \"components/**/*.{js,jsx,ts,tsx,css,md}\" \"lib/**/*.{js,jsx,ts,tsx}\" \"scripts/**/*.{js,mjs,ts}\" \"tests/**/*.{js,jsx,ts,tsx}\" \"*.{js,mjs,json,md,ts}\" \".github/**/*.{yml,yaml}\" \"supabase/**/*.md\"",
     "format:check": "prettier --check \"app/**/*.{js,jsx,ts,tsx,css,md}\" \"components/**/*.{js,jsx,ts,tsx,css,md}\" \"lib/**/*.{js,jsx,ts,tsx}\" \"scripts/**/*.{js,mjs,ts}\" \"tests/**/*.{js,jsx,ts,tsx}\" \"*.{js,mjs,json,md,ts}\" \".github/**/*.{yml,yaml}\" \"supabase/**/*.md\"",

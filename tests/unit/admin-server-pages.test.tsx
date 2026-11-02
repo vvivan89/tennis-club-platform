@@ -54,7 +54,7 @@ const events = [
     id: 'event-1',
     slug: 'social-event',
     title: 'Club Social',
-    starts_at: '2026-11-01T12:00:00Z',
+    starts_at: '2099-11-01T12:00:00Z',
     ends_at: null,
     status: 'published',
     capacity: 12,
