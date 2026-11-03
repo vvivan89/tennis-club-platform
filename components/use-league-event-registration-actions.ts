@@ -45,10 +45,26 @@ export function useLeagueEventRegistrationActions({
         amountCents?: number;
       };
       const amountDue = (result.amountCents ?? priceCents) > 0;
+      let emailWarning = '';
+      if (result.participantId) {
+        try {
+          const response = await fetch('/api/events/league-registration-confirmation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ participantId: result.participantId }),
+          });
+          if (!response.ok)
+            emailWarning =
+              ' Confirmation emails could not be sent; please contact the event organizer.';
+        } catch {
+          emailWarning =
+            ' Confirmation emails could not be sent; please contact the event organizer.';
+        }
+      }
       setRegistrationMessage(
-        amountDue
+        (amountDue
           ? 'Your team is registered. Payment is pending; you can pay for both players together.'
-          : 'Your team is registered.',
+          : 'Your team is registered.') + emailWarning,
       );
       setNewEntryParticipantId(result.participantId ?? null);
       setNewPartnerParticipantId(result.partnerParticipantId ?? null);
@@ -67,34 +83,5 @@ export function useLeagueEventRegistrationActions({
     }
   }
 
-  async function registerLeagueSingle() {
-    if (!currentUserId) return;
-    setRegistrationBusy(true);
-    setRegistrationError('');
-    setRegistrationMessage('');
-    try {
-      const { data, error } = await db.rpc('register_league_single_event_entry', {
-        p_event_id: eventId,
-      });
-      if (error) throw new Error(error.message);
-      const result = data as { participantId?: string; amountCents?: number };
-      const amountDue = (result.amountCents ?? priceCents) > 0;
-      setRegistrationMessage(
-        amountDue
-          ? 'You are registered as a single player. Payment is pending.'
-          : 'You are registered as a single player. An organizer can pair you with a League team.',
-      );
-      setNewEntryParticipantId(result.participantId ?? null);
-      setPaymentParticipantIds(amountDue && result.participantId ? [result.participantId] : []);
-      setRegistrationRefresh((value) => value + 1);
-    } catch (error) {
-      setRegistrationError(
-        error instanceof Error ? error.message : 'Could not register for this League event.',
-      );
-    } finally {
-      setRegistrationBusy(false);
-    }
-  }
-
-  return { registerLeagueTeam, registerLeagueSingle };
+  return { registerLeagueTeam };
 }

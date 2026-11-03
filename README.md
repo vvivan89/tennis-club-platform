@@ -38,7 +38,7 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_KEY
 
 `NEXT_PUBLIC_SUPABASE_ANON_KEY` is also accepted for older projects. Never put a service-role or secret key in a `NEXT_PUBLIC_` variable or commit `.env.local`.
 
-4. In Supabase SQL Editor, run the migration in `supabase/migrations/0001_initial_schema.sql and supabase/migrations/0002_profile_birthday_skill_level.sql` against a new project. It creates the application tables, RLS policies, an auth-user profile trigger, a private `club-documents` storage bucket, and `register_for_event(uuid)`.
+4. For the original schema setup, the historical SQL starts with `supabase/migration_archive/0001_initial_schema.sql` and `supabase/migration_archive/0002_profile_birthday_skill_level.sql`. The archive preserves the complete migration history; `supabase/migrations/20261103000000_current_database_state.sql` is the current-state baseline for building a fresh database.
 5. In Authentication → URL Configuration, set the local Site URL to `http://localhost:3000` and add `http://localhost:3000/auth/callback` to the allowed redirect URLs. Add the production callback URL when deploying.
 6. In Authentication → Providers → Email, decide whether email confirmation is required. The signup UI expects a confirmation email when confirmation is enabled.
 7. In Authentication email templates, verify that confirmation and password recovery links use the configured callback flow.
@@ -86,4 +86,4 @@ npm run build
 
 ## Stripe payments (test mode)
 
-Copy `.env.example` to `.env.local` and configure `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY`. Configure the Stripe webhook to target `/api/webhooks/stripe` with payment-intent processing/succeeded/failed/canceled, `charge.refunded`, and `checkout.session.expired` events. Apply unapplied migrations in numeric order, including `0041_payment_fulfillment.sql`; do not run the consolidated SQL bundle against an existing database. See `docs/payments-foundation.md` for checkout and verification details. Start with Stripe test mode and test cards only.
+Copy `.env.example` to `.env.local` and configure `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY`. Configure the Stripe webhook to target `/api/webhooks/stripe` with payment-intent processing/succeeded/failed/canceled, `charge.refunded`, and `checkout.session.expired` events. For existing databases, apply only unapplied incremental migrations from `supabase/migrations/`; historical SQL source files are in `supabase/migration_archive/`. Do not rerun the current-database baseline against an existing database. See `docs/payments-foundation.md` for checkout and verification details. Start with Stripe test mode and test cards only.

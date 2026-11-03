@@ -200,7 +200,8 @@ export function useTournamentPublicViewData({
       setInteracRequests(requests);
       setOwnEntries((ownResult.data ?? []) as OwnTournamentEntry[]);
       const unpaid = (ownResult.data ?? []).find(
-        (entry: { payment_status?: string; amount_cents?: number }) =>
+        (entry: { payment_status?: string; amount_cents?: number; confirmation_status?: string }) =>
+          entry.confirmation_status === 'confirmed' &&
           ['pending', 'failed'].includes(entry.payment_status ?? '') &&
           Number(entry.amount_cents ?? 0) > 0,
       ) as { id: string } | undefined;

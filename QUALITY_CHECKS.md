@@ -42,11 +42,11 @@ npm run security:audit
 
 ## Supabase and database safety
 
-- `supabase/consolidated_migrations.sql` is the one-file schema/history initializer for a fresh database.
-- Any newly created incremental migration belongs in `supabase/migrations/` as its own numbered SQL file and must also be appended to the consolidated file in the same order.
-- Do not re-run the consolidated initializer against a database that already has the schema. Existing deployments should apply only the new incremental migration(s).
+- `supabase/migration_archive/` contains the historical migrations; `supabase/migrations/` contains the current-database baseline and active incremental migrations.
+- Any new incremental migration belongs in `supabase/migrations/` and must also be preserved under the same name in `supabase/migration_archive/`.
+- Do not re-run the current-database baseline against a database that already has the schema. Existing deployments should apply only unapplied incremental migrations.
 - Run the migration check with `npm run check:migrations`.
-- Run the static RLS coverage check with `npm run check:rls`. It verifies that each detected `public` table has an RLS-enable statement in the consolidated schema, but does not prove that policies enforce correct access.
+- Run the static RLS coverage check with `npm run check:rls`. It verifies that each detected `public` table has an RLS-enable statement in the current-database baseline, but does not prove that policies enforce correct access.
 - When the Supabase CLI and a local database are configured, additionally run `supabase db reset` against the disposable local project and `supabase db lint`. Never run reset against production.
 - For database changes, manually verify RLS is enabled for tables containing user/member data, policies enforce both row visibility and write permissions, and privileged operations are enforced in database/server code rather than UI visibility alone.
 

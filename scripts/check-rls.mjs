@@ -3,7 +3,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const schemaPath = path.join(root, 'supabase', 'consolidated_migrations.sql');
+const schemaPath = path.join(
+  root,
+  'supabase',
+  'migrations',
+  '20261103000000_current_database_state.sql',
+);
 const schema = await readFile(schemaPath, 'utf8');
 const normalize = (name) => name.replaceAll('"', '').toLowerCase();
 const createdTables = new Set(
@@ -26,7 +31,7 @@ if (createdTables.size === 0) {
 }
 if (missing.length > 0) {
   console.error(
-    `RLS check failed: ${missing.length} public table(s) have no ENABLE ROW LEVEL SECURITY statement in the consolidated SQL:`,
+    `RLS check failed: ${missing.length} public table(s) have no ENABLE ROW LEVEL SECURITY statement in the current-database baseline:`,
   );
   for (const table of missing) console.error(`- public.${table}`);
   process.exit(1);

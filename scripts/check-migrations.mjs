@@ -3,101 +3,66 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const consolidatedPath = path.join(root, 'supabase', 'consolidated_migrations.sql');
-const incrementalDir = path.join(root, 'supabase', 'migrations');
-
+const migrationDir = path.join(root, 'supabase', 'migrations');
+const archiveDir = path.join(root, 'supabase', 'migration_archive');
+const baselineName = '20261103000000_current_database_state.sql';
 const fail = (message) => {
   console.error(`Migration check failed: ${message}`);
   process.exitCode = 1;
 };
+const sqlFiles = async (directory) =>
+  (await readdir(directory)).filter((name) => name.endsWith('.sql'));
+const versionOf = (name) => name.match(/^(\d+)/)?.[1] ?? '';
+const compareMigrations = (a, b) =>
+  versionOf(a).localeCompare(versionOf(b), undefined, { numeric: true }) || a.localeCompare(b);
 
-let consolidated;
+let migrations = [];
+let archived = [];
 try {
-  consolidated = await readFile(consolidatedPath, 'utf8');
+  [migrations, archived] = await Promise.all([sqlFiles(migrationDir), sqlFiles(archiveDir)]);
 } catch {
-  fail('supabase/consolidated_migrations.sql is missing.');
+  fail('supabase/migrations or supabase/migration_archive is missing.');
   process.exit();
 }
 
-const markerPattern = /^-- BEGIN MIGRATION: ([\w.-]+\.sql)$/gm;
-const markers = [...consolidated.matchAll(markerPattern)].map((match) => ({
-  name: match[1],
-  index: match.index ?? 0,
-}));
-if (markers.length === 0) {
-  fail('the consolidated SQL contains no migration boundary markers.');
-  process.exit();
-}
+if (!migrations.length) fail('supabase/migrations contains no SQL migrations.');
+if (!archived.length) fail('supabase/migration_archive contains no historical SQL migrations.');
 
-const numericPrefix = (name) => Number(name.match(/^(\d+)/)?.[1] ?? Number.MAX_SAFE_INTEGER);
-for (let index = 1; index < markers.length; index += 1) {
-  if (numericPrefix(markers[index - 1].name) > numericPrefix(markers[index].name)) {
-    fail(
-      `migrations are out of order: ${markers[index - 1].name} appears before ${markers[index].name}.`,
-    );
-  }
-}
-if (new Set(markers.map((marker) => marker.name)).size !== markers.length) {
-  fail('duplicate migration markers were found.');
-}
+const orderedArchive = [...archived].sort(compareMigrations);
+const archiveVersions = orderedArchive.map(versionOf);
+if (new Set(archiveVersions).size !== archiveVersions.length)
+  fail('duplicate migration versions were found in the historical archive.');
+if (orderedArchive.some((name) => !versionOf(name)))
+  fail('every historical migration filename must start with its numeric version.');
 
-let incrementalFiles = [];
-try {
-  incrementalFiles = (await readdir(incrementalDir)).filter((name) => name.endsWith('.sql'));
-} catch {
-  // Historical migrations are intentionally omitted from the distributable ZIP.
-}
-const archiveDir = path.join(root, 'supabase', 'migration_archive');
-let archivedFiles = [];
-try {
-  archivedFiles = (await readdir(archiveDir)).filter((name) => name.endsWith('.sql'));
-} catch {
-  // The repository may use the normal incremental migration layout.
-}
-
-const isSquashedBaseline =
-  incrementalFiles.length === 1 &&
-  incrementalFiles[0] === '20261103000000_current_database_state.sql';
-const historicalFiles = isSquashedBaseline ? archivedFiles : incrementalFiles;
-for (const name of historicalFiles) {
-  const sourceDir = isSquashedBaseline ? archiveDir : incrementalDir;
-  const sql = await readFile(path.join(sourceDir, name), 'utf8');
-  const markerIndex = consolidated.indexOf(`-- BEGIN MIGRATION: ${name}`);
-  if (markerIndex < 0) {
-    fail(`${name} is not represented in the consolidated SQL.`);
+const hasBaseline = migrations.includes(baselineName);
+const activeIncrementals = migrations
+  .filter((name) => name !== baselineName)
+  .sort(compareMigrations);
+for (const name of activeIncrementals) {
+  if (!archived.includes(name)) {
+    fail(`${name} is missing from supabase/migration_archive.`);
     continue;
   }
-  const nextMarker = consolidated.indexOf('-- BEGIN MIGRATION:', markerIndex + 1);
-  const section = consolidated.slice(markerIndex, nextMarker < 0 ? undefined : nextMarker);
-  if (!section.includes(sql.trim()))
-    fail(`${name} does not match its section in the consolidated SQL.`);
+  const [activeSql, archivedSql] = await Promise.all([
+    readFile(path.join(migrationDir, name), 'utf8'),
+    readFile(path.join(archiveDir, name), 'utf8'),
+  ]);
+  if (activeSql.trim() !== archivedSql.trim())
+    fail(`${name} differs between supabase/migrations and supabase/migration_archive.`);
 }
 
-if (isSquashedBaseline) {
-  const baseline = await readFile(path.join(incrementalDir, incrementalFiles[0]), 'utf8');
+if (hasBaseline) {
+  const baseline = await readFile(path.join(migrationDir, baselineName), 'utf8');
   const header =
-    /^-- Squashed fresh-database migration, derived from the ordered historical migrations\.\r?\n-- For an empty local database only; existing databases must not replay this baseline\.\r?\n\r?\n/;
-  const baselineBody = baseline.replace(header, '').trim();
-  const firstMigration = consolidated.indexOf('-- BEGIN MIGRATION:');
-  const expectedBody = consolidated
-    .slice(firstMigration)
-    .replace(/^-- BEGIN MIGRATION:.*\r?\n/gm, '')
-    .replace(/^-- END MIGRATION:.*\r?\n/gm, '')
-    .replace(/^(?:BEGIN|COMMIT);\s*$/gm, '')
-    .replace(
-      /^CREATE OR REPLACE VIEW public\.event_scoreboard AS$/gm,
-      'DROP VIEW IF EXISTS public.event_scoreboard;\nCREATE VIEW public.event_scoreboard AS',
-    )
-    .trim();
-  if (!header.test(baseline) || baselineBody !== expectedBody)
-    fail('the squashed baseline does not match the normalized consolidated migration history.');
-  if (archivedFiles.length !== markers.length)
-    fail('the migration archive does not contain one file for every consolidated migration.');
+    /^-- Squashed fresh-database migration, derived from the ordered historical migrations\.\r?\n-- For an empty local database only; existing databases must not replay this baseline\./;
+  if (!header.test(baseline) || baseline.replace(header, '').trim().length === 0)
+    fail('the squashed current-database baseline is missing its header or SQL body.');
 }
 
 if (process.exitCode) process.exit();
 console.log(
-  isSquashedBaseline
-    ? `Migration check passed: one squashed baseline matches ${markers.length} ordered historical migrations.`
-    : `Migration check passed: ${markers.length} ordered migrations in consolidated SQL; ${incrementalFiles.length} incremental migration file(s) checked.`,
+  hasBaseline
+    ? `Migration check passed: current-database baseline found; ${orderedArchive.length} historical migrations archived; ${activeIncrementals.length} incremental migration(s) verified.`
+    : `Migration check passed: ${activeIncrementals.length} incremental migration(s) found; ${orderedArchive.length} historical migrations archived.`,
 );

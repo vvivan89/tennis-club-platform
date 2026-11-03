@@ -24,7 +24,6 @@ export function TournamentRegistrationStatus({
   ownLeagueTeamId,
   ownEntries,
   leagueRegistrationCategory,
-  isEventGuest,
   availableCategories,
   hasGenderEligibleCategory,
   children,
@@ -47,7 +46,6 @@ export function TournamentRegistrationStatus({
   ownLeagueTeamId: string | null;
   ownEntries: OwnTournamentEntry[];
   leagueRegistrationCategory: string;
-  isEventGuest: boolean;
   availableCategories: string[];
   hasGenderEligibleCategory: boolean;
   children: ReactNode;
@@ -150,10 +148,6 @@ export function TournamentRegistrationStatus({
             Your confirmed League partner will be registered with you.
           </p>
         )
-      ) : leagueTournament && !isEventGuest ? (
-        <p className="mt-4 text-sm text-muted-foreground">
-          You can register as a single player. An organizer can pair you with a League team.
-        </p>
       ) : availableCategories.length === 0 ? (
         <p className="mt-3 text-sm text-muted-foreground">
           {!hasGenderEligibleCategory

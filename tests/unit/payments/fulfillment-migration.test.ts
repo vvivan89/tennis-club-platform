@@ -6,18 +6,9 @@ const migrationPath = resolve(
   process.cwd(),
   'supabase/migration_archive/0041_payment_fulfillment.sql',
 );
-const consolidatedPath = resolve(process.cwd(), 'supabase/consolidated_migrations.sql');
-
 describe('payment fulfillment migration', () => {
-  it('matches the consolidated migration and contains the current-schema fulfillment paths', async () => {
-    const [migration, consolidated] = await Promise.all([
-      readFile(migrationPath, 'utf8'),
-      readFile(consolidatedPath, 'utf8'),
-    ]);
-    const marker = '-- BEGIN MIGRATION: 0041_payment_fulfillment.sql';
-    const start = consolidated.lastIndexOf(marker);
-    expect(start).toBeGreaterThanOrEqual(0);
-    expect(consolidated.slice(start)).toContain(migration.trim());
+  it('contains the current-schema fulfillment paths in the historical migration', async () => {
+    const migration = await readFile(migrationPath, 'utf8');
     expect(migration).toContain('public.fulfill_successful_payment');
     expect(migration).toContain("payment_status = 'paid'");
     expect(migration).toContain("r.payment_status IN ('pending', 'failed', 'paid')");

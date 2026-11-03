@@ -196,6 +196,7 @@ export function TournamentPublicView({
   const { requestEventGuestAccess, requestPartnerInvitation, confirmPartnerParticipation } =
     useTournamentInvitationActions({
       eventId,
+      leagueTournament,
       guestAccessEmail: ui.guestAccessEmail,
       partnerConfirmation: ui.partnerConfirmation,
       setGuestAccessBusy: ui.setGuestAccessBusy,
@@ -229,7 +230,7 @@ export function TournamentPublicView({
     setRegistrationRefresh: ui.setRegistrationRefresh,
   });
 
-  const { registerLeagueTeam, registerLeagueSingle } = useLeagueEventRegistrationActions({
+  const { registerLeagueTeam } = useLeagueEventRegistrationActions({
     db,
     eventId,
     currentUserId,
@@ -347,7 +348,7 @@ export function TournamentPublicView({
     Date.now() < new Date(registrationClosesAt || startsAt).getTime();
   const registrationModeConfig = config?.registration_mode ?? 'both';
   const effectiveRegistrationMode =
-    (leagueTournament && !isEventGuest) || registrationModeConfig === 'single'
+    registrationModeConfig === 'single'
       ? 'individual'
       : registrationModeConfig === 'doubles'
         ? 'pair'
@@ -600,7 +601,6 @@ export function TournamentPublicView({
                 currentUserId,
                 ownLeagueTeamId,
                 registerLeagueTeam,
-                registerLeagueSingle,
                 availableCategories,
                 requestEventGuestAccess,
                 confirmPartnerParticipation,

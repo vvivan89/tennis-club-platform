@@ -113,26 +113,22 @@ export function TournamentEntryForm(props: TournamentEntryFormProps) {
             </select>
           </label>
         )}
-        {(!leagueTournament || isEventGuest) &&
-          format === 'doubles' &&
-          registrationModeConfig === 'both' && (
-            <label className="text-sm">
-              Registration type
-              <select
-                className="mt-1 block h-10 w-full rounded-md border border-input bg-background px-3"
-                value={registrationMode}
-                onChange={(e) => {
-                  setRegistrationMode(e.target.value as 'individual' | 'pair');
-                  setPartnerChoice('');
-                }}
-              >
-                <option value="individual">
-                  Register individually; organizer can pair me later
-                </option>
-                <option value="pair">Register with a partner</option>
-              </select>
-            </label>
-          )}
+        {format === 'doubles' && registrationModeConfig === 'both' && (
+          <label className="text-sm">
+            Registration type
+            <select
+              className="mt-1 block h-10 w-full rounded-md border border-input bg-background px-3"
+              value={registrationMode}
+              onChange={(e) => {
+                setRegistrationMode(e.target.value as 'individual' | 'pair');
+                setPartnerChoice('');
+              }}
+            >
+              <option value="individual">Register individually; organizer can pair me later</option>
+              <option value="pair">Register with a partner</option>
+            </select>
+          </label>
+        )}
       </div>
       {isEventGuest && (
         <div className="grid gap-3 sm:grid-cols-2">
@@ -290,15 +286,17 @@ export function TournamentEntryForm(props: TournamentEntryFormProps) {
             )}
         </div>
       )}
-      {(!leagueTournament || isEventGuest) && (
-        <button
-          type="submit"
-          disabled={registrationBusy}
-          className="h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
-        >
-          {registrationBusy ? 'Registering…' : 'Register for tournament'}
-        </button>
-      )}
+      <button
+        type="submit"
+        disabled={registrationBusy}
+        className="h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
+      >
+        {registrationBusy
+          ? 'Registering…'
+          : leagueTournament
+            ? 'Register for League event'
+            : 'Register for tournament'}
+      </button>
     </form>
   );
 }

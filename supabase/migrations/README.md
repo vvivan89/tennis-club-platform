@@ -1,7 +1,7 @@
 # Supabase migrations
 
-`20261103000000_current_database_state.sql` is the only active migration. It replays the ordered SQL effects needed to build the current schema on an empty local database. Its historical source files are preserved in `supabase/migration_archive/`, and `supabase/consolidated_migrations.sql` remains the unchanged historical reference.
+`20261103000000_current_database_state.sql` builds the current schema on an empty local database. Historical migrations are preserved individually in `supabase/migration_archive/`. New incremental migrations belong in this directory and should also be archived under the same filename.
 
-Use `pnpm supabase db reset` to rebuild the local database from this baseline. **This drops and recreates the local database and all data in it.** Do not apply this baseline to an existing database or a hosted project; it is intended for a fresh local reset only. Existing databases should continue using their recorded migration history.
+Use `pnpm supabase db reset` to rebuild a disposable local database from the baseline and any later incremental migrations. **This drops and recreates the local database and all data in it.** Do not apply the baseline to an existing database or hosted project; existing databases should apply only unapplied incremental migrations.
 
-The baseline removes the per-migration `BEGIN`/`COMMIT` wrappers while preserving the original SQL order, so Supabase sees one migration file. It drops and recreates `event_scoreboard` at its historical redefinitions because PostgreSQL cannot remove columns through `CREATE OR REPLACE VIEW`. Run `pnpm check:migrations` to verify the baseline still matches the archived history and consolidated SQL.
+Run `pnpm check:migrations` to verify active incremental migrations match their archived copies and the current-database baseline is present. Run `pnpm check:rls` to check the baseline's public-table RLS coverage.

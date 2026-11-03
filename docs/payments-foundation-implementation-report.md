@@ -14,7 +14,7 @@
 
 ## Verification
 
-- `node scripts/check-migrations.mjs`: passed; 41 ordered migrations in consolidated SQL, 8 incremental migration files checked.
+- `node scripts/check-migrations.mjs`: passed; migration archive and active incremental migration copies checked.
 - `node scripts/check-rls.mjs`: passed; all 34 detected public tables have an RLS-enable statement. This is a static check, not a proof of RLS correctness.
 - TypeScript parser syntax check: passed for 20 changed TypeScript/TSX files.
 - `tsc --noEmit`: attempted but blocked by missing project dependencies/types (Next.js, React, Supabase, Stripe, Vitest, and Node types). A complete typecheck result cannot be claimed.
@@ -24,4 +24,4 @@
 
 ## Important operational notes
 
-Apply migration 0041 after 0039 and 0040 on an existing database. Do not rerun the consolidated migration against an existing database and do not purge application data. Configure test-mode Stripe keys and a webhook secret for `/api/webhooks/stripe` before attempting checkout. The seeded membership waiver is placeholder text and must be reviewed by qualified counsel before production. Refunds currently do not automatically revoke memberships or cancel registrations because the repository does not define that policy.
+For an existing database at migration 0040, apply archived migration 0041 after 0039 and 0040. Do not rerun the current-database baseline or purge application data. Configure test-mode Stripe keys and a webhook secret for `/api/webhooks/stripe` before attempting checkout. The seeded membership waiver is placeholder text and must be reviewed by qualified counsel before production. Refunds currently do not automatically revoke memberships or cancel registrations because the repository does not define that policy.

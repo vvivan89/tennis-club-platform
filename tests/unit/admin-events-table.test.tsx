@@ -140,6 +140,7 @@ describe('admin event list filters', () => {
       screen.getByRole('alertdialog').querySelector('button:last-child') as HTMLButtonElement,
     );
     await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+    expect(await screen.findByRole('status')).toHaveTextContent('Event deleted successfully.');
     expect(fetchMock).toHaveBeenCalledWith('/api/admin/events/1/delete', { method: 'DELETE' });
   });
 });

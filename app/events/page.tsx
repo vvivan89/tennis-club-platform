@@ -6,6 +6,7 @@ import { SiteFooter } from '@/components/site-footer';
 import { Button } from '@/components/ui/button';
 import { EventsBrowser } from '@/components/events-browser';
 import { withLoadedEventSeriesNumbers } from '@/lib/event-format';
+import { PendingTournamentInvitations } from '@/components/pending-tournament-invitations';
 export default async function EventsPage() {
   const db = await createSupabaseServerClient();
   const [
@@ -53,6 +54,7 @@ export default async function EventsPage() {
     <main className="flex min-h-screen flex-col bg-background text-foreground">
       <SiteHeader clubName={clubName} shortName={shortName} active="events" />
       <div className="page-container flex-1 py-12 sm:py-16">
+        <PendingTournamentInvitations />
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="eyebrow">On and off the court</p>

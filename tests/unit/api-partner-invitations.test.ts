@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  user: null as null | { id: string },
+  user: null as null | { id: string; email?: string; email_confirmed_at?: string },
   authResponse: null as null | Response,
   lists: {} as Record<string, unknown[][]>,
   singles: {} as Record<string, unknown[]>,
@@ -46,7 +46,7 @@ vi.mock('@/lib/resend', () => ({
 }));
 vi.mock('@supabase/supabase-js', () => ({ createClient: mocks.createClient }));
 
-import { POST } from '@/app/api/events/partner-invitations/route';
+import { GET, POST } from '@/app/api/events/partner-invitations/route';
 
 const one = '11111111-1111-4111-8111-111111111111';
 const two = '22222222-2222-4222-8222-222222222222';
@@ -253,6 +253,39 @@ describe('POST /api/events/partner-invitations', () => {
     expect(failed.status).toBe(500);
   });
 
+  it('sends the invited guest partner a magic link when the caller submits only their entry ID', async () => {
+    const guestUserId = 'guest-inviter-user';
+    mocks.user = { id: guestUserId };
+    mocks.singles.profiles = [{ role: 'member', application_status: 'approved' }, null];
+    mocks.singles.events = [
+      {
+        slug: 'summer-open',
+        title: 'Summer Open',
+        created_by: 'another-user',
+        organizer_id: null,
+      },
+    ];
+    mocks.lists.tournament_participants = [
+      [entries[1]],
+      [{ ...entries[0], user_id: guestUserId }],
+      [{ id: one, display_name: 'Inviting Guest' }],
+    ];
+    mocks.lists.tournament_pairs = [[{ player_one_id: one, player_two_id: two }]];
+
+    const response = await POST(request({ participantIds: [two] }));
+
+    expect(response.status).toBe(200);
+    expect(mocks.otp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: 'two@example.test',
+        options: expect.objectContaining({
+          shouldCreateUser: true,
+          emailRedirectTo: expect.stringContaining('/auth/guest-callback?next='),
+        }),
+      }),
+    );
+  });
+
   it('returns a safe server error when guest authentication is not configured', async () => {
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', '');
     mocks.singles.profiles[1] = null;
@@ -314,5 +347,56 @@ describe('POST /api/events/partner-invitations', () => {
       }),
     );
     expect(mocks.email.mock.calls[0][0].html).toContain('A tournament participant has listed you');
+  });
+});
+
+describe('GET /api/events/partner-invitations', () => {
+  it('returns only active, upcoming invitations addressed to the verified user', async () => {
+    mocks.user = {
+      id: 'member-1',
+      email: 'invitee@example.test',
+      email_confirmed_at: '2026-01-01T00:00:00Z',
+    };
+    mocks.lists.tournament_participants = [
+      [
+        {
+          id: one,
+          event_id: 'event-1',
+          display_name: 'Invitee',
+          email: 'invitee@example.test',
+          status: 'registered',
+          confirmation_status: 'pending',
+          event: {
+            id: 'event-1',
+            slug: 'summer-open',
+            title: 'Summer Open',
+            starts_at: '2027-06-01T12:00:00Z',
+            status: 'published',
+          },
+        },
+      ],
+    ];
+    mocks.lists.tournament_pairs = [
+      [{ event_id: 'event-1', player_one_id: one, player_two_id: two }],
+    ];
+
+    const response = await GET();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      invitations: [
+        expect.objectContaining({
+          participantId: one,
+          eventSlug: 'summer-open',
+          eventTitle: 'Summer Open',
+        }),
+      ],
+    });
+  });
+
+  it('does not return invitations when the user email is unverified', async () => {
+    mocks.user = { id: 'member-1', email: 'invitee@example.test' };
+    const response = await GET();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ invitations: [] });
   });
 });

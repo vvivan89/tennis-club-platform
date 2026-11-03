@@ -2,16 +2,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const consolidated = readFileSync(
-  join(process.cwd(), 'supabase/consolidated_migrations.sql'),
-  'utf8',
-);
 function migrationSection(name: string) {
-  const marker = `-- BEGIN MIGRATION: ${name}`;
-  const migrationStart = consolidated.indexOf(marker);
-  if (migrationStart < 0) throw new Error(`Missing consolidated migration: ${name}`);
-  const migrationEnd = consolidated.indexOf('-- BEGIN MIGRATION:', migrationStart + marker.length);
-  return consolidated.slice(migrationStart, migrationEnd < 0 ? undefined : migrationEnd);
+  return readFileSync(join(process.cwd(), 'supabase/migration_archive', name), 'utf8');
 }
 
 const migration = migrationSection('0030_audit_statement_level.sql');

@@ -9,7 +9,7 @@
 - Event registrations with a confirmed place but an unconfirmed payment are displayed as Pending in the registration status and participant list. A warning explains that the place may be removed if payment is not completed. Pending registrations use a Check the payment status button.
 - The webhook now handles `checkout.session.completed`, `checkout.session.async_payment_succeeded`, and `checkout.session.async_payment_failed`. A paid completed Checkout Session is checked against the local payment and the retrieved PaymentIntent before payment state is updated and fulfillment runs.
 - The authenticated payment-status endpoint reconciles a completed and paid Checkout Session against Stripe. This also lets a member checking a pending registration recover when a Checkout Session completed but the expected webhook event was not processed.
-- Migration `0042_payment_ui_and_webhook_reconciliation.sql` adds `payment_status` to the existing event roster view without changing its visibility rules. The migration is included in `supabase/consolidated_migrations.sql`.
+- Migration `0042_payment_ui_and_webhook_reconciliation.sql` adds `payment_status` to the existing event roster view without changing its visibility rules. Its historical SQL is preserved in `supabase/migration_archive/`.
 - Updated the webhook event list in `docs/payments-foundation.md` and added a test for completed Checkout Session reconciliation.
 
 ## Checks performed
@@ -23,7 +23,7 @@
 
 ## Apply and test
 
-1. Apply only `supabase/migrations/0042_payment_ui_and_webhook_reconciliation.sql` to an existing database already at migration 0041. Do not rerun the consolidated migration against an existing database.
+1. Apply only the archived migration `0042_payment_ui_and_webhook_reconciliation.sql` to an existing database already at migration 0041. Do not rerun the current-database baseline against an existing database.
 2. Deploy the updated application.
 3. In Stripe test mode, ensure the webhook endpoint subscribes to `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, the listed `payment_intent.*` events, `charge.refunded`, and `checkout.session.expired`.
 4. Open the successful test Checkout Session return page or the event page and use Check the payment status. Verify the payment becomes `succeeded`, fulfillment updates the membership or registration, and the event registration displays Confirmed only after payment is marked paid.

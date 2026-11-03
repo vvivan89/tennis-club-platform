@@ -284,8 +284,10 @@ export function TournamentParticipantManagementPanel(props: Props) {
                     <div className="min-w-0">
                       <p className="font-medium">{p.display_name}</p>
                       <p className="text-xs text-muted-foreground">
-                        {p.user_id ? 'Member' : 'Non-member'} ·{' '}
-                        {priceCents > 0 && p.payment_status === 'pending' ? 'Pending' : p.status}
+                        {members.some((member) => member.id === p.user_id)
+                          ? 'Member'
+                          : 'Non-member'}{' '}
+                        · {priceCents > 0 && p.payment_status === 'pending' ? 'Pending' : p.status}
                       </p>
                       {priceCents > 0 && p.payment_status === 'pending' && (
                         <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">

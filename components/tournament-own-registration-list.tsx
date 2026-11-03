@@ -28,6 +28,8 @@ export function TournamentOwnRegistrationList({
   interacRequests,
   interacEnabled,
   paymentBusy,
+  partnerConfirmationBusy,
+  confirmPartnerParticipation,
   paymentBusyKey,
   paymentActionKey: tournamentPaymentActionKey,
   startTournamentPayment,
@@ -81,6 +83,8 @@ export function TournamentOwnRegistrationList({
   interacRequests: Record<string, InteracPaymentNotice>;
   interacEnabled: boolean;
   paymentBusy: boolean;
+  partnerConfirmationBusy: boolean;
+  confirmPartnerParticipation: (participantId?: string) => void;
   paymentBusyKey: string | null;
   paymentActionKey: (ids: string[], provider?: Provider) => string;
   startTournamentPayment: (ids?: string[], provider?: Provider) => Promise<void>;
@@ -173,7 +177,11 @@ export function TournamentOwnRegistrationList({
             const teamInteracRequest = teamInteracKey ? interacRequests[teamInteracKey] : undefined;
             const teamInteracAmount = entry.amount_cents * 2;
             const pendingInteracRequest = selfInteracRequest || teamInteracRequest;
-            const canPaySelf = !partnerPending && !paid && entry.amount_cents > 0;
+            const canPaySelf =
+              entry.confirmation_status === 'confirmed' &&
+              !partnerPending &&
+              !paid &&
+              entry.amount_cents > 0;
             const canPayTeam =
               !!entryPair &&
               !partnerPending &&
@@ -285,6 +293,16 @@ export function TournamentOwnRegistrationList({
                       disabled={paymentBusy}
                       className="h-9 border border-primary px-3 text-sm"
                     />
+                  )}
+                  {entry.confirmation_status === 'pending' && entry.partner_id && (
+                    <button
+                      type="button"
+                      disabled={partnerConfirmationBusy}
+                      onClick={() => confirmPartnerParticipation(entry.id)}
+                      className="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground disabled:opacity-50"
+                    >
+                      {partnerConfirmationBusy ? 'Confirming…' : 'Confirm participation'}
+                    </button>
                   )}
                   {cutoffOpen &&
                     entry.partner_confirmation_status === 'pending' &&

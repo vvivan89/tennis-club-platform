@@ -9,7 +9,7 @@
 
 ## Migration
 
-Apply only `supabase/migrations/0043_payment_proceeds_and_reuse.sql` to an existing database that has migrations 0039 through 0042 applied. Do not rerun the consolidated migration or truncate data.
+For a database with migrations 0039 through 0042 applied, apply the historical SQL at `supabase/migration_archive/0043_payment_proceeds_and_reuse.sql`. Do not replay the current-database baseline or truncate data.
 
 ## Verification
 

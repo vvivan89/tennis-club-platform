@@ -4,6 +4,8 @@ import { memo } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { MemberMenu } from '@/components/member-menu';
+import { PendingTournamentInvitationBadge } from '@/components/pending-tournament-invitation-badge';
+import { usePendingTournamentInvitations } from '@/components/use-pending-tournament-invitations';
 import { useSiteHeaderState } from '@/components/site-header-state';
 import { CalendarDays, Images, ContactRound, Files, Trophy, CircleHelp } from 'lucide-react';
 
@@ -17,7 +19,9 @@ export const SiteHeader = memo(function SiteHeader({
   active?: 'home' | 'events' | 'contacts' | 'gallery' | 'help' | '';
 }) {
   const pathname = usePathname();
-  const { logoUrl, canSeeDocuments, canSeeRankings } = useSiteHeaderState();
+  const { logoUrl, canSeeDocuments, canSeeRankings, approved, isAdmin, isOrganizer } =
+    useSiteHeaderState();
+  const invitations = usePendingTournamentInvitations(approved && !isAdmin && !isOrganizer);
   const current = (key: string) =>
     active === key ||
     (key === 'events' && (pathname === '/events' || pathname.startsWith('/events/'))) ||
@@ -62,6 +66,7 @@ export const SiteHeader = memo(function SiteHeader({
           >
             <CalendarDays className="h-4 w-4" />
             Events
+            <PendingTournamentInvitationBadge count={invitations.length} />
           </Link>
           <Link
             href="/gallery"
@@ -122,6 +127,7 @@ export const SiteHeader = memo(function SiteHeader({
         >
           <CalendarDays className="h-4 w-4" />
           Events
+          <PendingTournamentInvitationBadge count={invitations.length} />
         </Link>
         <Link
           href="/gallery"

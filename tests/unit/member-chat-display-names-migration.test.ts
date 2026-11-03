@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-const consolidated = readFileSync('supabase/consolidated_migrations.sql', 'utf8');
-const start = consolidated.indexOf('-- BEGIN MIGRATION: 0036_chat_member_display_names.sql');
-const end = consolidated.indexOf('-- BEGIN MIGRATION:', start + 1);
-const migration = consolidated.slice(start, end < 0 ? undefined : end);
+const migration = readFileSync(
+  'supabase/migration_archive/0036_chat_member_display_names.sql',
+  'utf8',
+);
 
 describe('chat member display-name migration', () => {
   it('exposes only member IDs and names through an approved-member-only function', () => {

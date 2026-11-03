@@ -43,7 +43,7 @@ The webhook validates internal payment references, metadata, amount, currency, a
 
 Apply unapplied migrations in numeric order. For the current payment implementation, apply `0041_payment_fulfillment.sql` after `0039_payments_foundation.sql` and `0040_membership_payment_schema_compat.sql`. The migration adds family waiver acceptance fields, an active-payment uniqueness guard, a service-role-only fulfillment function, current-season membership eligibility, and reconciles event roster/scoreboard views and policies with the current payment schema.
 
-Do not run `supabase/consolidated_migrations.sql` against an existing database; it is the full history for a fresh database only. The consolidated file has been updated to include migration 0041.
+Do not run `20261103000000_current_database_state.sql` against an existing database; it is a fresh-database baseline. Historical migrations are preserved individually in `supabase/migration_archive/`, and existing databases should apply only their unapplied incremental migrations.
 
 ## Lifecycle, refunds, and security
 

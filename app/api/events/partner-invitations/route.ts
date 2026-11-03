@@ -7,6 +7,76 @@ import { sendEventGuestSignInLink } from '@/lib/event-guest-auth';
 
 export const runtime = 'nodejs';
 
+export async function GET() {
+  try {
+    const { user, response } = await getSignedInUser();
+    if (response || !user) return response;
+    if (!user.email || !user.email_confirmed_at)
+      return NextResponse.json(
+        { invitations: [] },
+        { headers: { 'Cache-Control': 'private, no-store' } },
+      );
+
+    const db = createServiceRoleClient();
+    const { data: entries, error } = await db
+      .from('tournament_participants')
+      .select(
+        'id,event_id,display_name,updated_at,event:events!inner(id,slug,title,starts_at,status)',
+      )
+      .eq('email', user.email.toLowerCase())
+      .eq('confirmation_status', 'pending')
+      .in('status', ['registered', 'provisional']);
+    if (error) throw new Error('Could not load pending tournament invitations.');
+
+    const eventIds = [...new Set((entries ?? []).map((entry) => entry.event_id))];
+    const { data: pairs, error: pairError } = eventIds.length
+      ? await db
+          .from('tournament_pairs')
+          .select('event_id,player_one_id,player_two_id')
+          .in('event_id', eventIds)
+          .eq('status', 'active')
+      : { data: [], error: null };
+    if (pairError) throw new Error('Could not verify pending tournament invitations.');
+
+    const now = Date.now();
+    const invitations = (entries ?? []).flatMap((entry) => {
+      const event = Array.isArray(entry.event) ? entry.event[0] : entry.event;
+      const isPaired = pairs?.some(
+        (pair) =>
+          pair.event_id === entry.event_id &&
+          (pair.player_one_id === entry.id || pair.player_two_id === entry.id),
+      );
+      if (
+        !isPaired ||
+        !event ||
+        event.status !== 'published' ||
+        new Date(event.starts_at).getTime() < now
+      )
+        return [];
+      return [
+        {
+          participantId: entry.id,
+          participantName: entry.display_name,
+          eventId: event.id,
+          eventSlug: event.slug,
+          eventTitle: event.title,
+          startsAt: event.starts_at,
+        },
+      ];
+    });
+    return NextResponse.json(
+      { invitations },
+      { headers: { 'Cache-Control': 'private, no-store' } },
+    );
+  } catch (error) {
+    console.error(
+      '[Pending partner invitations]',
+      error instanceof Error ? error.message : 'unknown',
+    );
+    return NextResponse.json({ error: 'Could not load pending invitations.' }, { status: 500 });
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const { user, response } = await getSignedInUser();
@@ -62,22 +132,40 @@ export async function POST(request: Request) {
       .eq('event_id', eventId)
       .eq('status', 'active');
     if (pairError) throw new Error('Could not verify the event pair.');
+    const pairedParticipantIds = participants
+      .map((target) =>
+        pairs?.find((pair) => pair.player_one_id === target.id || pair.player_two_id === target.id),
+      )
+      .flatMap((pair) => (pair ? [pair.player_one_id, pair.player_two_id] : []));
+    const counterpartIds = [...new Set(pairedParticipantIds)].filter(
+      (id) => !participants.some((entry) => entry.id === id),
+    );
+    const { data: counterpartEntries, error: counterpartError } =
+      !manager && counterpartIds.length
+        ? await db
+            .from('tournament_participants')
+            .select('id,user_id,event_id')
+            .in('id', counterpartIds)
+        : { data: [], error: null };
+    if (counterpartError) throw new Error('Could not verify the inviting partner.');
+    const counterpartById = new Map((counterpartEntries ?? []).map((entry) => [entry.id, entry]));
     const allowed =
       manager ||
-      participants.every((target) =>
-        pairs?.some((pair) => {
-          const otherId =
-            pair.player_one_id === target.id
-              ? pair.player_two_id
-              : pair.player_two_id === target.id
-                ? pair.player_one_id
-                : null;
-          return (
-            !!otherId &&
-            participants.some((entry) => entry.id === otherId && entry.user_id === user.id)
-          );
-        }),
-      );
+      participants.every((target) => {
+        const pair = pairs?.find(
+          (candidate) =>
+            candidate.player_one_id === target.id || candidate.player_two_id === target.id,
+        );
+        const otherId = pair
+          ? pair.player_one_id === target.id
+            ? pair.player_two_id
+            : pair.player_one_id
+          : null;
+        const otherEntry =
+          participants.find((entry) => entry.id === otherId) ??
+          (otherId ? counterpartById.get(otherId) : null);
+        return otherEntry?.user_id === user.id && otherEntry.event_id === eventId;
+      });
     if (!allowed)
       return NextResponse.json(
         { error: 'You cannot send this partner invitation.' },

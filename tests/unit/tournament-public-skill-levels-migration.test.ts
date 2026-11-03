@@ -6,10 +6,6 @@ const migration = readFileSync(
   join(process.cwd(), 'supabase/migration_archive/0053_tournament_public_skill_levels.sql'),
   'utf8',
 );
-const consolidated = readFileSync(
-  join(process.cwd(), 'supabase/consolidated_migrations.sql'),
-  'utf8',
-);
 const publicView = [
   'components/tournament-public-view.tsx',
   'components/tournament-overview-participants.tsx',
@@ -25,8 +21,6 @@ describe('public tournament skill-level display migration', () => {
     expect(migration).not.toContain('p.email');
     expect(migration).not.toContain('p.phone');
     expect(migration).not.toContain('SELECT p.user_id');
-    expect(consolidated).toContain('-- BEGIN MIGRATION: 0053_tournament_public_skill_levels.sql');
-    expect(consolidated).toContain(migration.trim());
   });
 
   it('renders available skill ratings beside tournament participant names', () => {

@@ -4,7 +4,7 @@ The member portal contains one shared group chat for profiles whose `application
 
 ## Database setup
 
-Apply `supabase/migrations/0034_member_group_chat.sql` to an existing Supabase project. Do not apply the consolidated migration file to an existing database; it is intended for initializing a fresh database. The migration creates message and read-marker tables, RLS policies, a private image bucket limited to 1 MB, a five-minute edit/delete guard, a 2,000-message retention trigger, and Realtime publication for chat messages.
+The original chat schema change is preserved at `supabase/migration_archive/0034_member_group_chat.sql`. The active migrations directory contains the current-database baseline and later incremental migrations; do not replay the baseline on an existing database. The chat migration creates message and read-marker tables, RLS policies, a private image bucket limited to 1 MB, a five-minute edit/delete guard, a 2,000-message retention trigger, and Realtime publication for chat messages.
 
 The bucket allows JPEG, PNG, GIF, and WebP images. Images are stored privately and displayed using short-lived signed URLs. Supabase Storage enforces the configured 1 MB limit in addition to the client-side validation.
 

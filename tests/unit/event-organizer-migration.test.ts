@@ -2,15 +2,10 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const consolidated = readFileSync(
-  join(process.cwd(), 'supabase/consolidated_migrations.sql'),
+const migration = readFileSync(
+  join(process.cwd(), 'supabase/migration_archive/0033_event_organizers_and_member_contacts.sql'),
   'utf8',
 );
-const marker = '-- BEGIN MIGRATION: 0033_event_organizers_and_member_contacts.sql';
-const migrationStart = consolidated.indexOf(marker);
-if (migrationStart < 0) throw new Error('Missing organizer migration from consolidated SQL');
-const nextMigration = consolidated.indexOf('-- BEGIN MIGRATION:', migrationStart + marker.length);
-const migration = consolidated.slice(migrationStart, nextMigration < 0 ? undefined : nextMigration);
 const eventPage = readFileSync(join(process.cwd(), 'app/events/[slug]/page.tsx'), 'utf8');
 
 describe('event organizer access migration', () => {

@@ -11,7 +11,7 @@ For production, configure these server-side environment variables:
 - `RESEND_API_KEY`
 - `RESEND_FROM_EMAIL`: a sender address on a domain verified in Resend.
 
-Apply `supabase/migrations/0044_unpaid_event_registration_reminders.sql` to an existing database before deploying the route. The migration adds an RLS-protected, service-role-only log with a unique reminder per registration and reminder type.
+Apply `supabase/migration_archive/0044_unpaid_event_registration_reminders.sql` to an existing database at the corresponding migration level before deploying the route. The migration adds an RLS-protected, service-role-only log with a unique reminder per registration and reminder type.
 
 For registrations that are confirmed but have `payment_status` of `pending` or `failed`, the scheduled route:
 

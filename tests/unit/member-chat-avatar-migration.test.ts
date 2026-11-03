@@ -1,10 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-const consolidated = readFileSync('supabase/consolidated_migrations.sql', 'utf8');
-const start = consolidated.indexOf('-- BEGIN MIGRATION: 0038_chat_member_avatars.sql');
-const end = consolidated.indexOf('-- END MIGRATION: 0038_chat_member_avatars.sql', start);
-const migration = consolidated.slice(start, end < 0 ? undefined : end);
+const migration = readFileSync('supabase/migration_archive/0038_chat_member_avatars.sql', 'utf8');
 
 describe('chat member avatar migration', () => {
   it('returns only requested approved members’ avatar URLs to approved callers', () => {

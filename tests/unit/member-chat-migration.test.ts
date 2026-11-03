@@ -1,10 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-const consolidated = readFileSync('supabase/consolidated_migrations.sql', 'utf8');
-const migrationStart = consolidated.indexOf('-- BEGIN MIGRATION: 0034_member_group_chat.sql');
-const migrationEnd = consolidated.indexOf('-- BEGIN MIGRATION:', migrationStart + 1);
-const migration = consolidated.slice(migrationStart, migrationEnd < 0 ? undefined : migrationEnd);
+const migration = readFileSync('supabase/migration_archive/0034_member_group_chat.sql', 'utf8');
 
 describe('member chat database security and persistence contract', () => {
   it('persists messages and enables row-level security on messages and read markers', () => {

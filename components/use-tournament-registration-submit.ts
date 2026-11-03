@@ -105,7 +105,7 @@ export function useTournamentRegistrationSubmit({
       const useNewPartner =
         effectiveRegistrationMode === 'pair' &&
         (isEventGuest || !currentUserId || partnerChoice === 'new');
-      if (currentUserId && effectiveRegistrationMode === 'pair' && !partnerChoice)
+      if (currentUserId && !isEventGuest && effectiveRegistrationMode === 'pair' && !partnerChoice)
         throw new Error('Choose a registered partner or enter new partner details.');
       if (useNewPartner && (!partnerName.trim() || !partnerEmail.trim()))
         throw new Error('Enter your partner’s name and email.');
@@ -184,14 +184,17 @@ export function useTournamentRegistrationSubmit({
         p_tennis_skill_level: isEventGuest && entrantSkillLevel ? Number(entrantSkillLevel) : null,
         p_partner_tennis_skill_level: partnerSkillLevelValue,
       };
-      const { data, error } = isEventGuest
+      const registrationResult = isEventGuest
         ? await db.rpc('register_event_guest_tournament_entry', {
             ...sharedRegistrationArgs,
             p_display_name: entrantName.trim(),
             p_tennis_skill_level: entrantSkillLevel ? Number(entrantSkillLevel) : null,
             p_partner_skill_level: partnerSkillLevelValue,
           })
-        : await db.rpc('register_tournament_entry', registrationArgs);
+        : leagueTournament && effectiveRegistrationMode === 'individual'
+          ? await db.rpc('register_league_single_event_entry', { p_event_id: eventId })
+          : await db.rpc('register_tournament_entry', registrationArgs);
+      const { data, error } = registrationResult;
       if (error) throw new Error(error.message);
       const result = data as {
         participantId?: string;

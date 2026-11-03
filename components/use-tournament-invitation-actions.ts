@@ -3,6 +3,7 @@ import type { TournamentPartnerConfirmation } from '@/components/tournament-publ
 
 export function useTournamentInvitationActions({
   eventId,
+  leagueTournament,
   guestAccessEmail,
   partnerConfirmation,
   setGuestAccessBusy,
@@ -15,6 +16,7 @@ export function useTournamentInvitationActions({
   setRegistrationRefresh,
 }: {
   eventId: string;
+  leagueTournament: boolean;
   guestAccessEmail: string;
   partnerConfirmation: TournamentPartnerConfirmation | null;
   setGuestAccessBusy: Dispatch<SetStateAction<boolean>>;
@@ -64,25 +66,43 @@ export function useTournamentInvitationActions({
       throw new Error(result.error || 'The partner confirmation request could not be sent.');
   }
 
-  async function confirmPartnerParticipation() {
-    if (!partnerConfirmation) return;
+  async function confirmPartnerParticipation(participantId?: string) {
+    const targetParticipantId = participantId || partnerConfirmation?.participantId;
+    if (!targetParticipantId) return;
     setPartnerConfirmationBusy(true);
     setPartnerConfirmationError('');
     try {
       const response = await fetch('/api/events/partner-confirmation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ participantId: partnerConfirmation.participantId }),
+        body: JSON.stringify({ participantId: targetParticipantId }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || 'Could not confirm this participation.');
+      let emailWarning = '';
+      if (leagueTournament) {
+        try {
+          const emailResponse = await fetch('/api/events/league-registration-confirmation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ participantId: targetParticipantId }),
+          });
+          if (!emailResponse.ok)
+            emailWarning =
+              ' Confirmation emails could not be sent; please contact the event organizer.';
+        } catch {
+          emailWarning =
+            ' Confirmation emails could not be sent; please contact the event organizer.';
+        }
+      }
       setPartnerConfirmation(null);
       const url = new URL(window.location.href);
       url.searchParams.delete('confirm_partner');
       window.history.replaceState({}, '', url.toString());
       setRegistrationMessage(
-        'Your participation is confirmed. The team can now pay the event fee.',
+        'Your participation is confirmed. The team can now pay the event fee.' + emailWarning,
       );
+      window.dispatchEvent(new Event('pctc-tournament-invitation-updated'));
       setRegistrationRefresh((value) => value + 1);
     } catch (error) {
       setPartnerConfirmationError(

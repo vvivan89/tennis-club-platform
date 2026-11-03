@@ -148,7 +148,7 @@ afterEach(() => {
 describe('tournament component coverage', () => {
   it('surfaces initial tournament workspace query failures', async () => {
     supabaseMocks.errors['tournament_teams'] = { message: 'Could not load tournament teams.' };
-    const { unmount } = render(
+    render(
       <TournamentManagement
         eventId="event-query-error"
         eventStartsAt="2027-06-01T12:00:00Z"
@@ -309,17 +309,16 @@ describe('tournament component coverage', () => {
       );
     });
 
-    it('requires a confirmed guest partner selection before submitting a pair', async () => {
+    it('registers a guest pair when optional partner fields are blank', async () => {
       supabaseMocks.rpcData.register_event_guest_tournament_entry = {
         participantId: 'guest-entry-2',
         partnerParticipantId: 'guest-partner-2',
         amountCents: 2500,
         paymentStatus: 'pending',
       };
-      const fetchMock = vi.fn().mockResolvedValue({
-        ok: false,
-        json: async () => ({ error: 'Checkout is unavailable.' }),
-      });
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue({ ok: true, json: async () => ({ success: true }) });
       vi.stubGlobal('fetch', fetchMock);
       const user = userEvent.setup();
       render(
@@ -348,10 +347,26 @@ describe('tournament component coverage', () => {
       await user.type(screen.getByLabelText('Partner name'), 'Morgan Guest');
       await user.type(screen.getByLabelText('Partner email'), 'morgan@example.com');
       await user.click(screen.getByRole('button', { name: 'Register for tournament' }));
-      expect(await screen.findByRole('alert')).toHaveTextContent(
-        'Choose a registered partner or enter new partner details.',
+      expect(await screen.findByRole('status')).toHaveTextContent(
+        'Registration saved. Your team can pay after your partner confirms.',
       );
-      expect(supabaseMocks.rpcCalls).not.toContain('register_event_guest_tournament_entry');
+      expect(supabaseMocks.rpcArgs).toContainEqual({
+        name: 'register_event_guest_tournament_entry',
+        args: expect.objectContaining({
+          p_display_name: 'Taylor Guest',
+          p_partner_name: 'Morgan Guest',
+          p_partner_email: 'morgan@example.com',
+          p_partner_phone: null,
+          p_partner_gender: null,
+          p_partner_skill_level: null,
+        }),
+      });
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/events/partner-invitations',
+        expect.objectContaining({
+          body: JSON.stringify({ participantIds: ['guest-partner-2'] }),
+        }),
+      );
     });
 
     it('requires both name and email before registering with a newly entered partner', async () => {
@@ -780,6 +795,62 @@ describe('tournament component coverage', () => {
     await waitFor(() => expect(supabaseMocks.fromCalls).toContain('tournament_matches'));
     expect(supabaseMocks.rpcCalls).toContain('event_tournament_member_directory');
     expect(screen.getByRole('heading', { name: 'Participants' })).toBeInTheDocument();
+  });
+
+  it('labels event-only accounts as non-members in the participant list', async () => {
+    supabaseMocks.data.tournament_participants = [
+      {
+        id: 'event-guest-entry',
+        user_id: 'event-guest-account',
+        team_id: null,
+        category: 'mixed',
+        payment_status: 'not_required',
+        amount_cents: 0,
+        display_name: 'Guest Player',
+        email: 'guest@example.test',
+        phone: null,
+        gender: 'female',
+        gender_override: null,
+        status: 'registered',
+      },
+      {
+        id: 'member-entry',
+        user_id: 'approved-member-account',
+        team_id: null,
+        category: 'mixed',
+        payment_status: 'not_required',
+        amount_cents: 0,
+        display_name: 'Club Member',
+        email: 'member@example.test',
+        phone: null,
+        gender: 'male',
+        gender_override: null,
+        status: 'registered',
+      },
+    ];
+    supabaseMocks.rpcData.event_tournament_member_directory = [
+      {
+        id: 'approved-member-account',
+        full_name: 'Club Member',
+        email: 'member@example.test',
+        gender: 'male',
+      },
+    ];
+    render(
+      <TournamentManagement
+        eventId="event-guest-member-labels"
+        eventStartsAt="2027-06-01T12:00:00Z"
+        eventEndsAt="2027-06-01T20:00:00Z"
+        courtCount={2}
+        format="doubles"
+        config={{ categories: ['mixed'], phases: { round_robin: true } }}
+        priceCents={0}
+      />,
+    );
+
+    expect(await screen.findByText('Guest Player')).toBeInTheDocument();
+    expect(screen.getByText('Non-member · registered')).toBeInTheDocument();
+    expect(screen.getByText('Member · registered')).toBeInTheDocument();
   });
 
   it('handles null query results as empty collections and defaults an empty category list', async () => {
@@ -4536,10 +4607,8 @@ describe('tournament component coverage', () => {
       />,
     );
 
-    await user.click(await screen.findByRole('button', { name: 'Register' }));
-    expect(
-      await screen.findByText('You are registered as a single player. Payment is pending.'),
-    ).toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: 'Register for League event' }));
+    expect(await screen.findByText(/Registration saved\. Payment is pending/)).toBeInTheDocument();
     expect(supabaseMocks.rpcArgs).toContainEqual({
       name: 'register_league_single_event_entry',
       args: { p_event_id: 'league-new-player-event' },
@@ -4572,14 +4641,70 @@ describe('tournament component coverage', () => {
       />,
     );
 
-    await user.click(await screen.findByRole('button', { name: 'Register' }));
+    await user.click(await screen.findByRole('button', { name: 'Register for League event' }));
     expect(await screen.findByRole('status')).toHaveTextContent(
-      'You are registered as a single player. Payment is pending.',
+      'Registration saved. Payment is pending',
     );
     expect(supabaseMocks.rpcArgs).toContainEqual({
       name: 'register_league_single_event_entry',
       args: { p_event_id: 'league-single-fallback-event' },
     });
+  });
+
+  it('lets a League member register with a member partner before their team is fixed', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ sent: true }) }),
+    );
+    supabaseMocks.rpcData.event_tournament_partner_directory = [
+      { id: 'league-partner-member', full_name: 'Jordan Partner', gender: 'male' },
+    ];
+    supabaseMocks.rpcData.register_tournament_entry = {
+      participantId: 'league-member-entry',
+      partnerParticipantId: 'league-partner-entry',
+      partnerEmail: 'jordan@example.test',
+      amountCents: 1200,
+    };
+    const user = userEvent.setup();
+    render(
+      <TournamentPublicView
+        eventId="league-pair-event"
+        currentUserId="league-member-one"
+        currentUserGender="male"
+        format="doubles"
+        config={{ categories: ['men'], registration_mode: 'both' }}
+        rulesHtml={null}
+        detailsPublic
+        allowNonMemberRegistration
+        eventStatus="published"
+        startsAt="2027-06-01T12:00:00Z"
+        endsAt={null}
+        locationQuery=""
+        registrationOpensAt="2026-01-01T00:00:00Z"
+        registrationClosesAt={null}
+        priceCents={1200}
+        leagueTournament
+        leagueId="league-1"
+        leagueGender="male"
+      />,
+    );
+
+    await user.selectOptions(await screen.findByLabelText('Registration type'), 'pair');
+    const partnerSelect = screen.getByRole('combobox', { name: 'Partner' });
+    await user.type(partnerSelect, 'Jordan Partner');
+    await user.click(await screen.findByRole('option', { name: /Jordan Partner/ }));
+    await user.click(screen.getByRole('button', { name: 'Register for League event' }));
+
+    expect(supabaseMocks.rpcArgs).toContainEqual(
+      expect.objectContaining({
+        name: 'register_tournament_entry',
+        args: expect.objectContaining({
+          p_event_id: 'league-pair-event',
+          p_category: 'men',
+          p_partner_user_id: 'league-partner-member',
+        }),
+      }),
+    );
   });
 
   it('confirms and withdraws both players in an already registered League team', async () => {
@@ -5412,6 +5537,8 @@ describe('tournament component coverage', () => {
     await user.click(await screen.findByRole('tab', { name: 'Overview' }));
     await screen.findByText(/Payment pending · Partner: Jordan Partner · Partner confirmed/);
     await user.click(screen.getByRole('button', { name: 'Pay' }));
+    expect(screen.getByRole('menuitem', { name: /For both by card/ })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /For both by Interac/ })).toBeInTheDocument();
     await user.click(screen.getByRole('menuitem', { name: /For myself by Interac/ }));
     expect(await screen.findByText('Interac e-Transfer instructions')).toBeInTheDocument();
     expect(screen.getByText('Use your tournament entry as the reference.')).toBeInTheDocument();
@@ -5482,6 +5609,60 @@ describe('tournament component coverage', () => {
     expect(screen.getAllByText(/Gender not specified/)).toHaveLength(5);
     expect(screen.getAllByText(/Rating not specified/)).toHaveLength(5);
     expect(screen.getAllByRole('button', { name: 'Pay' })).toHaveLength(3);
+  });
+
+  it('does not offer payment to a member until they confirm a guest-created pair entry', async () => {
+    supabaseMocks.rpcData.event_tournament_my_entries = [
+      {
+        id: 'invited-member-entry',
+        category: 'mixed',
+        display_name: 'Invited Member',
+        email: 'member@example.test',
+        payment_status: 'pending',
+        amount_cents: 1500,
+        confirmation_status: 'pending',
+        partner_id: 'guest-entry',
+        partner_name: 'Guest Player',
+        partner_email: 'guest@example.test',
+        partner_confirmation_status: 'confirmed',
+      },
+    ];
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: [] }) });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(
+      <TournamentPublicView
+        eventId="guest-invited-member-event"
+        currentUserId="invited-member"
+        currentUserName="Invited Member"
+        currentUserEmail="member@example.test"
+        currentUserGender="female"
+        format="doubles"
+        config={{ categories: ['mixed'], registration_mode: 'doubles' }}
+        rulesHtml={null}
+        detailsPublic
+        allowNonMemberRegistration
+        eventStatus="published"
+        startsAt="2027-06-01T12:00:00Z"
+        endsAt="2027-06-01T20:00:00Z"
+        locationQuery=""
+        registrationOpensAt="2026-01-01T00:00:00Z"
+        registrationClosesAt="2027-05-31T23:00:00Z"
+        priceCents={1500}
+      />,
+    );
+
+    await user.click(await screen.findByRole('tab', { name: 'Overview' }));
+    expect(await screen.findByText(/Awaiting your confirmation/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Pay' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Confirm participation' }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/events/partner-confirmation',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ participantId: 'invited-member-entry' }),
+      }),
+    );
   });
 
   it('lets a player remove an unconfirmed partner and keep their own entry as a single', async () => {

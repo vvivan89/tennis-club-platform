@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { eventEditPath } from '@/lib/event-slug';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { eventDisplayTitle } from '@/lib/event-format';
+import { FloatingFeedback } from '@/components/floating-feedback';
 
 type AdminEvent = {
   id: string;
@@ -49,6 +50,7 @@ export function AdminEventsTable({ events }: { events: AdminEvent[] }) {
   const [period, setPeriod] = useState<'future' | 'past'>('future');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
   const [eventToDelete, setEventToDelete] = useState<AdminEvent | null>(null);
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -67,10 +69,12 @@ export function AdminEventsTable({ events }: { events: AdminEvent[] }) {
   async function deleteEvent(event: AdminEvent) {
     setBusyId(event.id);
     setError('');
+    setMessage('');
     try {
       const response = await fetch(`/api/admin/events/${event.id}/delete`, { method: 'DELETE' });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Could not delete event.');
+      setMessage('Event deleted successfully.');
       startTransition(() => router.refresh());
       return true;
     } catch (cause) {
@@ -118,6 +122,7 @@ export function AdminEventsTable({ events }: { events: AdminEvent[] }) {
 
   return (
     <div className="mt-7 space-y-4">
+      <FloatingFeedback message={message} />
       <div
         role="group"
         aria-label="Event time period"

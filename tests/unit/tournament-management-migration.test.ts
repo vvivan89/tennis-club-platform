@@ -6,10 +6,6 @@ const migration = readFileSync(
   join(process.cwd(), 'supabase/migration_archive/0048_tournament_management.sql'),
   'utf8',
 );
-const consolidated = readFileSync(
-  join(process.cwd(), 'supabase/consolidated_migrations.sql'),
-  'utf8',
-);
 const form = ['components/event-management-form.tsx', 'components/event-form-defaults.ts']
   .map((path) => readFileSync(join(process.cwd(), path), 'utf8'))
   .join('\n');
@@ -164,8 +160,6 @@ describe('tournament management foundation', () => {
       'tournament_match_players',
     ])
       expect(realtimeMigration).toContain(table);
-    expect(consolidated).toContain('-- BEGIN MIGRATION: 0050_tournament_realtime_publication.sql');
-    expect(consolidated).toContain(realtimeMigration.trim());
   });
 
   it('enforces known gender eligibility server-side while allowing unspecified gender', () => {
@@ -174,8 +168,6 @@ describe('tournament management foundation', () => {
     expect(genderEligibilityMigration).toContain(
       "v_gender IS NOT NULL AND v_gender NOT IN ('male','female')",
     );
-    expect(consolidated).toContain('-- BEGIN MIGRATION: 0051_tournament_gender_eligibility.sql');
-    expect(consolidated).toContain(genderEligibilityMigration.trim());
   });
 
   it('uses tournament-specific gender overrides for public category eligibility without exposing contact fields', () => {
@@ -183,15 +175,12 @@ describe('tournament management foundation', () => {
       'coalesce(p.gender_override, p.gender) AS gender',
     );
     expect(publicGenderOverrideMigration).not.toContain('p.email');
-    expect(consolidated).toContain(
-      '-- BEGIN MIGRATION: 0052_tournament_public_gender_override.sql',
-    );
-    expect(consolidated).toContain(publicGenderOverrideMigration.trim());
   });
 
-  it('keeps the incremental migration represented in the consolidated schema', () => {
-    expect(consolidated).toContain('-- BEGIN MIGRATION: 0048_tournament_management.sql');
-    expect(consolidated).toContain('-- END MIGRATION: 0048_tournament_management.sql');
-    expect(consolidated).toContain(migration.trim());
+  it('keeps the tournament foundation in the historical migration archive', () => {
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS public.tournament_matches');
+    expect(migration).toContain(
+      'ALTER TABLE public.tournament_audit_log ENABLE ROW LEVEL SECURITY',
+    );
   });
 });

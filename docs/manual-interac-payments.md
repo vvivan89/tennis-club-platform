@@ -4,7 +4,7 @@ Migrations `0045_manual_interac_payment_review.sql` and `0046_interac_configurat
 
 ## Admin setup
 
-1. Apply migrations 0045, 0046, and 0047 (or the matching sections in `supabase/consolidated_migrations.sql`).
+1. Apply migrations 0045, 0046, and 0047 from the historical SQL in `supabase/migration_archive/` when upgrading a database at that migration level. Do not replay the current-database baseline on an existing database.
 2. Open Admin → Payments → Interac.
 3. Enter the club's Interac recipient email and transfer instructions, then enable Interac and save. Interac stays disabled until the recipient email and instructions are valid.
 4. Review incoming requests in the Interac table. Confirm only after verifying receipt in the club's bank account; administrators may confirm their own payments, and the action is recorded in the audit log. Rejection requires a reason. Confirmed Interac payments can be marked partially or fully refunded with an optional note; this records the refund in PCTC and does not transfer money.

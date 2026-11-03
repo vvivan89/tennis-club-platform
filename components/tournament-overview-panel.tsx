@@ -53,7 +53,6 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
     currentUserId,
     ownLeagueTeamId,
     registerLeagueTeam,
-    registerLeagueSingle,
     availableCategories,
     guestAccessVisible,
     setGuestAccessVisible,
@@ -221,14 +220,13 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
               {leagueTournament ? 'Registration' : 'Tournament registration'}
             </h3>
             {leagueTournament &&
-              !isEventGuest &&
               registrationOpen &&
               !ownEntries.some(
                 (entry: { category: string }) => entry.category === leagueRegistrationCategory,
               ) &&
               !loading &&
               currentUserId &&
-              (ownLeagueTeamId ? (
+              ownLeagueTeamId && (
                 <button
                   type="button"
                   disabled={registrationBusy}
@@ -241,18 +239,7 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
                     'Register my team'
                   )}
                 </button>
-              ) : (
-                availableCategories.length > 0 && (
-                  <button
-                    type="button"
-                    disabled={registrationBusy}
-                    onClick={() => void registerLeagueSingle()}
-                    className="h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
-                  >
-                    {registrationBusy ? 'Registering…' : 'Register'}
-                  </button>
-                )
-              ))}
+              )}
             {isEventGuest && (
               <Link href="/my-events" className="text-sm font-medium text-primary underline">
                 My events
@@ -278,6 +265,8 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
             interacRequests={interacRequests}
             interacEnabled={interacEnabled}
             paymentBusy={paymentBusy}
+            partnerConfirmationBusy={partnerConfirmationBusy}
+            confirmPartnerParticipation={confirmPartnerParticipation}
             paymentBusyKey={paymentBusyKey}
             paymentActionKey={tournamentPaymentActionKey}
             startTournamentPayment={startTournamentPayment}
@@ -338,7 +327,6 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
             ownLeagueTeamId={ownLeagueTeamId}
             ownEntries={ownEntries}
             leagueRegistrationCategory={leagueRegistrationCategory}
-            isEventGuest={isEventGuest}
             availableCategories={availableCategories}
             hasGenderEligibleCategory={hasGenderEligibleCategory}
           >
