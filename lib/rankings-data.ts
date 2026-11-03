@@ -89,7 +89,8 @@ export async function getRankingsData(): Promise<RankingsData> {
     admin
       .from('profiles')
       .select('id,full_name,email,tennis_skill_level,gender,application_status,role')
-      .eq('application_status', 'approved'),
+      .eq('application_status', 'approved')
+      .eq('account_kind', 'member'),
     admin.from('memberships').select('id,user_id,status,payment_status'),
     admin
       .from('payments')

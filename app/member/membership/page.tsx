@@ -6,14 +6,17 @@ import { CalendarDays, CheckCircle2, Clock3, CreditCard, Users } from 'lucide-re
 import { SiteHeader } from '@/components/site-header';
 import { SiteFooter } from '@/components/site-footer';
 import { Button } from '@/components/ui/button';
+import { PaymentOptionsButton } from '@/components/payment-options-button';
 import { MemberNav } from '@/components/member-nav';
 import { SearchableMemberSelect } from '@/components/searchable-member-select';
+import { FloatingFeedback } from '@/components/floating-feedback';
 import {
   InteracPaymentInstructionsDialog,
   type InteracPaymentNotice,
 } from '@/components/interac-payment-instructions-dialog';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import { sanitizeHtml } from '@/lib/sanitize-html';
+import { getMembershipSeason, type MembershipSeasonSettings } from '@/lib/membership-season';
 type Profile = {
   id: string;
   full_name: string | null;
@@ -48,6 +51,8 @@ type FamilyEntry = {
     status: string;
     joined_at: string | null;
     created_at: string;
+    waiver_version?: string | null;
+    waiver_accepted_at?: string | null;
   };
   family: Family;
   members: FamilyMember[];
@@ -61,7 +66,7 @@ type Person = {
   available?: boolean;
   unavailableReason?: string;
 };
-type MembershipSettings = {
+type MembershipSettings = MembershipSeasonSettings & {
   single_price_cents: number;
   family_price_cents: number;
   family_max_adults: number;
@@ -80,6 +85,8 @@ type Membership = {
   starts_on: string | null;
   ends_on: string | null;
   created_at: string;
+  waiver_version?: string | null;
+  waiver_accepted_at?: string | null;
 };
 type Payment = {
   id: string;
@@ -91,6 +98,8 @@ type Payment = {
   created_at: string;
   succeeded_at: string | null;
   refunded_amount_minor: number;
+  provider?: string | null;
+  manual_review_status?: string | null;
 };
 type State = {
   families: FamilyEntry[];
@@ -110,50 +119,50 @@ const emptyState: State = {
 };
 const money = (c: number) =>
   new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format((c || 0) / 100);
-const date = (v: string | null | undefined) =>
-  v
-    ? new Date(v).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
-    : '—';
-const getTargetSeason = (settings: MembershipSettings | null) => {
-  if (!settings) return null;
-  const now = new Date();
-  const startThisYear = new Date(
-    now.getFullYear(),
-    settings.season_start_month - 1,
-    settings.season_start_day,
-  );
-  const endThisYear = new Date(
-    now.getFullYear(),
-    settings.season_end_month - 1,
-    settings.season_end_day,
-    23,
-    59,
-    59,
-    999,
-  );
-  const year =
-    now < startThisYear
-      ? now.getFullYear()
-      : now > endThisYear
-        ? now.getFullYear() + 1
-        : now.getFullYear();
-  const dateKey = (value: Date) =>
-    `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
-  return {
-    year,
-    startsOn: dateKey(new Date(year, settings.season_start_month - 1, settings.season_start_day)),
-    endsOn: dateKey(new Date(year, settings.season_end_month - 1, settings.season_end_day)),
-  };
+const date = (v: string | null | undefined) => {
+  if (!v) return '—';
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+  const value = dateOnly
+    ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
+    : new Date(v);
+  return value.toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' });
 };
+const dateWithOrdinal = (v: string | null | undefined) => {
+  if (!v) return '—';
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+  if (!dateOnly) return date(v);
+  const year = Number(dateOnly[1]);
+  const month = Number(dateOnly[2]) - 1;
+  const day = Number(dateOnly[3]);
+  const remainder = day % 100;
+  const suffix =
+    remainder >= 11 && remainder <= 13
+      ? 'th'
+      : day % 10 === 1
+        ? 'st'
+        : day % 10 === 2
+          ? 'nd'
+          : day % 10 === 3
+            ? 'rd'
+            : 'th';
+  const monthName = new Date(year, month, 1).toLocaleDateString('en-CA', { month: 'short' });
+  return `${monthName} ${day}${suffix}, ${year}`;
+};
+const getTargetSeason = getMembershipSeason;
 export default function MembershipPortal() {
   const [state, setState] = useState<State>(emptyState);
   const [me, setMe] = useState<Profile | null>(null);
   const [selected, setSelected] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [waiverAccepted, setWaiverAccepted] = useState(false);
+  const [waiverSaving, setWaiverSaving] = useState(false);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [interacEnabled, setInteracEnabled] = useState(false);
+  const [interacRecipientEmail, setInteracRecipientEmail] = useState('');
+  const [interacInstructions, setInteracInstructions] = useState('');
   const [message, setMessage] = useState('');
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastError, setToastError] = useState('');
   const [interacNotice, setInteracNotice] = useState<InteracPaymentNotice | null>(null);
   const [club, setClub] = useState<{
     club_name: string;
@@ -179,11 +188,17 @@ export default function MembershipPortal() {
         .select('club_name,short_name,social_links')
         .eq('id', 1)
         .maybeSingle(),
-      db.from('payment_method_settings').select('interac_enabled').eq('id', 1).maybeSingle(),
+      db
+        .from('payment_method_settings')
+        .select('interac_enabled,interac_recipient_email,interac_instructions')
+        .eq('id', 1)
+        .maybeSingle(),
     ]);
     setMe(profile);
     if (cs) setClub(cs);
     setInteracEnabled(methodSettings?.interac_enabled === true);
+    setInteracRecipientEmail(methodSettings?.interac_recipient_email || '');
+    setInteracInstructions(methodSettings?.interac_instructions || '');
     if (user) {
       const r = await fetch('/api/membership/family');
       const j = await r.json();
@@ -208,8 +223,12 @@ export default function MembershipPortal() {
       waiverVersion?: number;
     } = {},
   ) {
-    setBusy(true);
+    const savingWaiver = action === 'accept_waiver';
+    if (savingWaiver) setWaiverSaving(true);
+    else setBusy(true);
     setMessage('');
+    setToastMessage('');
+    setToastError('');
     try {
       const r = await fetch('/api/membership/family', {
         method: 'POST',
@@ -222,29 +241,56 @@ export default function MembershipPortal() {
           status: r.status,
           result: j,
         });
-        throw new Error('family-update-failed');
+        throw new Error(j.error || 'Could not update family membership. Please try again.');
       }
-      setMessage(
-        j.effectiveNextSeason ? 'Your family removal is scheduled for the next season.' : 'Saved.',
-      );
+      if (action === 'invite') {
+        const invitee = state.people.find((person) => person.id === extra.userId);
+        const inviteeName = invitee?.full_name || invitee?.email || 'the selected member';
+        if (j.warning) setToastError(j.warning);
+        else
+          setToastMessage(
+            j.familyCreated
+              ? `Family created. An invitation was sent to ${inviteeName}. Family payment will be available after they accept the invitation and individually accept their waiver.`
+              : `Invitation sent to ${inviteeName}. Family payment will be available after they accept the invitation and individually accept their waiver.`,
+          );
+      } else if (action === 'confirm') {
+        setToastMessage(
+          'You accepted the family invitation. Review and accept your waiver separately.',
+        );
+      } else if (action === 'remove') {
+        setToastMessage(
+          j.effectiveNextSeason
+            ? 'You are scheduled to leave the family at the end of the current paid season.'
+            : 'You left the family membership.',
+        );
+      } else {
+        setToastMessage(
+          j.acceptedAt
+            ? `Your waiver acceptance was saved on ${date(j.acceptedAt)}.`
+            : 'Your waiver acceptance was saved.',
+        );
+      }
       setSelected('');
       await load();
     } catch (e) {
       console.error('[Member membership] Family membership request failed', e);
-      setMessage('Could not update family membership. Please try again.');
+      setToastError(
+        e instanceof Error ? e.message : 'Could not update family membership. Please try again.',
+      );
     } finally {
-      setBusy(false);
+      if (savingWaiver) setWaiverSaving(false);
+      else setBusy(false);
     }
   }
   async function startCheckout(
     kind: 'individual' | 'family',
     provider: 'stripe' | 'interac' = 'stripe',
   ) {
-    if (!waiverAccepted) {
+    if (!canProceedWithWaiver) {
       setMessage('Accept the current membership waiver before continuing to checkout.');
       return;
     }
-    setBusy(true);
+    setCheckoutLoading(true);
     setMessage('');
     try {
       const body: Record<string, unknown> = {
@@ -288,7 +334,7 @@ export default function MembershipPortal() {
           'Interac payment request submitted. Your membership remains unpaid until the club confirms receipt.',
         );
         await load();
-        setBusy(false);
+        setCheckoutLoading(false);
         return;
       }
       if (!result.checkoutUrl) throw new Error('Could not start checkout.');
@@ -301,7 +347,7 @@ export default function MembershipPortal() {
         error instanceof Error ? error.message : 'Could not start checkout. Please try again.',
       );
       await load();
-      setBusy(false);
+      setCheckoutLoading(false);
     }
   }
   const active = [...state.families]
@@ -317,15 +363,15 @@ export default function MembershipPortal() {
     )[0];
   const currentFamily = active?.family;
   const currentMembers = active?.members ?? [];
+  const confirmedFamilyMembers = currentMembers.filter((member) => member.status === 'confirmed');
   const familyWaiversComplete =
+    confirmedFamilyMembers.length >= 2 &&
     Boolean(state.currentWaiver) &&
-    currentMembers
-      .filter((member) => member.status === 'confirmed')
-      .every(
-        (member) =>
-          member.waiver_version === String(state.currentWaiver?.version) &&
-          Boolean(member.waiver_accepted_at),
-      );
+    confirmedFamilyMembers.every(
+      (member) =>
+        member.waiver_version === String(state.currentWaiver?.version) &&
+        Boolean(member.waiver_accepted_at),
+    );
   const incoming = state.families.filter(
     (x) => x.membership.user_id === me?.id && x.membership.status === 'pending',
   );
@@ -345,9 +391,14 @@ export default function MembershipPortal() {
     currentFamily.season_year === targetSeason.year &&
     (currentFamily.paid_at || currentFamily.payment_id),
   );
+  const familyPending =
+    active?.membership.status === 'confirmed' && !familyPaid && !familyWaiversComplete;
+  const displayedFamilyStatus = familyPending ? 'pending' : active?.membership.status;
   const familyType =
     active?.membership.status === 'confirmed'
-      ? 'Family membership'
+      ? familyPending
+        ? 'Family membership · pending'
+        : 'Family membership'
       : active?.membership.status === 'pending'
         ? 'Family invitation pending'
         : active?.membership.status === 'removed_next_season'
@@ -363,6 +414,48 @@ export default function MembershipPortal() {
   const isActiveFamily =
     active?.membership.status === 'confirmed' ||
     active?.membership.status === 'removed_next_season';
+  const interacPendingPayment = [...(state.payments ?? [])]
+    .filter((payment) => {
+      const recordId =
+        isActiveFamily && currentFamily
+          ? `family:${currentFamily.id}`
+          : latestIsCurrentSeason
+            ? latest?.id
+            : null;
+      return (
+        payment.purpose === 'membership' &&
+        payment.provider === 'interac' &&
+        payment.status === 'pending' &&
+        payment.business_record_id === recordId
+      );
+    })
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+  const viewInteracInstructions = (payment: Payment) =>
+    setInteracNotice({
+      amount: money(payment.amount_minor),
+      recipientEmail: interacRecipientEmail,
+      paymentId: payment.id,
+      instructions: interacInstructions,
+      message:
+        'This Interac payment request is pending. Your membership will be activated after the club confirms receipt.',
+    });
+  const currentWaiverVersion = String(state.currentWaiver?.version);
+  const waiverRecord = isActiveFamily
+    ? active?.membership
+    : active?.membership.status === 'pending' &&
+        active.membership.waiver_version === currentWaiverVersion &&
+        active.membership.waiver_accepted_at
+      ? active.membership
+      : state.memberships.find(
+          (membership) =>
+            membership.waiver_version === currentWaiverVersion &&
+            Boolean(membership.waiver_accepted_at),
+        );
+  const waiverAcceptedAt =
+    state.currentWaiver && waiverRecord?.waiver_version === String(state.currentWaiver.version)
+      ? waiverRecord.waiver_accepted_at
+      : null;
+  const canProceedWithWaiver = Boolean(waiverAcceptedAt);
   const paid = isActiveFamily
     ? familyPaid
     : Boolean(
@@ -430,6 +523,7 @@ export default function MembershipPortal() {
             View full payment history
           </Link>
         </p>
+        <FloatingFeedback error={toastError} message={toastMessage} />
         {message && (
           <p role="status" className="mt-4 rounded-lg border border-border bg-muted/30 p-3 text-sm">
             {message}
@@ -439,7 +533,7 @@ export default function MembershipPortal() {
           me?.application_status === 'approved' &&
           (state.currentWaiver || state.memberships.length === 0 || !paid) && (
             <section className="mt-5 rounded-xl border border-border p-4">
-              <h2 className="font-semibold">Membership waiver</h2>
+              <h2 className="font-semibold">Your membership waiver</h2>
               {state.currentWaiver ? (
                 <>
                   <p className="mt-1 text-sm text-muted-foreground">
@@ -456,15 +550,30 @@ export default function MembershipPortal() {
                       }}
                     />
                   </details>
-                  <label className="mt-3 flex items-start gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      className="mt-1"
-                      checked={waiverAccepted}
-                      onChange={(event) => setWaiverAccepted(event.target.checked)}
-                    />
-                    <span>I have read and accept the current membership waiver.</span>
-                  </label>
+                  {waiverAcceptedAt ? (
+                    <p className="mt-3 text-sm font-medium text-foreground">
+                      Waiver is accepted on {date(waiverAcceptedAt)}
+                    </p>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="mt-3"
+                      disabled={waiverSaving}
+                      onClick={() => {
+                        const familyId = isActiveFamily ? active?.family.id : undefined;
+                        void act('accept_waiver', {
+                          familyId,
+                          waiverAccepted: true,
+                          waiverVersion: state.currentWaiver?.version,
+                        });
+                      }}
+                    >
+                      {waiverSaving
+                        ? 'Saving your waiver acceptance…'
+                        : 'I have read and accept the current membership waiver.'}
+                    </Button>
+                  )}
                 </>
               ) : (
                 <p className="mt-2 text-sm text-destructive">
@@ -521,7 +630,11 @@ export default function MembershipPortal() {
                       Paid date
                     </p>
                     <p className="mt-1 text-sm font-medium">
-                      {paid ? date(paidAt) : 'No payment recorded'}
+                      {paid
+                        ? date(paidAt)
+                        : interacPendingPayment
+                          ? 'Interac payment pending club confirmation'
+                          : 'No payment recorded'}
                     </p>
                   </div>
                   <div>
@@ -530,13 +643,22 @@ export default function MembershipPortal() {
                     </p>
                     <p className="mt-1 text-sm font-medium">
                       {latest?.starts_on || latest?.ends_on
-                        ? `${date(latest.starts_on)} – ${date(latest.ends_on)}`
+                        ? `${dateWithOrdinal(latest.starts_on)} – ${dateWithOrdinal(latest.ends_on)}`
                         : currentFamily
                           ? `Season ${currentFamily.season_year}`
                           : 'No dates recorded'}
                     </p>
                   </div>
                 </div>
+                {interacPendingPayment && (
+                  <p
+                    role="status"
+                    className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100"
+                  >
+                    Your Interac membership payment has been requested and is awaiting club
+                    confirmation.
+                  </p>
+                )}
                 {active?.membership.status === 'removed_next_season' && (
                   <p className="mt-4 rounded-md bg-muted p-3 text-sm">
                     Your family membership remains in effect for the current season and is scheduled
@@ -547,29 +669,43 @@ export default function MembershipPortal() {
                   (!isActiveFamily || active?.membership.status === 'removed_next_season') &&
                   me?.application_status === 'approved' && (
                     <div className="mt-5 border-t border-border pt-4">
-                      <Button
-                        disabled={
-                          busy || !waiverAccepted || !state.currentWaiver || !state.settings
-                        }
-                        onClick={() => void startCheckout('individual')}
-                      >
-                        {busy ? (
-                          <TennisLoader compact label="Starting checkout" />
-                        ) : (
-                          `Pay ${money(state.settings?.single_price_cents ?? 15000)} for membership`
-                        )}
-                      </Button>
-                      {interacEnabled && !busy && (
-                        <Button
-                          variant="outline"
-                          disabled={
-                            busy || !waiverAccepted || !state.currentWaiver || !state.settings
-                          }
-                          onClick={() => void startCheckout('individual', 'interac')}
-                        >
-                          Pay by Interac
-                        </Button>
-                      )}
+                      <PaymentOptionsButton
+                        disabled={busy}
+                        options={[
+                          {
+                            label: `Individual by card · ${money(state.settings?.single_price_cents ?? 15000)}`,
+                            onSelect: () => void startCheckout('individual'),
+                            disabled:
+                              checkoutLoading ||
+                              !canProceedWithWaiver ||
+                              !state.currentWaiver ||
+                              !state.settings,
+                            loading: checkoutLoading && !interacPendingPayment,
+                            loadingLabel: 'Starting checkout',
+                          },
+                          ...(interacEnabled
+                            ? [
+                                {
+                                  label: interacPendingPayment
+                                    ? `View Interac instructions · ${money(interacPendingPayment.amount_minor)}`
+                                    : `Individual by Interac · ${money(state.settings?.single_price_cents ?? 15000)}`,
+                                  onSelect: () =>
+                                    interacPendingPayment
+                                      ? viewInteracInstructions(interacPendingPayment)
+                                      : void startCheckout('individual', 'interac'),
+                                  disabled:
+                                    checkoutLoading ||
+                                    (!interacPendingPayment &&
+                                      (!canProceedWithWaiver ||
+                                        !state.currentWaiver ||
+                                        !state.settings)),
+                                  loading: checkoutLoading && !!interacPendingPayment,
+                                  loadingLabel: 'Starting Interac request',
+                                },
+                              ]
+                            : []),
+                        ]}
+                      />
                       <p className="mt-2 text-xs text-muted-foreground">
                         Stripe payments are confirmed automatically. Interac payments remain pending
                         until the club confirms receipt.
@@ -613,13 +749,14 @@ export default function MembershipPortal() {
                     <h2 className="text-lg font-semibold">Family membership</h2>
                     <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
                       Manage your family group or invite another approved member. Invited members
-                      must accept before they are added to the group.
+                      must accept before they are added to the group. Each member accepts their own
+                      waiver separately; accepting an invitation does not sign it.
                     </p>
                   </div>
                 </div>
                 {currentFamily && (
                   <span className="rounded-full border border-border px-2.5 py-1 text-xs capitalize">
-                    {active?.membership.status?.replaceAll('_', ' ')}
+                    {displayedFamilyStatus?.replaceAll('_', ' ')}
                   </span>
                 )}
               </div>
@@ -637,71 +774,58 @@ export default function MembershipPortal() {
                           {state.currentWaiver &&
                           m.waiver_version === String(state.currentWaiver.version) &&
                           m.waiver_accepted_at
-                            ? 'waiver accepted'
-                            : 'waiver acceptance needed'}
+                            ? `Individual waiver accepted on ${date(m.waiver_accepted_at)}`
+                            : 'Individual waiver acceptance needed'}
                         </p>
                       </div>
                     ))}
                   </div>
-                  {active?.membership.status === 'confirmed' &&
-                    me?.application_status === 'approved' &&
-                    currentMembers.some(
-                      (member) =>
-                        member.user_id === me.id &&
-                        (member.waiver_version !== String(state.currentWaiver?.version) ||
-                          !member.waiver_accepted_at),
-                    ) && (
-                      <div className="mt-4">
-                        <Button
-                          variant="outline"
-                          disabled={busy || !waiverAccepted || !state.currentWaiver}
-                          onClick={() =>
-                            void act('accept_waiver', {
-                              familyId: currentFamily?.id,
-                              waiverAccepted: true,
-                              waiverVersion: state.currentWaiver?.version,
-                            })
-                          }
-                        >
-                          Accept waiver for family membership
-                        </Button>
-                      </div>
-                    )}
                   {!familyPaid &&
                     active?.membership.status === 'confirmed' &&
                     me?.application_status === 'approved' && (
                       <div className="mt-4">
-                        <Button
-                          disabled={
-                            busy ||
-                            !waiverAccepted ||
-                            !state.currentWaiver ||
-                            !state.settings ||
-                            !familyWaiversComplete
-                          }
-                          onClick={() => void startCheckout('family')}
-                        >
-                          {busy ? (
-                            <TennisLoader compact label="Starting checkout" />
-                          ) : (
-                            `Pay ${money(state.settings?.family_price_cents ?? 22000)} for family membership`
-                          )}
-                        </Button>
-                        {interacEnabled && !busy && (
-                          <Button
-                            className="mt-2"
-                            variant="outline"
-                            disabled={
-                              busy || !waiverAccepted || !state.settings || !familyWaiversComplete
-                            }
-                            onClick={() => void startCheckout('family', 'interac')}
-                          >
-                            Pay family membership by Interac
-                          </Button>
-                        )}
+                        <PaymentOptionsButton
+                          disabled={busy}
+                          options={[
+                            {
+                              label: `Family by card · ${money(state.settings?.family_price_cents ?? 22000)}`,
+                              onSelect: () => void startCheckout('family'),
+                              disabled:
+                                checkoutLoading ||
+                                !canProceedWithWaiver ||
+                                !state.currentWaiver ||
+                                !state.settings ||
+                                !familyWaiversComplete,
+                              loading: checkoutLoading && !interacPendingPayment,
+                              loadingLabel: 'Starting checkout',
+                            },
+                            ...(interacEnabled
+                              ? [
+                                  {
+                                    label: interacPendingPayment
+                                      ? `View Interac instructions · ${money(interacPendingPayment.amount_minor)}`
+                                      : `Family by Interac · ${money(state.settings?.family_price_cents ?? 22000)}`,
+                                    onSelect: () =>
+                                      interacPendingPayment
+                                        ? viewInteracInstructions(interacPendingPayment)
+                                        : void startCheckout('family', 'interac'),
+                                    disabled:
+                                      checkoutLoading ||
+                                      (!interacPendingPayment &&
+                                        (!canProceedWithWaiver ||
+                                          !state.settings ||
+                                          !familyWaiversComplete)),
+                                    loading: checkoutLoading && !!interacPendingPayment,
+                                    loadingLabel: 'Starting Interac request',
+                                  },
+                                ]
+                              : []),
+                          ]}
+                        />
                         <p className="mt-2 text-xs text-muted-foreground">
-                          Every confirmed family member must accept the current waiver. Interac
-                          membership is activated only after club confirmation.
+                          At least two family members must be confirmed, and each member must
+                          individually accept the current waiver before payment. If selected to pay
+                          by Interac, membership is activated only after club confirmation.
                         </p>
                       </div>
                     )}
@@ -762,12 +886,10 @@ export default function MembershipPortal() {
                           </p>
                         </div>
                         <Button
-                          disabled={!waiverAccepted || !state.currentWaiver || busy}
+                          disabled={busy}
                           onClick={() =>
                             void act('confirm', {
                               invitationId: x.membership.id,
-                              waiverAccepted: true,
-                              waiverVersion: state.currentWaiver?.version,
                             })
                           }
                         >

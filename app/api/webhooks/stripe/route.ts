@@ -3,7 +3,6 @@ import type Stripe from 'stripe';
 import { getStripeClient, getStripeWebhookSecret } from '@/lib/payments/stripe';
 import { createPaymentServiceClient } from '@/lib/payments/server';
 import { syncPaymentProceeds } from '@/lib/payments/proceeds';
-import { removeProvisionalGuestEntries } from '@/lib/payments/checkout-cleanup';
 import { upsertStripeRefund } from '@/lib/payments/refund-records';
 import {
   calculateRefundState,
@@ -349,30 +348,6 @@ async function recordExpiredCheckout(
         ['succeeded', 'partially_refunded', 'refunded'].includes(latestPayment.status)
       )
         return;
-    }
-  }
-  if (
-    payment.purpose === 'tournament_registration' &&
-    !payment.user_id &&
-    payment.business_record_id
-  ) {
-    const ids = payment.business_record_id.split(',').filter(Boolean);
-    const { data: guestEntries, error: guestEntriesError } = await db
-      .from('tournament_participants')
-      .select('id,user_id,status')
-      .in('id', ids);
-    if (guestEntriesError)
-      throw new Error('Could not inspect provisional guest entries after checkout expiry.');
-    const provisionalIds = (guestEntries ?? [])
-      .filter((entry) => entry.user_id === null && entry.status === 'provisional')
-      .map((entry) => entry.id);
-    if (provisionalIds.length) {
-      await removeProvisionalGuestEntries(db, provisionalIds, {
-        inspectPairs: 'Could not inspect provisional tournament pairs after checkout expiry.',
-        inspectEntries: 'Could not inspect provisional tournament entries after checkout expiry.',
-        removePairs: 'Could not remove provisional tournament pairs after checkout expiry.',
-        removeEntries: 'Could not remove provisional tournament entries after checkout expiry.',
-      });
     }
   }
   await writePaymentAudit(db, payment.id, 'payment.canceled', eventId, {

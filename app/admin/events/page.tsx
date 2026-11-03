@@ -5,6 +5,7 @@ import { AdminNav } from '@/components/admin-nav';
 import { ClubSiteFooter } from '@/components/club-site-footer';
 import { Button } from '@/components/ui/button';
 import { AdminEventsTable } from '@/components/admin-events-table';
+import { withLoadedEventSeriesNumbers } from '@/lib/event-format';
 export default async function EventsAdminPage() {
   const db = await createSupabaseServerClient();
   const {
@@ -24,6 +25,7 @@ export default async function EventsAdminPage() {
     eventQuery.order('starts_at', { ascending: false }),
     db.from('club_settings').select('club_name,short_name,social_links').eq('id', 1).maybeSingle(),
   ]);
+  const numberedEvents = await withLoadedEventSeriesNumbers(events ?? [], db);
   const competitionIds = [
     ...new Set((events ?? []).map((event) => event.social_doubles_ladder_id).filter(Boolean)),
   ];
@@ -57,7 +59,7 @@ export default async function EventsAdminPage() {
         ) : (
           <AdminEventsTable
             events={
-              (events ?? []).map((event) => ({
+              numberedEvents.map((event) => ({
                 ...event,
                 is_league_tournament: leagueIds.has(event.social_doubles_ladder_id),
               })) as Array<{
@@ -70,6 +72,7 @@ export default async function EventsAdminPage() {
                 capacity: number;
                 price_cents: number;
                 series_id: string | null;
+                series_number: number | null;
                 created_by: string | null;
                 organizer_id: string | null;
                 event_type: string | null;

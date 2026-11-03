@@ -31,6 +31,7 @@ import { GET, POST } from '@/app/api/membership/family/route';
 
 function serviceClient() {
   return {
+    rpc: vi.fn().mockResolvedValue({ data: true, error: null }),
     from: (table: string) => {
       let operation = 'select';
       let values: unknown;
@@ -38,6 +39,7 @@ function serviceClient() {
         select: () => query,
         eq: () => query,
         neq: () => query,
+        not: () => query,
         in: () => query,
         or: () => query,
         order: () => query,
@@ -144,6 +146,117 @@ describe('membership family API', () => {
       people: [],
       memberships: [],
       payments: [],
+    });
+  });
+
+  it('uses an array family relation and reports a failed payment history query', async () => {
+    mocks.responses = {
+      'profiles.maybeSingle': [owner],
+      'membership_family_members.select': [
+        [{ id: 'owner-row', family_id: 'family-1', user_id: 'owner-1', status: 'confirmed' }],
+        [{ id: 'owner-row', user_id: 'owner-1', status: 'confirmed', profiles: null }],
+        [],
+      ],
+      'membership_families.select': [
+        [
+          {
+            id: 'family-1',
+            season_year: 2026,
+            paid_at: null,
+            paid_by: null,
+            payment_id: null,
+          },
+        ],
+      ],
+      'profiles.select': [[]],
+      'membership_plan_settings.maybeSingle': [settings],
+      'memberships.select': [[{ id: 'membership-1' }]],
+      'payments.select': [{ data: null, error: { message: 'payment history unavailable' } }],
+    };
+
+    const response = await GET();
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: 'Could not load payment history: payment history unavailable',
+    });
+  });
+
+  it('treats absent family and membership query data as empty results for an unprofiled account', async () => {
+    mocks.responses['profiles.maybeSingle'] = [null];
+    mocks.responses['membership_family_members.select'] = [null, null, null];
+    mocks.responses['profiles.select'] = [null];
+    mocks.responses['membership_plan_settings.maybeSingle'] = [null];
+    mocks.responses['memberships.select'] = [null];
+
+    const response = await GET();
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      families: [],
+      people: [],
+      memberships: [],
+      payments: [],
+    });
+  });
+
+  it('skips orphaned family rows and normalizes a family profile with no joined record', async () => {
+    mocks.responses = {
+      'profiles.maybeSingle': [owner],
+      'membership_family_members.select': [
+        [
+          {
+            id: 'orphan-row',
+            family_id: 'missing-family',
+            user_id: 'owner-1',
+            status: 'confirmed',
+          },
+        ],
+        [],
+      ],
+      'membership_families.select': [null],
+      'profiles.select': [null],
+      'membership_plan_settings.maybeSingle': [null],
+      'memberships.select': [null],
+    };
+    const orphaned = await GET();
+    expect(orphaned.status).toBe(200);
+    expect(await orphaned.json()).toMatchObject({ families: [], people: [], memberships: [] });
+
+    mocks.responses = {
+      'profiles.maybeSingle': [owner],
+      'membership_family_members.select': [
+        [
+          {
+            id: 'owner-row',
+            family_id: 'family-1',
+            user_id: 'owner-1',
+            status: 'confirmed',
+            created_at: '2026-01-01',
+          },
+        ],
+        [{ id: 'owner-row', user_id: 'owner-1', status: 'confirmed', profiles: [] }],
+        [],
+      ],
+      'membership_families.select': [
+        [
+          {
+            id: 'family-1',
+            season_year: 2026,
+            paid_at: null,
+            paid_by: null,
+            payment_id: null,
+          },
+        ],
+      ],
+      'profiles.select': [[]],
+      'membership_plan_settings.maybeSingle': [settings],
+      'memberships.select': [[]],
+      'payments.select': [[]],
+    };
+    const family = await GET();
+    expect(family.status).toBe(200);
+    expect(await family.json()).toMatchObject({
+      families: [{ members: [{ profiles: null }] }],
     });
   });
 
@@ -305,7 +418,7 @@ describe('membership family API', () => {
 
     const response = await POST(request({ action: 'invite', userId: 'target-1' }));
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ success: true });
+    expect(await response.json()).toMatchObject({ success: true, familyCreated: true });
     expect(mocks.calls).toEqual([
       {
         table: 'membership_families',
@@ -345,7 +458,7 @@ describe('membership family API', () => {
 
     const response = await POST(request({ action: 'invite', userId: 'target-1' }));
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ success: true });
+    expect(await response.json()).toMatchObject({ success: true, familyCreated: false });
     expect(mocks.calls.some((call) => call.table === 'membership_families')).toBe(false);
     expect(mocks.calls).toContainEqual({
       table: 'membership_family_members',
@@ -392,7 +505,7 @@ describe('membership family API', () => {
 
     const response = await POST(request({ action: 'invite', userId: 'target-1' }));
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ success: true });
+    expect(await response.json()).toMatchObject({ success: true, familyCreated: true });
     expect(mocks.calls.at(-1)).toMatchObject({
       table: 'membership_family_members',
       operation: 'insert',
@@ -511,6 +624,38 @@ describe('membership family API', () => {
     });
   });
 
+  it('uses the not-yet-reached birthday when checking family age limits', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-03T12:00:00Z'));
+    mocks.responses['profiles.maybeSingle'] = [{ ...owner, date_of_birth: '1980-11-04' }];
+    mocks.responses['membership_plan_settings.single'] = [{ ...settings, family_max_adults: 1 }];
+    mocks.responses['legal_document_versions.maybeSingle'] = [{ version: 1 }];
+    mocks.responses['membership_family_members.maybeSingle'] = [
+      { id: 'invite-birthday', family_id: 'family-1', status: 'pending' },
+    ];
+    mocks.responses['membership_family_members.select'] = [
+      [{ user_id: 'owner-2', status: 'confirmed', profiles: { date_of_birth: '1985-01-01' } }],
+      [],
+    ];
+
+    try {
+      const response = await POST(
+        request({
+          action: 'confirm',
+          invitationId: 'invite-birthday',
+          waiverAccepted: true,
+          waiverVersion: 1,
+        }),
+      );
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({
+        error: expect.stringContaining('at its limit'),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('returns not-found for missing invitations/family membership and reports failed departure writes', async () => {
     mocks.responses['profiles.maybeSingle'] = [owner];
     mocks.responses['membership_plan_settings.single'] = [settings];
@@ -600,6 +745,19 @@ describe('membership family API', () => {
     expect(unpaidResponse.status).toBe(200);
     expect(await unpaidResponse.json()).toEqual({ success: true, effectiveNextSeason: false });
     expect(mocks.calls.at(-1)).toMatchObject({ values: { status: 'declined' } });
+
+    mocks.calls = [];
+    mocks.responses['profiles.maybeSingle'] = [owner];
+    mocks.responses['membership_family_members.maybeSingle'] = [
+      {
+        id: 'member-row-3',
+        family_id: 'family-3',
+        membership_families: [{ paid_at: '2026-01-01', season_year: year - 1 }],
+      },
+    ];
+    const priorSeason = await POST(request({ action: 'remove', familyId: 'family-3' }));
+    expect(await priorSeason.json()).toEqual({ success: true, effectiveNextSeason: false });
+    expect(mocks.calls.at(-1)).toMatchObject({ values: { status: 'declined' } });
   });
 
   it('rejects unknown actions and invalid invitations without mutating data', async () => {
@@ -609,5 +767,183 @@ describe('membership family API', () => {
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: 'Unknown action.' });
     expect(mocks.calls).toEqual([]);
+  });
+
+  it('records an individual waiver before membership payment and validates family departure IDs', async () => {
+    mocks.responses['profiles.maybeSingle'] = [owner];
+    mocks.responses['membership_plan_settings.single'] = [settings];
+    mocks.responses['legal_document_versions.maybeSingle'] = [{ version: 1 }];
+    mocks.responses['memberships.maybeSingle'] = [null];
+    const accepted = await POST(
+      request({ action: 'accept_waiver', waiverAccepted: true, waiverVersion: 1 }),
+    );
+    expect(accepted.status).toBe(200);
+    expect(mocks.calls).toContainEqual(
+      expect.objectContaining({
+        table: 'memberships',
+        operation: 'insert',
+        values: expect.objectContaining({
+          user_id: 'owner-1',
+          status: 'pending',
+          payment_status: 'unpaid',
+          waiver_version: '1',
+          waiver_accepted_at: expect.any(String),
+        }),
+      }),
+    );
+
+    mocks.responses = {
+      'profiles.maybeSingle': [owner],
+      'membership_plan_settings.single': [settings],
+    };
+    const missingFamilyId = await POST(request({ action: 'remove' }));
+    expect(missingFamilyId.status).toBe(400);
+    expect(await missingFamilyId.json()).toEqual({ error: 'Family ID is required.' });
+  });
+
+  it('enforces waiver eligibility and records family waiver acceptance', async () => {
+    mocks.responses['profiles.maybeSingle'] = [{ ...owner, application_status: 'pending' }];
+    mocks.responses['membership_plan_settings.single'] = [settings];
+    const unapproved = await POST(request({ action: 'accept_waiver', waiverAccepted: true }));
+    expect(unapproved.status).toBe(403);
+    expect(await unapproved.json()).toEqual({ error: 'An approved member account is required.' });
+
+    mocks.responses['profiles.maybeSingle'] = [{ ...owner, account_kind: 'event_guest' }];
+    const guest = await POST(request({ action: 'accept_waiver', waiverAccepted: true }));
+    expect(guest.status).toBe(403);
+
+    mocks.responses = {
+      'profiles.maybeSingle': [owner],
+      'membership_plan_settings.single': [settings],
+      'legal_document_versions.maybeSingle': [null],
+    };
+    const missingWaiver = await POST(request({ action: 'accept_waiver', waiverAccepted: true }));
+    expect(missingWaiver.status).toBe(503);
+    expect(await missingWaiver.json()).toEqual({
+      error: 'The current membership waiver is unavailable.',
+    });
+
+    mocks.responses = {
+      'profiles.maybeSingle': [owner],
+      'membership_plan_settings.single': [settings],
+      'legal_document_versions.maybeSingle': [{ version: 3 }],
+      'membership_family_members.maybeSingle': [{ id: 'family-member-row' }],
+    };
+    const accepted = await POST(
+      request({
+        action: 'accept_waiver',
+        waiverAccepted: true,
+        waiverVersion: 3,
+        familyId: 'family-1',
+      }),
+    );
+    expect(accepted.status).toBe(200);
+    expect(await accepted.json()).toMatchObject({ success: true, acceptedAt: expect.any(String) });
+    expect(mocks.calls).toContainEqual(
+      expect.objectContaining({
+        table: 'membership_family_members',
+        operation: 'update',
+        values: expect.objectContaining({
+          waiver_version: '3',
+          waiver_accepted_at: expect.any(String),
+        }),
+      }),
+    );
+
+    mocks.calls = [];
+    mocks.responses = {
+      'profiles.maybeSingle': [owner],
+      'membership_plan_settings.single': [settings],
+      'legal_document_versions.maybeSingle': [{ version: 3 }],
+      'membership_family_members.maybeSingle': [null],
+    };
+    const noFamily = await POST(
+      request({
+        action: 'accept_waiver',
+        waiverAccepted: true,
+        familyId: 'missing',
+      }),
+    );
+    expect(noFamily.status).toBe(404);
+    expect(await noFamily.json()).toEqual({ error: 'No family membership was found.' });
+  });
+
+  it('uses configured season dates when accepting an individual waiver and reports insert errors', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-02-01T12:00:00Z'));
+    mocks.responses = {
+      'profiles.maybeSingle': [owner],
+      'membership_plan_settings.single': [settings],
+      'legal_document_versions.maybeSingle': [{ version: 4 }],
+      'memberships.maybeSingle': [null],
+      'memberships.insert': [{ data: null, error: { message: 'insert denied' } }],
+    };
+    try {
+      const failed = await POST(request({ action: 'accept_waiver', waiverAccepted: true }));
+      expect(failed.status).toBe(500);
+      expect(await failed.json()).toEqual({ error: 'Unexpected error.' });
+      expect(mocks.calls).toContainEqual(
+        expect.objectContaining({
+          table: 'memberships',
+          operation: 'insert',
+          values: expect.objectContaining({ starts_on: '2026-04-01', ends_on: '2026-09-30' }),
+        }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('requires the current waiver version and updates an existing season membership', async () => {
+    mocks.responses['profiles.maybeSingle'] = [owner];
+    mocks.responses['membership_plan_settings.single'] = [settings];
+    const unchecked = await POST(request({ action: 'accept_waiver', waiverAccepted: false }));
+    expect(unchecked.status).toBe(400);
+    expect(await unchecked.json()).toEqual({
+      error: 'Confirm that you accept the current membership waiver.',
+    });
+
+    mocks.responses['legal_document_versions.maybeSingle'] = [{ version: 2 }];
+    const changed = await POST(
+      request({ action: 'accept_waiver', waiverAccepted: true, waiverVersion: 1 }),
+    );
+    expect(changed.status).toBe(409);
+
+    mocks.responses = {
+      'profiles.maybeSingle': [owner],
+      'membership_plan_settings.single': [settings],
+      'legal_document_versions.maybeSingle': [{ version: 2 }],
+      'memberships.maybeSingle': [{ id: 'membership-current' }],
+    };
+    const accepted = await POST(
+      request({ action: 'accept_waiver', waiverAccepted: true, waiverVersion: 2 }),
+    );
+    expect(accepted.status).toBe(200);
+    expect(mocks.calls).toContainEqual(
+      expect.objectContaining({
+        table: 'memberships',
+        operation: 'update',
+        values: expect.objectContaining({
+          waiver_version: '2',
+          waiver_accepted_at: expect.any(String),
+        }),
+      }),
+    );
+  });
+
+  it('reports membership payment history query failures', async () => {
+    mocks.responses = {
+      'profiles.maybeSingle': [owner],
+      'membership_family_members.select': [[], [], []],
+      'profiles.select': [[]],
+      'membership_plan_settings.maybeSingle': [settings],
+      'memberships.select': [[{ id: 'membership-1', user_id: 'owner-1' }]],
+      'payments.select': [{ data: null, error: { message: 'payments unavailable' } }],
+    };
+    const response = await GET();
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: 'Could not load payment history: payments unavailable',
+    });
   });
 });

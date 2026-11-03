@@ -6,6 +6,7 @@ import { AdminNav } from '@/components/admin-nav';
 import { ClubSiteFooter } from '@/components/club-site-footer';
 import { Button } from '@/components/ui/button';
 import { eventEditPath } from '@/lib/event-slug';
+import { eventDisplayTitle, withLoadedEventSeriesNumbers } from '@/lib/event-format';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 export default async function OrganizerDashboardPage() {
   const db = await createSupabaseServerClient();
@@ -30,13 +31,14 @@ export default async function OrganizerDashboardPage() {
       .order('starts_at', { ascending: false }),
     db.from('club_settings').select('club_name,short_name,social_links').eq('id', 1).maybeSingle(),
   ]);
-  const ids = (events ?? []).map((e) => e.id);
+  const numberedEvents = await withLoadedEventSeriesNumbers(events ?? [], db);
+  const ids = numberedEvents.map((e) => e.id);
   const { data: registrations } = ids.length
     ? await db.from('registrations').select('event_id,status').in('event_id', ids)
     : { data: [] as { event_id: string; status: string }[] };
   const now = Date.now();
-  const upcoming = (events ?? []).filter((e) => new Date(e.starts_at).getTime() >= now);
-  const past = (events ?? []).filter((e) => new Date(e.starts_at).getTime() < now);
+  const upcoming = numberedEvents.filter((e) => new Date(e.starts_at).getTime() >= now);
+  const past = numberedEvents.filter((e) => new Date(e.starts_at).getTime() < now);
   const confirmed = (registrations ?? []).filter((r) => r.status === 'confirmed').length;
   const waitlisted = (registrations ?? []).filter((r) => r.status === 'waitlisted').length;
   return (
@@ -138,7 +140,7 @@ export default async function OrganizerDashboardPage() {
                     const rows = (registrations ?? []).filter((r) => r.event_id === e.id);
                     return (
                       <tr key={e.id} className="border-t border-border">
-                        <td className="px-4 py-3 font-medium">{e.title}</td>
+                        <td className="px-4 py-3 font-medium">{eventDisplayTitle(e)}</td>
                         <td className="whitespace-nowrap px-4 py-3">
                           {new Date(e.starts_at).toLocaleString('en-CA')}
                         </td>

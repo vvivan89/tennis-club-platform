@@ -25,12 +25,12 @@ export async function POST(request: Request) {
     if (configError) return configError;
     const { data: app, error: readError } = await admin
       .from('profiles')
-      .select('id,email,full_name,application_status')
+      .select('id,email,full_name,application_status,account_kind')
       .eq('id', userId)
       .maybeSingle();
     if (readError || !app)
       return NextResponse.json({ error: 'Application not found.' }, { status: 404 });
-    if (app.application_status !== 'pending')
+    if (app.account_kind !== 'member' || app.application_status !== 'pending')
       return NextResponse.json(
         { error: 'This application has already been processed.' },
         { status: 409 },

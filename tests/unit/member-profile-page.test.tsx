@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   getPublicUrl: vi.fn(),
   profileError: null as null | { message: string },
   updateError: null as null | { message: string },
+  updateNoData: false,
 }));
 vi.mock('next/navigation', () => {
   const router = { replace: mocks.routerReplace, refresh: mocks.routerRefresh };
@@ -48,7 +49,7 @@ vi.mock('@/lib/supabase-browser', () => ({
           if (updateValues) {
             mocks.updates.push({ table, values: updateValues });
             return {
-              data: mocks.updateError ? null : { id: 'member-1' },
+              data: mocks.updateError || mocks.updateNoData ? null : { id: 'member-1' },
               error: mocks.updateError,
             };
           }
@@ -105,6 +106,7 @@ beforeEach(() => {
   mocks.getPublicUrl.mockReturnValue({ data: { publicUrl: 'https://storage.example/avatar.jpg' } });
   mocks.profileError = null;
   mocks.updateError = null;
+  mocks.updateNoData = false;
 });
 afterEach(() => {
   cleanup();
@@ -128,6 +130,64 @@ describe('Member profile page', () => {
     render(<ProfilePage />);
     expect(await screen.findByDisplayValue('Member One')).toBeInTheDocument();
     expect(screen.getByDisplayValue('member@example.com')).toBeDisabled();
+  });
+
+  it('reports profile query failures and missing profile data', async () => {
+    mocks.profileError = { message: 'profile unavailable' };
+    const { unmount } = render(<ProfilePage />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load profile details.');
+    unmount();
+
+    mocks.profileError = null;
+    mocks.profile = null as unknown as Record<string, unknown>;
+    render(<ProfilePage />);
+    expect(await screen.findByRole('heading', { name: 'Edit profile' })).toBeInTheDocument();
+  });
+
+  it('uses empty field values and enabled defaults when optional profile data is null', async () => {
+    mocks.user = { id: 'member-1', email: null as unknown as string };
+    mocks.profile = {
+      ...mocks.profile,
+      full_name: null,
+      phone: null,
+      tennis_skill_level: null,
+      email_registration_updates: null,
+      email_waitlist_updates: null,
+      email_event_cancellations: null,
+      email_registration_reminders: null,
+      email_new_events: null,
+      email_newsletter: null,
+    };
+
+    render(<ProfilePage />);
+
+    expect(await screen.findByLabelText('Full name')).toHaveValue('');
+    expect(screen.getByLabelText(/Phone number/)).toHaveValue('');
+    expect(screen.getByLabelText(/Tennis skill rating/)).toHaveValue('');
+    expect(screen.getByLabelText(/Email \(managed by authentication\)/)).toHaveValue('');
+    for (const label of [
+      'Registration and withdrawal confirmations',
+      'Waitlist promotion confirmations',
+      'Event cancellation notifications',
+      'Reminders when registration opens',
+      'New event announcements',
+      'Newsletter and club news',
+    ])
+      expect(screen.getByLabelText(label)).toBeChecked();
+  });
+
+  it('shows the private birthday indicator only when the member enables it on their birthday', async () => {
+    const today = new Date();
+    mocks.profile = {
+      ...mocks.profile,
+      date_of_birth: `2000-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`,
+      show_birthday_emoji: true,
+    };
+
+    render(<ProfilePage />);
+
+    expect(await screen.findByRole('img', { name: 'Birthday' })).toBeInTheDocument();
+    expect(screen.getByText(/🎂/)).toBeInTheDocument();
   });
 
   it('saves normalized profile fields and email preference changes', async () => {
@@ -187,6 +247,12 @@ describe('Member profile page', () => {
     fireEvent.change(screen.getByLabelText(/Tennis skill rating/), { target: { value: '4.0' } });
     fireEvent.submit(container.querySelectorAll('form')[0]);
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not save profile changes.');
+
+    mocks.updateError = null;
+    mocks.updateNoData = true;
+    fireEvent.change(screen.getByLabelText(/Tennis skill rating/), { target: { value: '4.5' } });
+    fireEvent.submit(container.querySelectorAll('form')[0]);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not save profile changes.');
   });
 
   it('saves chat preferences, dispatches the update event, and reports write failures', async () => {
@@ -229,6 +295,10 @@ describe('Member profile page', () => {
       { upsert: true, contentType: 'image/png' },
     );
 
+    await user.upload(input, new File(['image'], 'avatar.', { type: 'image/png' }));
+    await waitFor(() => expect(mocks.upload).toHaveBeenCalledTimes(2));
+    expect(mocks.upload.mock.calls[1][0]).toMatch(/\.jpg$/);
+
     await user.upload(
       input,
       new File([new Uint8Array(3 * 1024 * 1024 + 1)], 'large.png', { type: 'image/png' }),
@@ -238,5 +308,14 @@ describe('Member profile page', () => {
     mocks.upload.mockResolvedValueOnce({ error: { message: 'storage unavailable' } });
     await user.upload(input, new File(['image'], 'other.png', { type: 'image/png' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not upload avatar.');
+  });
+
+  it('ignores an avatar input change when no file is selected', async () => {
+    render(<ProfilePage />);
+    await screen.findByDisplayValue('Member One');
+    fireEvent.change(document.querySelector('input[type="file"]') as HTMLInputElement, {
+      target: { files: [] },
+    });
+    expect(mocks.upload).not.toHaveBeenCalled();
   });
 });

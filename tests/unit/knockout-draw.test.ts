@@ -103,4 +103,43 @@ describe('pairKnockoutFirstRound', () => {
         .sort(),
     );
   });
+
+  it('falls back to ordinary pairing when all promoted entrants share one group', () => {
+    const oneGroup = slots(1, 4);
+    const result = pairKnockoutFirstRound({
+      slots: oneGroup,
+      roundRobinEnabled: true,
+      promotedPerGroup: 4,
+      random: stableRandom,
+    });
+
+    expect(result).toHaveLength(2);
+    expect(
+      result
+        .flat()
+        .map((slot) => slot.id)
+        .sort(),
+    ).toEqual(oneGroup.map((slot) => slot.id).sort());
+  });
+
+  it('rejects an odd number of draw slots and keeps an all-bye draw valid', () => {
+    const bye: KnockoutDrawSlot = { id: null, label: 'Bye', group: null, rank: null };
+    expect(() =>
+      pairKnockoutFirstRound({
+        slots: slots(1, 1),
+        roundRobinEnabled: false,
+        promotedPerGroup: 1,
+        random: stableRandom,
+      }),
+    ).toThrow('Knockout draw slots must be an even number.');
+
+    const byeOnlyDraw = pairKnockoutFirstRound({
+      slots: [bye, { ...bye, label: 'Bye 2' }],
+      roundRobinEnabled: false,
+      promotedPerGroup: 1,
+      random: stableRandom,
+    });
+    expect(byeOnlyDraw).toHaveLength(1);
+    expect(byeOnlyDraw[0].map((slot) => slot.label).sort()).toEqual(['Bye', 'Bye 2']);
+  });
 });

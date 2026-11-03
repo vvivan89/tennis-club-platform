@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const migration = readFileSync(
-  'supabase/migrations/0037_chat_presence_cleanup_pagination.sql',
+  'supabase/migration_archive/0037_chat_presence_cleanup_pagination.sql',
   'utf8',
 );
 

@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { SiteHeader } from '@/components/site-header';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
+import { usePendingMemberApplicationsCount } from '@/lib/use-pending-member-applications-count';
+import { usePendingInteracPaymentsCount } from '@/lib/use-pending-interac-payments-count';
 import {
   LayoutDashboard,
   Building2,
@@ -33,6 +35,8 @@ export function AdminNav() {
   const pathname = usePathname();
   const [club, setClub] = useState({ short_name: 'PCTC', club_name: 'Port Coquitlam Tennis Club' });
   const [role, setRole] = useState('member');
+  const pendingApplicationCount = usePendingMemberApplicationsCount(role === 'admin');
+  const pendingInteracPaymentCount = usePendingInteracPaymentsCount(role === 'admin');
   useEffect(() => {
     let active = true;
     const db = createSupabaseBrowserClient();
@@ -97,6 +101,22 @@ export function AdminNav() {
                 >
                   <Icon className="h-4 w-4" />
                   <span>{item.label}</span>
+                  {item.href === '/admin/members' && pendingApplicationCount > 0 && (
+                    <span
+                      aria-label={`${pendingApplicationCount} pending applications`}
+                      className="rounded-full bg-primary px-1.5 text-xs text-primary-foreground"
+                    >
+                      {pendingApplicationCount > 99 ? '99+' : pendingApplicationCount}
+                    </span>
+                  )}
+                  {item.href === '/admin/payments' && pendingInteracPaymentCount > 0 && (
+                    <span
+                      aria-label={`${pendingInteracPaymentCount} unreviewed Interac payments`}
+                      className="rounded-full bg-primary px-1.5 text-xs text-primary-foreground"
+                    >
+                      {pendingInteracPaymentCount > 99 ? '99+' : pendingInteracPaymentCount}
+                    </span>
+                  )}
                 </Link>
               );
             })}

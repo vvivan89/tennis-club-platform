@@ -12,6 +12,7 @@ import { Pencil } from 'lucide-react';
 import { TournamentManagement } from '@/components/tournament-management';
 import { TournamentPublicView } from '@/components/tournament-public-view';
 import { PublicOrganizerContacts } from '@/components/public-organizer-contacts';
+import { eventDisplayTitle, withEventSeriesNumbers } from '@/lib/event-format';
 
 export default async function EventDetailsPage({
   params: paramsPromise,
@@ -50,6 +51,12 @@ export default async function EventDetailsPage({
   if (!resolvedEvent) resolvedEvent = await findEventBySlugAlias(db, params.slug);
   const event = resolvedEvent;
   if (!event) notFound();
+  const { data: seriesSessions } = event.series_id
+    ? await db.from('events').select('id,series_id,starts_at').eq('series_id', event.series_id)
+    : { data: [] };
+  const numberedEvent = withEventSeriesNumbers([event], seriesSessions ?? [])[0];
+  const eventTitle = eventDisplayTitle(numberedEvent);
+  const displayEvent = { ...event, title: eventTitle };
   const [{ data: league }, { data: leagueSnapshot }, { data: leagueEventMatches }] =
     event.social_doubles_ladder_id
       ? await Promise.all([
@@ -71,7 +78,13 @@ export default async function EventDetailsPage({
     redirect(eventPath({ id: event.id, slug: event.slug }));
   if (!['published', 'cancelled'].includes(event.status)) {
     const { data: profile } = user
-      ? await db.from('profiles').select('role,application_status').eq('id', user.id).maybeSingle()
+      ? await db
+          .from('profiles')
+          .select(
+            'role,application_status,account_kind,email,full_name,phone,tennis_skill_level,gender',
+          )
+          .eq('id', user.id)
+          .maybeSingle()
       : { data: null };
     const allowedManager =
       profile?.role === 'admin' ||
@@ -97,7 +110,13 @@ export default async function EventDetailsPage({
           .maybeSingle()
       : Promise.resolve({ data: null }),
     user
-      ? db.from('profiles').select('role,application_status').eq('id', user.id).maybeSingle()
+      ? db
+          .from('profiles')
+          .select(
+            'role,application_status,account_kind,email,full_name,phone,tennis_skill_level,gender',
+          )
+          .eq('id', user.id)
+          .maybeSingle()
       : Promise.resolve({ data: null }),
     db.from('event_public_counts').select('confirmed_count').eq('event_id', event.id).maybeSingle(),
     db.rpc('event_public_organizer_contacts', { p_event_id: event.id }),
@@ -174,7 +193,7 @@ export default async function EventDetailsPage({
       <div className="page-container flex-1 py-10">
         <p className="eyebrow">Club event</p>
         <div className="flex items-center gap-3">
-          <h1 className="section-title min-w-0">{event.title}</h1>
+          <h1 className="section-title min-w-0">{eventTitle}</h1>
           {isManager && (
             <Button asChild variant="outline" size="icon">
               <Link href={eventEditPath(event)} aria-label="Edit event" title="Edit event">
@@ -270,11 +289,18 @@ export default async function EventDetailsPage({
                   />
                 ) : null
               }
-              eventTitle={event.title}
+              eventTitle={eventTitle}
+              eventSlug={event.slug || params.slug}
               eventDescription={event.description ?? ''}
               genderRestriction={event.gender_restriction ?? null}
               eventId={event.id}
               currentUserId={user?.id ?? null}
+              currentUserEmail={profile?.email ?? user?.email ?? null}
+              currentUserAccountKind={profile?.account_kind ?? 'member'}
+              currentUserName={profile?.full_name ?? ''}
+              currentUserPhone={profile?.phone ?? ''}
+              currentUserSkillLevel={profile?.tennis_skill_level ?? null}
+              currentUserGender={profile?.gender ?? null}
               format={event.tournament_format}
               config={event.tournament_config ?? {}}
               rulesHtml={event.tournament_rules_html ?? ''}
@@ -314,7 +340,7 @@ export default async function EventDetailsPage({
               <EventEditManagement eventId={event.id} startsAt={event.starts_at} assignmentOnly />
             )}
             <EventDetailClient
-              event={event}
+              event={displayEvent}
               roster={rosterRows}
               courts={courts ?? []}
               scores={scores ?? []}

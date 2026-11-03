@@ -34,7 +34,10 @@ function client() {
       let operation = 'select';
       let updateValues: unknown;
       let returning = false;
-      const result = { data: mocks.data[table] ?? [], error: null };
+      const result: { data: unknown[]; error: { message: string } | null } = {
+        data: mocks.data[table] ?? [],
+        error: null,
+      };
       const query = {
         select: () => {
           if (operation === 'update') returning = true;
@@ -76,9 +79,12 @@ function client() {
         then: (resolve: (value: typeof result) => unknown, reject: (reason: unknown) => unknown) =>
           Promise.resolve(
             operation === 'update' && returning
-              ? { data: mocks.claimedRows ?? mocks.data[table] ?? [], error: null }
+              ? {
+                  data: mocks.claimedRows ?? mocks.data[table] ?? [],
+                  error: mocks.errors[`${table}.update`] ?? null,
+                }
               : operation === 'update' || operation === 'delete'
-                ? { data: [], error: null }
+                ? { data: [], error: mocks.errors[`${table}.${operation}`] ?? null }
                 : operation === 'insert'
                   ? { data: [], error: mocks.insertErrors[table] ?? null }
                   : {
@@ -155,7 +161,7 @@ describe('notification endpoints', () => {
           postRequest({ eventIds: Array.from({ length: 101 }, (_, i) => `e${i}`) }),
         )
       ).status,
-    ).toBe(400);
+    ).toBe(403);
   });
 
   describe('event notification dispatch', () => {
@@ -250,6 +256,44 @@ describe('notification endpoints', () => {
       expect(mocks.orFilters[0]).toMatch(/^claimed_at\.is\.null,claimed_at\.lt\./);
     });
 
+    it.each([
+      ['weekly', 'Every Friday'],
+      ['biweekly', 'Every other Friday'],
+      ['monthly', 'Monthly on the last Friday'],
+    ])(
+      'describes a %s recurring event and waitlist position in the email',
+      async (frequency, schedule) => {
+        mocks.data.event_notification_queue = [queueItem(`queue-${frequency}`)];
+        mocks.data.profiles = [recipient('recipient-1')];
+        mocks.data.events = [{ ...event, series_id: 'series-1', slug: null }];
+        mocks.data.event_series = [
+          {
+            id: 'series-1',
+            recurrence_rule: { frequency, day_of_week: 5 },
+            starts_on: '2026-05-29',
+          },
+        ];
+        mocks.data.registrations = [
+          {
+            event_id: 'event-1',
+            user_id: 'recipient-1',
+            status: 'waitlisted',
+            queue_position: 2,
+            created_at: '2026-05-01',
+          },
+        ];
+
+        const response = await dispatchPost(postRequest({ eventId: 'event-1' }));
+        expect(response.status).toBe(200);
+        const [, init] = mocks.fetch.mock.calls[0];
+        const message = JSON.parse(init.body as string);
+        expect(message.subject).toContain("You're on the waitlist");
+        expect(message.html).toContain(`<strong>Schedule:</strong> ${schedule}.`);
+        expect(message.html).toContain('on the waitlist at position 2');
+        expect(message.html).toContain('/events/event-1');
+      },
+    );
+
     it('does not send rows another run has already claimed', async () => {
       mocks.data.event_notification_queue = [queueItem('queue-1')];
       mocks.claimedRows = [];
@@ -325,6 +369,34 @@ describe('notification endpoints', () => {
       const response = await dispatchPost(postRequest({ eventId: 'event-1' }));
       expect(response.status).toBe(500);
       expect(mocks.fetch).not.toHaveBeenCalled();
+      expect(queueUpdates().map((u) => u.values)).toContainEqual({ claimed_at: null });
+    });
+
+    it('reports failures while reading or claiming queued notifications', async () => {
+      mocks.errors.event_notification_queue = { message: 'queue read failed' };
+      const readFailure = await dispatchPost(postRequest({ eventId: 'event-1' }));
+      expect(readFailure.status).toBe(500);
+      expect(await readFailure.json()).toMatchObject({ error: 'queue read failed' });
+
+      mocks.errors = {};
+      mocks.data.event_notification_queue = [queueItem('queue-claim-error')];
+      mocks.errors['event_notification_queue.update'] = { message: 'queue claim failed' };
+      const claimFailure = await dispatchPost(postRequest({ eventId: 'event-1' }));
+      expect(claimFailure.status).toBe(500);
+      expect(await claimFailure.json()).toMatchObject({ error: 'queue claim failed' });
+    });
+
+    it('releases queue claims when recurring event details cannot be loaded', async () => {
+      mocks.data.event_notification_queue = [queueItem('queue-series-error')];
+      mocks.data.events = [{ ...event, series_id: 'series-1' }];
+      mocks.data.profiles = [recipient('recipient-1')];
+      mocks.errors.event_series = { message: 'series lookup failed' };
+
+      const response = await dispatchPost(postRequest({ eventId: 'event-1' }));
+      expect(response.status).toBe(500);
+      expect(await response.json()).toMatchObject({
+        error: 'Could not load recurring event details.',
+      });
       expect(queueUpdates().map((u) => u.values)).toContainEqual({ claimed_at: null });
     });
   });

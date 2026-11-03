@@ -11,6 +11,7 @@ import { EventCardWeather } from '@/components/event-card-weather';
 import { PastEventsList } from '@/components/past-events-list';
 import { eventPath } from '@/lib/event-slug';
 import {
+  eventDisplayTitle,
   eventDateLabel as dateLabel,
   eventPriceLabel as money,
   type EventRow,
@@ -162,7 +163,7 @@ export function EventsBrowser({
                     {dateLabel(event.starts_at)}
                   </p>
                   <h2 className="pt-1 text-2xl font-medium group-hover:text-primary">
-                    {event.title}
+                    {eventDisplayTitle(event)}
                   </h2>
                   {new Date(event.starts_at).getTime() <= current &&
                     new Date(event.ends_at || event.starts_at).getTime() >= current && (
@@ -471,7 +472,7 @@ export function EventsBrowser({
                         <Link
                           key={e.id}
                           href={eventPath(e)}
-                          title={`${dateLabel(e.starts_at)} · ${e.title}`}
+                          title={`${dateLabel(e.starts_at)} · ${eventDisplayTitle(e)}`}
                           className={
                             calendarMode === 'week'
                               ? `block rounded-md border border-current/15 p-3 transition-colors hover:border-current/40 ${color}`
@@ -481,7 +482,7 @@ export function EventsBrowser({
                           {calendarMode === 'week' ? (
                             <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
                               <div className="min-w-0">
-                                <p className="text-sm font-semibold">{e.title}</p>
+                                <p className="text-sm font-semibold">{eventDisplayTitle(e)}</p>
                                 <p className="mt-1 text-xs">
                                   {formatTime(e.starts_at)}
                                   {e.ends_at ? ` – ${formatTime(e.ends_at)}` : ''}
@@ -506,7 +507,7 @@ export function EventsBrowser({
                               </div>
                             </div>
                           ) : (
-                            `${formatTime(e.starts_at)} ${e.title}`
+                            `${formatTime(e.starts_at)} ${eventDisplayTitle(e)}`
                           )}
                         </Link>
                       );

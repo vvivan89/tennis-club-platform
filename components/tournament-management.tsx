@@ -17,11 +17,12 @@ import {
 } from '@/lib/tournament-config';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ConfirmDialog } from '@/components/confirm-dialog';
 import { TennisLoader } from '@/components/tennis-loader';
 import { SearchableMemberSelect, type MemberOption } from '@/components/searchable-member-select';
 import { FloatingFeedback } from '@/components/floating-feedback';
 import { TournamentCourtScheduleBoard } from '@/components/tournament-court-schedule-board';
+import { TournamentAuditLog, type TournamentAuditRow } from '@/components/tournament-audit-log';
+import { TournamentManagementConfirmations } from '@/components/tournament-management-confirmations';
 import { DraggableItem } from '@/components/drag-drop';
 import {
   compareTournamentEntries,
@@ -61,6 +62,7 @@ type Participant = {
   gender: string | null;
   gender_override: string | null;
   status: string;
+  confirmation_status?: string;
 };
 type Pair = {
   id: string;
@@ -82,17 +84,6 @@ type Match = TournamentMatchCore & {
   notes: string;
 };
 type Member = { id: string; full_name: string; email: string; gender: string | null };
-
-type AuditRow = {
-  id: string;
-  actor_user_id: string | null;
-  action: string;
-  entity_type: string;
-  entity_id: string | null;
-  before_data: Record<string, unknown> | null;
-  after_data: Record<string, unknown> | null;
-  created_at: string;
-};
 
 const phases = [
   ['round_robin', 'Round robin'],
@@ -134,7 +125,7 @@ export function TournamentManagement({
   const [matches, setMatches] = useState<Match[]>([]);
   const [matchPlayers, setMatchPlayers] = useState<MatchPlayer[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
-  const [auditRows, setAuditRows] = useState<AuditRow[]>([]);
+  const [auditRows, setAuditRows] = useState<TournamentAuditRow[]>([]);
   const [adminTab, setAdminTab] = useState<'participants' | 'matches' | 'audit'>('participants');
   const [externalTab, setExternalTab] = useState<
     'overview' | 'rules' | 'competition' | 'participants' | 'matches' | 'audit'
@@ -283,7 +274,7 @@ export function TournamentManagement({
       );
     }
     const nextMembers = (memberResult.data ?? []) as Member[];
-    const nextAuditRows = (auditResult.data ?? []) as AuditRow[];
+    const nextAuditRows = (auditResult.data ?? []) as TournamentAuditRow[];
     setMembers((previous) =>
       JSON.stringify(previous) === JSON.stringify(nextMembers) ? previous : nextMembers,
     );
@@ -765,18 +756,35 @@ export function TournamentManagement({
       );
       return;
     }
-    await runAction(
-      () =>
-        db.from('tournament_pairs').insert({
-          event_id: eventId,
-          category: pairCategory,
-          player_one_id: pairOne,
-          player_two_id: pairTwo,
-        }),
-      'Doubles pair created.',
-    );
-    setPairOne('');
-    setPairTwo('');
+    let pairCreated = false;
+    const created = await runAction(async () => {
+      const { error } = await db.rpc('admin_create_tournament_pair', {
+        p_event_id: eventId,
+        p_category: pairCategory,
+        p_one: pairOne,
+        p_two: pairTwo,
+      });
+      if (error) return { error };
+      pairCreated = true;
+      const response = await fetch('/api/events/partner-invitations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ participantIds: [pairOne, pairTwo] }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok)
+        return {
+          error: {
+            message: `Pair created, but confirmation invitations could not be sent: ${result.error || 'retry the invitations.'}`,
+          },
+        };
+      return { error: null };
+    }, 'Doubles pair created.');
+    if (created || pairCreated) {
+      setPairOne('');
+      setPairTwo('');
+    }
+    if (pairCreated && !created) await refresh();
   }
   async function replacePairPlayer(pair: Pair, side: 1 | 2): Promise<boolean> {
     const replacementId = replacementParticipantId;
@@ -847,6 +855,24 @@ export function TournamentManagement({
         })
         .eq('id', oldId);
       if (participantError) throw new Error(participantError.message);
+      const { error: confirmationError } = await db.rpc('admin_require_pair_confirmation', {
+        p_pair_id: pair.id,
+      });
+      if (confirmationError) throw new Error(confirmationError.message);
+      const invitationResponse = await fetch('/api/events/partner-invitations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          participantIds: [
+            changes.player_one_id || pair.player_one_id,
+            changes.player_two_id || pair.player_two_id,
+          ],
+        }),
+      });
+      if (!invitationResponse.ok)
+        throw new Error(
+          'Pair updated, but a confirmation invitation could not be sent. Retry the invitation from the event registration page.',
+        );
       for (const match of matches.filter(
         (m) =>
           (m.pair_one_id === pair.id || m.pair_two_id === pair.id) &&
@@ -884,6 +910,7 @@ export function TournamentManagement({
       return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not replace participant.');
+      await refresh();
       return false;
     } finally {
       setBusy(false);
@@ -3333,6 +3360,48 @@ export function TournamentManagement({
                           <span className="min-w-0 flex-1 font-medium">
                             {p.player_one_name} + {p.player_two_name}
                           </span>
+                          {participants.some(
+                            (participant) =>
+                              [p.player_one_id, p.player_two_id].includes(participant.id) &&
+                              participant.confirmation_status === 'pending',
+                          ) && (
+                            <>
+                              <span className="text-xs text-muted-foreground">
+                                Awaiting confirmation
+                              </span>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() =>
+                                  void runAction(async () => {
+                                    const response = await fetch(
+                                      '/api/events/partner-invitations',
+                                      {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                          participantIds: [p.player_one_id, p.player_two_id],
+                                        }),
+                                      },
+                                    );
+                                    const result = await response.json().catch(() => ({}));
+                                    return response.ok
+                                      ? { error: null }
+                                      : {
+                                          error: {
+                                            message:
+                                              result.error ||
+                                              'Could not resend confirmation invitations.',
+                                          },
+                                        };
+                                  }, 'Confirmation invitations sent.')
+                                }
+                              >
+                                Resend confirmation
+                              </Button>
+                            </>
+                          )}
                           {!leagueTournament && (
                             <label className="flex items-center gap-1 text-xs text-muted-foreground">
                               Group
@@ -3966,172 +4035,49 @@ export function TournamentManagement({
         </div>
       )}
       {externalTab !== 'competition' && adminTab === 'audit' && (
-        <section className="space-y-3 rounded-lg border border-border p-4">
-          <h3 className="font-semibold">
-            Tournament audit log ({visibleAuditRows.length} recent changes)
-          </h3>
-          <div className="mt-3 space-y-2">
-            {visibleAuditRows.map((row) => {
-              const entityName = row.entity_type.includes('participant')
-                ? participants.find((item) => item.id === row.entity_id)?.display_name
-                : row.entity_type.includes('team')
-                  ? teams.find((item) => item.id === row.entity_id)?.name
-                  : row.entity_type.includes('pair')
-                    ? (() => {
-                        const pair = pairs.find((item) => item.id === row.entity_id);
-                        return pair
-                          ? `${pair.player_one_name} + ${pair.player_two_name}`
-                          : 'Doubles pair';
-                      })()
-                    : row.entity_type.includes('match')
-                      ? (() => {
-                          const match = matches.find((item) => item.id === row.entity_id);
-                          return match
-                            ? `${match.category} ${match.phase.replaceAll('_', ' ')} match ${match.match_number}`
-                            : 'Match';
-                        })()
-                      : row.entity_type.replaceAll('tournament_', '').replaceAll('_', ' ');
-              const actorName =
-                members.find((member) => member.id === row.actor_user_id)?.full_name ||
-                'Club administrator';
-              const summarize = (data: Record<string, unknown> | null) => {
-                if (!data) return '';
-                const labels: Record<string, string> = {
-                  name: 'Name',
-                  display_name: 'Participant',
-                  category: 'Category',
-                  status: 'Status',
-                  payment_status: 'Payment status',
-                  group_number: 'Group',
-                  scheduled_at: 'Scheduled for',
-                  court_number: 'Court',
-                  score_sets: 'Set scores',
-                  winner_side: 'Winner side',
-                  team_points_one: 'Team one points',
-                  team_points_two: 'Team two points',
-                  color: 'Team colour',
-                };
-                return Object.entries(data)
-                  .filter(([key, value]) => labels[key] && value !== null)
-                  .map(([key, value]) => {
-                    if (key === 'score_sets' && Array.isArray(value))
-                      return `${labels[key]}: ${value.map((set) => (set && typeof set === 'object' ? `${String((set as { one?: unknown }).one)}-${String((set as { two?: unknown }).two)}` : '')).join(', ')}`;
-                    if (key === 'scheduled_at' && typeof value === 'string')
-                      return `${labels[key]}: ${formatDateTime(value)}`;
-                    if (typeof value === 'object') return '';
-                    return `${labels[key]}: ${String(value)}`;
-                  })
-                  .filter(Boolean)
-                  .join(' · ');
-              };
-              return (
-                <article key={row.id} className="rounded-md border border-border p-3 text-sm">
-                  <div className="flex flex-wrap justify-between gap-2">
-                    <span className="font-medium">
-                      {row.action.replaceAll('_', ' ').charAt(0).toUpperCase() +
-                        row.action.replaceAll('_', ' ').slice(1)}{' '}
-                      ·{' '}
-                      {(entityName || 'Tournament record').charAt(0).toUpperCase() +
-                        (entityName || 'Tournament record').slice(1)}
-                    </span>
-                    <time className="text-xs text-muted-foreground">
-                      {formatDateTime(row.created_at)}
-                    </time>
-                  </div>
-                  <p className="mt-1 text-xs text-muted-foreground">By {actorName}</p>
-                  {(summarize(row.before_data) || summarize(row.after_data)) && (
-                    <div className="mt-3 space-y-2 text-sm">
-                      {summarize(row.before_data) && (
-                        <div className="rounded-md bg-secondary/40 p-2">
-                          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                            Before
-                          </p>
-                          <p>{summarize(row.before_data)}</p>
-                        </div>
-                      )}
-                      {summarize(row.after_data) && (
-                        <div className="rounded-md bg-emerald-600/5 p-2">
-                          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                            After
-                          </p>
-                          <p>{summarize(row.after_data)}</p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </article>
-              );
-            })}
-            {!auditRows.length && (
-              <p className="text-sm text-muted-foreground">
-                No tournament changes have been logged yet.
-              </p>
-            )}
-          </div>
-        </section>
+        <TournamentAuditLog
+          rows={visibleAuditRows}
+          participants={participants.map((item) => ({ id: item.id, name: item.display_name }))}
+          teams={teams.map((item) => ({ id: item.id, name: item.name }))}
+          pairs={pairs.map((item) => ({
+            id: item.id,
+            player_one_name: item.player_one_name ?? '',
+            player_two_name: item.player_two_name ?? '',
+          }))}
+          matches={matches.map((item) => ({
+            id: item.id,
+            category: item.category,
+            phase: item.phase,
+            match_number: item.match_number,
+          }))}
+          members={members.map((item) => ({ id: item.id, name: item.full_name }))}
+        />
       )}
-      <ConfirmDialog
-        open={!!pendingScheduleConflicts}
-        title="Schedule conflict detected"
-        description={`This change conflicts with ${pendingScheduleConflicts?.conflicts.length ?? 0} other match(es) because of court or player availability. Move the conflicting matches forward automatically? Matches that cannot fit before the tournament ends will require manual adjustment.`}
-        confirmLabel="Move conflicting matches"
+      <TournamentManagementConfirmations
         busy={busy}
-        onCancel={() => setPendingScheduleConflicts(null)}
-        onConfirm={() => void confirmResolveScheduleConflicts()}
-      />
-      <ConfirmDialog
-        open={!!pendingCourtMove}
-        title="Court schedule conflict detected"
-        description={
-          pendingCourtMove
-            ? `Moving this match to Court ${pendingCourtMove.court} creates scheduling conflict. Save this court assignment anyway? Other matches will not be moved.`
-            : ''
-        }
-        confirmLabel="Save assignment anyway"
-        busy={busy}
-        onCancel={() => setPendingCourtMove(null)}
-        onConfirm={() => void confirmCourtMove()}
-      />
-      <ConfirmDialog
-        open={!!pendingRemoveParticipant}
-        title="Remove player from this category?"
-        description={
-          pendingRemoveParticipant
-            ? `Withdraw ${pendingRemoveParticipant.display_name} from this category. Unplayed doubles matches involving their pair will be cancelled; completed match history will be preserved.`
-            : ''
-        }
-        confirmLabel="Remove player"
-        destructive
-        busy={busy}
-        onCancel={() => setPendingRemoveParticipant(null)}
-        onConfirm={() => {
+        scheduleConflictCount={pendingScheduleConflicts?.conflicts.length ?? 0}
+        courtMove={pendingCourtMove}
+        participant={pendingRemoveParticipant}
+        walkoverPending={!!pendingWalkoverScore}
+        deletePending={!!pendingDeleteMatch}
+        onCancelSchedule={() => setPendingScheduleConflicts(null)}
+        onConfirmSchedule={() => void confirmResolveScheduleConflicts()}
+        onCancelCourtMove={() => setPendingCourtMove(null)}
+        onConfirmCourtMove={() => void confirmCourtMove()}
+        onCancelParticipant={() => setPendingRemoveParticipant(null)}
+        onConfirmParticipant={() => {
           const target = pendingRemoveParticipant;
           setPendingRemoveParticipant(null);
           if (target) void removeParticipant(target);
         }}
-      />
-      <ConfirmDialog
-        open={!!pendingWalkoverScore}
-        title="Replace walkover result?"
-        description="This match has been awarded as a walkover or retirement. Saving these set scores will replace that result and remove the walkover notice. Continue?"
-        confirmLabel="Save score"
-        busy={busy}
-        onCancel={() => setPendingWalkoverScore(null)}
-        onConfirm={() => {
+        onCancelWalkover={() => setPendingWalkoverScore(null)}
+        onConfirmWalkover={() => {
           const pending = pendingWalkoverScore;
           setPendingWalkoverScore(null);
           if (pending) void saveScore(pending.match, pending.raw, true);
         }}
-      />
-      <ConfirmDialog
-        open={!!pendingDeleteMatch}
-        title="Delete match?"
-        description="Delete this match? This action can not be undone."
-        confirmLabel="Delete match"
-        destructive
-        busy={busy}
-        onCancel={() => setPendingDeleteMatch(null)}
-        onConfirm={() => void confirmDeleteMatch()}
+        onCancelDelete={() => setPendingDeleteMatch(null)}
+        onConfirmDelete={() => void confirmDeleteMatch()}
       />
       {replaceTarget && (
         <div

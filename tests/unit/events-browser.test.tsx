@@ -5,11 +5,13 @@ import userEvent from '@testing-library/user-event';
 const mocks = vi.hoisted(() => ({
   user: { id: 'member-1' } as null | { id: string },
   registrations: [] as Array<{ event_id: string; status: string }>,
+  fromCalls: [] as string[],
 }));
 vi.mock('@/lib/supabase-browser', () => ({
   createSupabaseBrowserClient: () => ({
     auth: { getUser: async () => ({ data: { user: mocks.user } }) },
-    from: () => {
+    from: (table: string) => {
+      mocks.fromCalls.push(table);
       const query = {
         select: () => query,
         eq: () => query,
@@ -60,6 +62,7 @@ function event(id: string, title: string, start: Date, overrides: Partial<Event>
 beforeEach(() => {
   mocks.user = { id: 'member-1' };
   mocks.registrations = [{ event_id: 'this-week', status: 'confirmed' }];
+  mocks.fromCalls = [];
 });
 afterEach(() => {
   cleanup();
@@ -129,5 +132,60 @@ describe('EventsBrowser', () => {
     await user.click(screen.getByRole('button', { name: 'Next week' }));
     expect(screen.getByRole('button', { name: 'Today' })).toBeInTheDocument();
     expect(screen.getByText(/Calendar Match/)).toBeInTheDocument();
+  });
+
+  it('shows calendar status for past, canceled, registered, full, open, and closed events', async () => {
+    const now = Date.now();
+    const makeToday = (offsetMinutes: number) => new Date(now + offsetMinutes * 60_000);
+    const events = [
+      event('past-cal', 'Past Calendar Event', makeToday(-120), {
+        ends_at: makeToday(-60).toISOString(),
+      }),
+      event('canceled-cal', 'Canceled Calendar Event', makeToday(30), { status: 'cancelled' }),
+      event('confirmed-cal', 'Confirmed Calendar Event', makeToday(45)),
+      event('waitlisted-cal', 'Waitlisted Calendar Event', makeToday(60)),
+      event('full-cal', 'Full Calendar Event', makeToday(75), { capacity: 1 }),
+      event('open-cal', 'Open Calendar Event', makeToday(90)),
+      event('closed-cal', 'Closed Calendar Event', makeToday(105), {
+        registration_closes_at: makeToday(-1).toISOString(),
+      }),
+    ];
+    mocks.registrations = [
+      { event_id: 'confirmed-cal', status: 'confirmed' },
+      { event_id: 'waitlisted-cal', status: 'waitlisted' },
+    ];
+    const user = userEvent.setup();
+    render(
+      <EventsBrowser
+        events={events}
+        counts={[{ event_id: 'full-cal', confirmed_count: 1 }]}
+        defaultLocation="Club courts"
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Calendar view' }));
+    await user.click(screen.getByRole('button', { name: 'Week' }));
+
+    expect(await screen.findByText('Past event')).toBeInTheDocument();
+    expect(screen.getByText('Cancelled')).toBeInTheDocument();
+    expect(screen.getByText('You are confirmed')).toBeInTheDocument();
+    expect(screen.getByText('You are waitlisted')).toBeInTheDocument();
+    expect(screen.getByText('Full · waitlist available')).toBeInTheDocument();
+    expect(screen.getByText('Registration open')).toBeInTheDocument();
+    expect(screen.getByText('Registration closed')).toBeInTheDocument();
+  });
+
+  it('skips the private registrations query for a signed-out visitor', async () => {
+    mocks.user = null;
+    render(
+      <EventsBrowser
+        events={[event('public-event', 'Public Event', new Date(Date.now() + 60_000))]}
+        counts={[]}
+        defaultLocation=""
+      />,
+    );
+
+    expect(await screen.findByRole('link', { name: /Public Event/ })).toBeInTheDocument();
+    expect(mocks.fromCalls).toEqual([]);
   });
 });

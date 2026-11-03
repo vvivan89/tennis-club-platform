@@ -9,9 +9,11 @@ type Option = { value: string; label: string };
 export function RankingsCompetitionSelector({
   value,
   options,
+  path = '/rankings',
 }: {
   value: string;
   options: Option[];
+  path?: string;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -27,13 +29,7 @@ export function RankingsCompetitionSelector({
             const [type, id] = next.includes(':') ? next.split(/:(.*)/s, 2) : ['season', next];
             startTransition(() =>
               router.push(
-                type === 'tournament'
-                  ? `/rankings?tournament=${encodeURIComponent(id)}`
-                  : type === 'ladder'
-                    ? `/rankings?ladder=${encodeURIComponent(id)}`
-                    : type === 'league'
-                      ? `/rankings?league=${encodeURIComponent(id)}`
-                      : `/rankings?season=${encodeURIComponent(id)}`,
+                `${path}?${type === 'tournament' ? 'tournament' : type === 'ladder' ? 'ladder' : type === 'league' ? 'league' : 'season'}=${encodeURIComponent(id)}`,
                 { scroll: false },
               ),
             );

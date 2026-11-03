@@ -9,14 +9,21 @@ import { dispatchEventNotificationsInBackground } from '@/lib/event-notification
 import { Button } from '@/components/ui/button';
 import { EventWithdrawalDialog } from '@/components/event-withdrawal-dialog';
 type CardEvent = {
+  slug: string | null;
   status: string;
   starts_at: string;
   registration_opens_at: string;
   registration_closes_at: string | null;
   gender_restriction: string | null;
+  price_cents: number;
+  event_type: string;
+  tournament_format: string | null;
+  tournament_config: { categories?: string[]; registration_mode?: string } | null;
+  social_doubles_ladder_id: string | null;
 };
 type RegistrationStatus = 'confirmed' | 'waitlisted';
 type Suspension = { starts_on: string; ends_on: string; reason: string };
+type TournamentEntry = { category: string; payment_status: string; amount_cents: number };
 export function EventCardActions({ eventId }: { eventId: string }) {
   const db = useMemo(() => createSupabaseBrowserClient(), []);
   const router = useRouter();
@@ -26,6 +33,9 @@ export function EventCardActions({ eventId }: { eventId: string }) {
   const [approved, setApproved] = useState(false);
   const [registrationId, setRegistrationId] = useState<string | null>(null);
   const [registrationStatus, setRegistrationStatus] = useState<RegistrationStatus | null>(null);
+  const [registrationPaymentPending, setRegistrationPaymentPending] = useState(false);
+  const [tournamentCategories, setTournamentCategories] = useState<string[]>([]);
+  const [tournamentPaymentPending, setTournamentPaymentPending] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [event, setEvent] = useState<CardEvent | null>(null);
@@ -50,7 +60,7 @@ export function EventCardActions({ eventId }: { eventId: string }) {
         db
           .from('events')
           .select(
-            'status,starts_at,registration_opens_at,registration_closes_at,gender_restriction',
+            'slug,status,starts_at,registration_opens_at,registration_closes_at,gender_restriction,price_cents,event_type,tournament_format,tournament_config,social_doubles_ladder_id',
           )
           .eq('id', eventId)
           .maybeSingle(),
@@ -58,36 +68,53 @@ export function EventCardActions({ eventId }: { eventId: string }) {
       if (!alive) return;
       setEvent(ev);
       if (user) {
-        const [{ data: profile }, { data: reg }, { data: sus }] = await Promise.all([
-          db.from('profiles').select('application_status').eq('id', user.id).maybeSingle(),
-          db
-            .from('registrations')
-            .select('id,status,created_at')
-            .eq('event_id', eventId)
-            .eq('user_id', user.id)
-            .in('status', ['confirmed', 'waitlisted'])
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle(),
-          db
-            .from('member_suspensions')
-            .select('starts_on,ends_on,reason')
-            .eq('user_id', user.id)
-            .is('cancelled_at', null)
-            .lte(
-              'starts_on',
-              ev?.starts_at ? new Date(ev.starts_at).toLocaleDateString('en-CA') : '',
-            )
-            .gte('ends_on', ev?.starts_at ? new Date(ev.starts_at).toLocaleDateString('en-CA') : '')
-            .limit(1),
-        ]);
+        const [{ data: profile }, { data: reg }, { data: sus }, tournamentEntriesResult] =
+          await Promise.all([
+            db.from('profiles').select('application_status').eq('id', user.id).maybeSingle(),
+            db
+              .from('registrations')
+              .select('id,status,created_at,payment_status')
+              .eq('event_id', eventId)
+              .eq('user_id', user.id)
+              .in('status', ['confirmed', 'waitlisted'])
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle(),
+            db
+              .from('member_suspensions')
+              .select('starts_on,ends_on,reason')
+              .eq('user_id', user.id)
+              .is('cancelled_at', null)
+              .lte(
+                'starts_on',
+                ev?.starts_at ? new Date(ev.starts_at).toLocaleDateString('en-CA') : '',
+              )
+              .gte(
+                'ends_on',
+                ev?.starts_at ? new Date(ev.starts_at).toLocaleDateString('en-CA') : '',
+              )
+              .limit(1),
+            ev?.event_type === 'tournament'
+              ? db.rpc('event_tournament_my_entries', { p_event_id: eventId })
+              : Promise.resolve({ data: [], error: null }),
+          ]);
         if (alive) {
           setSignedIn(true);
           setApproved(profile?.application_status === 'approved');
           if (reg) {
             setRegistrationId(reg.id);
             setRegistrationStatus(reg.status as RegistrationStatus);
+            setRegistrationPaymentPending(
+              ev?.price_cents > 0 && reg.status === 'confirmed' && reg.payment_status === 'pending',
+            );
           }
+          const tournamentEntries = (tournamentEntriesResult.data ?? []) as TournamentEntry[];
+          setTournamentCategories([...new Set(tournamentEntries.map((entry) => entry.category))]);
+          setTournamentPaymentPending(
+            tournamentEntries.some(
+              (entry) => entry.amount_cents > 0 && entry.payment_status === 'pending',
+            ),
+          );
           setSuspension(sus?.[0] ?? null);
         }
       }
@@ -108,6 +135,19 @@ export function EventCardActions({ eventId }: { eventId: string }) {
     !!event &&
     event.status === 'published' &&
     (!event.registration_closes_at || now < new Date(event.registration_closes_at).getTime());
+  const hasTournamentRegistration = tournamentCategories.length > 0;
+  const hasRegistration = !!registrationStatus || hasTournamentRegistration;
+  const configuredCategoryCount =
+    event?.tournament_format === 'team'
+      ? 1
+      : (event?.tournament_config?.categories ?? ['mixed', 'men', 'women']).length;
+  const multiCategoryTournament = event?.event_type === 'tournament' && configuredCategoryCount > 1;
+  const needsRegistrationSelection =
+    event?.event_type === 'tournament' &&
+    (event.social_doubles_ladder_id !== null ||
+      configuredCategoryCount > 1 ||
+      (event.tournament_format === 'doubles' &&
+        (event.tournament_config?.registration_mode ?? 'both') === 'both'));
   if (!ready || !signedIn || !approved || !event) return null;
   async function act(withdraw = false) {
     setBusy(true);
@@ -127,6 +167,7 @@ export function EventCardActions({ eventId }: { eventId: string }) {
         }
         setRegistrationId(null);
         setRegistrationStatus(null);
+        setRegistrationPaymentPending(false);
       } else {
         const { data, error } = await db.rpc('register_for_event', {
           p_event_id: eventId,
@@ -153,14 +194,23 @@ export function EventCardActions({ eventId }: { eventId: string }) {
       setBusy(false);
     }
   }
-  const statusLabel =
-    registrationStatus === 'confirmed'
-      ? 'Registered'
+  const statusLabel = hasTournamentRegistration
+    ? tournamentPaymentPending
+      ? multiCategoryTournament
+        ? `Pending payment · registered for ${tournamentCategories.length} categories`
+        : 'Pending payment'
+      : multiCategoryTournament
+        ? `Registered for ${tournamentCategories.length} ${tournamentCategories.length === 1 ? 'category' : 'categories'}`
+        : 'Registered'
+    : registrationStatus === 'confirmed'
+      ? registrationPaymentPending
+        ? 'Pending payment'
+        : 'Registered'
       : registrationStatus === 'waitlisted'
         ? 'Waitlisted'
         : null;
-  if (event.status !== 'published' && !registrationStatus) return null;
-  if (!registrationStatus && !open) return null;
+  if (event.status !== 'published' && !hasRegistration) return null;
+  if (!hasRegistration && !open) return null;
   return (
     <div className="flex flex-col items-end gap-1">
       {suspension && !registrationId && (
@@ -193,12 +243,24 @@ export function EventCardActions({ eventId }: { eventId: string }) {
       {statusLabel && (
         <span
           role="status"
-          className={`rounded-full px-2.5 py-1 text-xs font-semibold ${registrationStatus === 'confirmed' ? 'bg-blue-600/10 text-blue-700 dark:text-blue-300' : 'bg-violet-600/10 text-violet-700 dark:text-violet-300'}`}
+          className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusLabel === 'Waitlisted' ? 'bg-violet-600/10 text-violet-700 dark:text-violet-300' : statusLabel === 'Pending payment' ? 'bg-amber-600/10 text-amber-700 dark:text-amber-300' : 'bg-blue-600/10 text-blue-700 dark:text-blue-300'}`}
         >
           {statusLabel}
         </span>
       )}
-      {registrationId ? (
+      {hasTournamentRegistration ? (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            router.push(`/events/${event.slug || eventId}#registration`);
+          }}
+        >
+          View registration
+        </Button>
+      ) : registrationId ? (
         canWithdraw && (
           <Button
             size="sm"
@@ -221,7 +283,11 @@ export function EventCardActions({ eventId }: { eventId: string }) {
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            void act(false);
+            if (needsRegistrationSelection) {
+              router.push(`/events/${event.slug || eventId}#registration`);
+            } else {
+              void act(false);
+            }
           }}
         >
           {busy ? <TennisLoader compact label="Working" /> : 'Register'}

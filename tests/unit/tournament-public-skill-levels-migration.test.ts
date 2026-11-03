@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const migration = readFileSync(
-  join(process.cwd(), 'supabase/migrations/0053_tournament_public_skill_levels.sql'),
+  join(process.cwd(), 'supabase/migration_archive/0053_tournament_public_skill_levels.sql'),
   'utf8',
 );
 const consolidated = readFileSync(
@@ -32,7 +32,7 @@ describe('public tournament skill-level display migration', () => {
     expect(publicView).toContain('pair.player_one_skill_level');
     expect(publicView).toContain('pair.player_two_skill_level');
     expect(publicView).toContain(
-      "aria-label={leagueTournament ? 'Players and courts' : 'Registered entries'}",
+      "aria-label={leagueTournament ? 'Players and courts' : 'Registered Participants'}",
     );
   });
 });

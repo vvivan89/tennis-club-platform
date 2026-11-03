@@ -11,6 +11,8 @@ describe('event URL helpers', () => {
   it('falls back to the event ID when no slug is available', () => {
     expect(eventPath({ id: 'event-123', slug: null })).toBe('/events/event-123');
     expect(eventPath({ id: 'event-123' })).toBe('/events/event-123');
+    expect(eventPath({ id: 'event-123', slug: '' })).toBe('/events/event-123');
+    expect(eventEditPath({ id: 'event-123', slug: '' })).toBe('/admin/events/event-123/edit');
   });
 
   it('uses the same slug for the admin edit route', () => {

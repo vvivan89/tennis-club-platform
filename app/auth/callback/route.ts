@@ -9,6 +9,15 @@ export async function GET(request: Request) {
   const next = requestUrl.searchParams.get('next');
   const safeNext = safeRedirectPath(next, '/member/dashboard');
 
+  // Server-generated OTP links use Supabase's implicit flow, whose tokens arrive
+  // in the URL fragment and are invisible to this route handler. The browser
+  // callback can establish that session before returning to the requested page.
+  if (!code) {
+    const tokenCallback = new URL('/auth/guest-callback', requestUrl.origin);
+    tokenCallback.searchParams.set('next', safeNext);
+    return NextResponse.redirect(tokenCallback);
+  }
+
   if (code) {
     const { url, key } = getSupabasePublicConfig();
     if (!url || !key)

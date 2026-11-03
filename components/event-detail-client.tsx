@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { EventWeather } from '@/components/event-weather';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EventWithdrawalDialog } from '@/components/event-withdrawal-dialog';
+import { PaymentOptionsButton, type PaymentOption } from '@/components/payment-options-button';
 import {
   InteracPaymentInstructionsDialog,
   type InteracPaymentNotice,
@@ -147,6 +148,10 @@ export function EventDetailClient({
   const [view, setView] = useState<'courts' | 'list'>('list');
   const { busy, setBusy, error, setError, message, setMessage } = useTimedFeedback();
   const [interacNotice, setInteracNotice] = useState<InteracPaymentNotice | null>(null);
+  const [pendingInteracNotice, setPendingInteracNotice] = useState<InteracPaymentNotice | null>(
+    null,
+  );
+  const [pendingCardPayment, setPendingCardPayment] = useState(false);
   const [confirmWithdraw, setConfirmWithdraw] = useState(false);
   const [scoreCourt, setScoreCourt] = useState('');
   const [scorePlayerOne, setScorePlayerOne] = useState('');
@@ -169,6 +174,63 @@ export function EventDetailClient({
   useEffect(() => {
     setLiveRegistrationId(currentRegistrationId);
   }, [currentRegistrationId]);
+  useEffect(() => {
+    let active = true;
+    setPendingInteracNotice(null);
+    setPendingCardPayment(false);
+    if (!currentUserId || !liveRegistrationId) return;
+    void Promise.all([
+      interacEnabled
+        ? db
+            .from('payments')
+            .select('id,amount_minor,status')
+            .eq('user_id', currentUserId)
+            .eq('purpose', 'event_registration')
+            .eq('business_record_id', liveRegistrationId)
+            .eq('provider', 'interac')
+            .in('status', ['pending', 'processing'])
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+      db
+        .from('payments')
+        .select('id')
+        .eq('user_id', currentUserId)
+        .eq('purpose', 'event_registration')
+        .eq('business_record_id', liveRegistrationId)
+        .eq('provider', 'stripe')
+        .in('status', ['pending', 'processing'])
+        .limit(1)
+        .maybeSingle(),
+      interacEnabled
+        ? db
+            .from('payment_method_settings')
+            .select('interac_recipient_email,interac_instructions')
+            .eq('id', 1)
+            .maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+    ]).then(([interacPaymentResult, cardPaymentResult, settingsResult]) => {
+      if (!active) return;
+      setPendingCardPayment(!!cardPaymentResult.data);
+      if (!interacPaymentResult.data) return;
+      const payment = interacPaymentResult.data;
+      const amount = (Number(payment.amount_minor || 0) / 100).toLocaleString('en-CA', {
+        style: 'currency',
+        currency: 'CAD',
+      });
+      setPendingInteracNotice({
+        amount,
+        recipientEmail: settingsResult.data?.interac_recipient_email || '',
+        paymentId: payment.id,
+        instructions: settingsResult.data?.interac_instructions || '',
+        message: `Your Interac payment request for ${amount} is pending club confirmation.`,
+      });
+    });
+    return () => {
+      active = false;
+    };
+  }, [db, currentUserId, liveRegistrationId, livePaymentStatus, interacEnabled]);
   useEffect(() => {
     if (!currentUserId || !liveRegistrationId) return;
     const channel = db
@@ -368,7 +430,7 @@ export function EventDetailClient({
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Could not start checkout.');
       if (provider === 'interac') {
-        setInteracNotice({
+        const notice = {
           amount: (Number(result.amountMinor) / 100).toLocaleString('en-CA', {
             style: 'currency',
             currency: 'CAD',
@@ -377,7 +439,9 @@ export function EventDetailClient({
           paymentId: result.paymentId,
           instructions: result.instructions || '',
           message: result.message || '',
-        });
+        };
+        setInteracNotice(notice);
+        setPendingInteracNotice(notice);
         setMessage(
           'Interac payment request submitted. Your registration remains unpaid until the club confirms receipt.',
         );
@@ -427,6 +491,7 @@ export function EventDetailClient({
       const registrationPaymentStatus =
         status === 'succeeded' ? 'pending' : status === 'processing' ? 'pending' : status;
       setLivePaymentStatus(registrationPaymentStatus);
+      if (status === 'failed' || status === 'canceled') setPendingCardPayment(false);
       if (result.checkoutUrl && status === 'pending') {
         window.location.assign(result.checkoutUrl);
         return;
@@ -674,6 +739,35 @@ export function EventDetailClient({
       : new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(
           event.price_cents / 100,
         );
+  const eventPaymentOptions: PaymentOption[] = [];
+  if (liveRegistrationId) {
+    const checkingCardPayment =
+      pendingCardPayment &&
+      ['pending', 'processing'].includes(livePaymentStatus || '') &&
+      !pendingInteracNotice;
+    eventPaymentOptions.push({
+      label: checkingCardPayment ? 'Check card payment status' : `By card · ${money}`,
+      onSelect: () =>
+        checkingCardPayment
+          ? void checkEventPaymentStatus(liveRegistrationId)
+          : void startEventCheckout(liveRegistrationId),
+      loading: busy,
+      loadingLabel: checkingCardPayment ? 'Checking payment' : 'Starting checkout',
+    });
+    if (interacEnabled) {
+      eventPaymentOptions.push({
+        label: pendingInteracNotice
+          ? `View Interac instructions · ${pendingInteracNotice.amount}`
+          : `By Interac · ${money}`,
+        onSelect: () =>
+          pendingInteracNotice
+            ? setInteracNotice(pendingInteracNotice)
+            : void startEventCheckout(liveRegistrationId, 'interac'),
+        loading: busy,
+        loadingLabel: 'Starting Interac request',
+      });
+    }
+  }
   return (
     <div className="space-y-8">
       {(error || message) && (
@@ -754,7 +848,7 @@ export function EventDetailClient({
         location={locationQuery || event.location}
         eventLabel={event.event_type === 'tournament' ? 'tournament' : 'event'}
       />
-      <section className="rounded-xl border border-border p-5">
+      <section id="registration" className="scroll-mt-24 rounded-xl border border-border p-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h2 className="text-xl font-semibold">Registration</h2>
@@ -792,46 +886,17 @@ export function EventDetailClient({
                   liveStatus === 'confirmed' &&
                   livePaymentStatus !== 'paid' &&
                   livePaymentStatus !== 'not_required' && (
-                    <Button
-                      disabled={busy}
-                      onClick={() =>
-                        liveRegistrationId &&
-                        (livePaymentStatus === 'pending' || livePaymentStatus === 'processing'
-                          ? void checkEventPaymentStatus(liveRegistrationId)
-                          : void startEventCheckout(liveRegistrationId))
-                      }
-                    >
-                      {busy ? (
-                        <TennisLoader
-                          compact
-                          label={
-                            livePaymentStatus === 'pending' || livePaymentStatus === 'processing'
-                              ? 'Checking payment'
-                              : 'Starting checkout'
-                          }
-                        />
-                      ) : livePaymentStatus === 'pending' || livePaymentStatus === 'processing' ? (
-                        'Check the payment status'
-                      ) : (
-                        'Pay the fee'
-                      )}
-                    </Button>
+                    <PaymentOptionsButton options={eventPaymentOptions} disabled={busy} />
                   )}
-                {interacEnabled &&
-                  !busy &&
-                  event.price_cents > 0 &&
-                  liveStatus === 'confirmed' &&
-                  livePaymentStatus !== 'paid' &&
-                  livePaymentStatus !== 'not_required' &&
-                  liveRegistrationId && (
-                    <Button
-                      variant="outline"
-                      disabled={busy}
-                      onClick={() => void startEventCheckout(liveRegistrationId, 'interac')}
-                    >
-                      Pay by Interac
-                    </Button>
-                  )}
+                {pendingInteracNotice && liveStatus === 'confirmed' && (
+                  <p
+                    role="status"
+                    className="basis-full rounded-md border border-amber-500/50 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
+                  >
+                    Interac payment requested: {pendingInteracNotice.amount}. Awaiting club
+                    confirmation.
+                  </p>
+                )}
                 {event.price_cents > 0 &&
                   liveStatus === 'confirmed' &&
                   livePaymentStatus !== 'paid' &&

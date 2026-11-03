@@ -2,11 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSignedInUser } from '@/lib/api-helpers';
 import { enforceRateLimit } from '@/lib/rate-limit';
 import { createPaymentServiceClient } from '@/lib/payments/server';
-import {
-  expireCheckoutSession,
-  markPaymentCanceled,
-  removeProvisionalGuestEntries,
-} from '@/lib/payments/checkout-cleanup';
+import { expireCheckoutSession, markPaymentCanceled } from '@/lib/payments/checkout-cleanup';
 
 export const runtime = 'nodejs';
 
@@ -22,6 +18,7 @@ export async function POST(request: Request) {
       userId: user?.id,
     });
     if (limited) return limited;
+    if (!user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
     const body = (await request.json()) as {
       registrationId?: string;
       paymentId?: string;
@@ -132,10 +129,40 @@ export async function POST(request: Request) {
 
     if (body.participantId) {
       if (!user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
+      const { data: ownEntry } = await db
+        .from('tournament_participants')
+        .select('id,event_id,user_id')
+        .eq('id', body.participantId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (!ownEntry)
+        return NextResponse.json({ error: 'Tournament entry not found.' }, { status: 404 });
+      const { data: pair } = await db
+        .from('tournament_pairs')
+        .select('player_one_id,player_two_id')
+        .eq('event_id', ownEntry.event_id)
+        .eq('status', 'active')
+        .or(`player_one_id.eq.${ownEntry.id},player_two_id.eq.${ownEntry.id}`)
+        .maybeSingle();
+      const otherEntryId = pair
+        ? pair.player_one_id === ownEntry.id
+          ? pair.player_two_id
+          : pair.player_one_id
+        : null;
+      const { data: otherEntry } = otherEntryId
+        ? await db
+            .from('tournament_participants')
+            .select('user_id')
+            .eq('id', otherEntryId)
+            .maybeSingle()
+        : { data: null };
+      const payerIds = [
+        ...new Set([user.id, otherEntry?.user_id].filter((id): id is string => Boolean(id))),
+      ];
       const { data: candidates, error: candidateError } = await db
         .from('payments')
         .select('id,status,business_record_id,stripe_checkout_session_id')
-        .eq('user_id', user.id)
+        .in('user_id', payerIds)
         .eq('purpose', 'tournament_registration')
         .in('status', ['pending', 'processing', 'failed'])
         .order('created_at', { ascending: false })
@@ -174,6 +201,23 @@ export async function POST(request: Request) {
       if (!payment) return NextResponse.json({ error: 'Payment not found.' }, { status: 404 });
       if (payment.status === 'succeeded')
         return NextResponse.json({ error: 'Payment is already confirmed.' }, { status: 409 });
+      if (payment.purpose === 'event_registration') {
+        if (payment.status === 'canceled')
+          return NextResponse.json({ success: true, provisionalRegistrationRemoved: false });
+        if (!['pending', 'processing', 'failed'].includes(payment.status))
+          return conflict('This event payment is no longer awaiting completion.');
+        if (!payment.stripe_checkout_session_id)
+          return conflict('Payment status is uncertain; the event registration was kept.');
+        const outcome = await expireCheckoutSession(payment.stripe_checkout_session_id, {
+          verify: true,
+        });
+        if (outcome === 'complete')
+          return conflict('Checkout has completed; refresh the event page to confirm payment.');
+        if (outcome === 'uncertain')
+          return conflict('Checkout state is uncertain; refresh and check payment status.');
+        await markPaymentCanceled(db, payment.id, 'Could not cancel the event payment.');
+        return NextResponse.json({ success: true, provisionalRegistrationRemoved: false });
+      }
       if (payment.purpose !== 'tournament_registration' || !payment.business_record_id)
         return NextResponse.json({ success: true, provisionalRegistrationRemoved: false });
       const ids = payment.business_record_id.split(',').filter(Boolean);
@@ -183,10 +227,6 @@ export async function POST(request: Request) {
         .in('id', ids);
       if (entriesError || (entries?.length !== ids.length && payment.status !== 'canceled'))
         throw new Error('Could not verify tournament entries.');
-      const provisionalGuestIds = (entries ?? [])
-        .filter((entry) => entry.user_id === null && entry.status === 'provisional')
-        .map((entry) => entry.id);
-      const guestOnly = provisionalGuestIds.length > 0;
       // Guest payment IDs are bearer references; a guest may cancel only this pending tournament payment.
       // If it contains no provisional guest entries, cancellation leaves registered partner entries intact.
       if (!payment.stripe_checkout_session_id)
@@ -203,18 +243,9 @@ export async function POST(request: Request) {
           'Checkout state is uncertain; the registration was kept. Refresh and check payment status.',
         );
       await markPaymentCanceled(db, payment.id, 'Could not cancel the pending payment.');
-      if (guestOnly) {
-        await removeProvisionalGuestEntries(db, provisionalGuestIds, {
-          inspectPairs: 'Could not inspect the provisional partner registration.',
-          inspectEntries: 'Could not inspect provisional tournament entries.',
-          removePairs: 'Could not remove the provisional tournament pair.',
-          removeEntries:
-            'Payment was canceled but provisional registration cleanup needs administrator review.',
-        });
-      }
       return NextResponse.json({
         success: true,
-        provisionalRegistrationRemoved: guestOnly || (!user && payment.status === 'canceled'),
+        provisionalRegistrationRemoved: false,
       });
     }
 

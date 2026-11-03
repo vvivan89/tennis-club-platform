@@ -13,14 +13,15 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: mocks.routerRefresh }) }));
-vi.mock('@/lib/supabase-browser', () => ({
-  createSupabaseBrowserClient: () => ({
+vi.mock('@/lib/supabase-browser', () => {
+  const client = {
     rpc: mocks.rpc,
     from: mocks.from,
     channel: () => ({ on: () => ({ subscribe: vi.fn() }) }),
     removeChannel: mocks.removeChannel,
-  }),
-}));
+  };
+  return { createSupabaseBrowserClient: () => client };
+});
 vi.mock('@/components/event-weather', () => ({ EventWeather: () => null }));
 
 import { EventDetailClient } from '@/components/event-detail-client';
@@ -32,6 +33,7 @@ function queryFor(table: string) {
     select: () => query,
     eq: () => query,
     neq: () => query,
+    in: () => query,
     order: () => query,
     limit: () => query,
     maybeSingle: async () => ({ data: mocks.rows[table]?.[0] ?? null, error: null }),
@@ -200,7 +202,8 @@ describe('EventDetailClient registration workflow', () => {
       event: { ...event, price_cents: 2500 },
     });
 
-    await user.click(screen.getByRole('button', { name: 'Pay by Interac' }));
+    await user.click(screen.getByRole('button', { name: 'Pay' }));
+    await user.click(screen.getByRole('menuitem', { name: /By Interac/ }));
     expect(await screen.findByText('Transfer request created.')).toBeInTheDocument();
     expect(screen.getByText('payments@example.test')).toBeInTheDocument();
     expect(screen.getByText('Include your member name.')).toBeInTheDocument();
@@ -213,7 +216,56 @@ describe('EventDetailClient registration workflow', () => {
     );
   });
 
+  it('shows Interac instructions when the payment service omits optional copy', async () => {
+    mocks.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ amountMinor: 2500, paymentId: 'interac-no-copy' }),
+    });
+    const user = userEvent.setup();
+    renderClient({
+      currentRegistrationId: 'registration-1',
+      currentStatus: 'confirmed',
+      currentPaymentStatus: 'pending',
+      interacEnabled: true,
+      event: { ...event, price_cents: 2500 },
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Pay' }));
+    await user.click(screen.getByRole('menuitem', { name: /By Interac/ }));
+
+    expect(await screen.findByText(/Interac payment request submitted/)).toBeInTheDocument();
+    expect(screen.queryByText('Transfer request created.')).not.toBeInTheDocument();
+    expect(mocks.routerRefresh).toHaveBeenCalledOnce();
+  });
+
+  it('restores saved Interac instructions for an existing pending request', async () => {
+    mocks.rows.payments = [{ id: 'saved-interac', amount_minor: 2500, status: 'pending' }];
+    mocks.rows.payment_method_settings = [
+      {
+        interac_recipient_email: 'club-payments@example.test',
+        interac_instructions: 'Use the event title in the transfer note.',
+      },
+    ];
+    renderClient({
+      currentRegistrationId: 'registration-1',
+      currentStatus: 'confirmed',
+      currentPaymentStatus: 'pending',
+      interacEnabled: true,
+      event: { ...event, price_cents: 2500 },
+    });
+
+    expect(await screen.findByText(/Interac payment requested:/)).toHaveTextContent(
+      'Interac payment requested: $25.00. Awaiting club confirmation.',
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Pay' }));
+    await user.click(screen.getByRole('menuitem', { name: /View Interac instructions/ }));
+    expect(screen.getByText('club-payments@example.test')).toBeInTheDocument();
+    expect(screen.getByText('Use the event title in the transfer note.')).toBeInTheDocument();
+  });
+
   it('reconciles a paid registration through the payment-status endpoint', async () => {
+    mocks.rows.payments = [{ id: 'card-payment', status: 'pending', amount_minor: 2500 }];
     mocks.fetch.mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -229,13 +281,134 @@ describe('EventDetailClient registration workflow', () => {
       event: { ...event, price_cents: 2500 },
     });
 
-    await user.click(screen.getByRole('button', { name: 'Check the payment status' }));
+    await user.click(screen.getByRole('button', { name: 'Pay' }));
     await waitFor(() => expect(mocks.routerRefresh).toHaveBeenCalledOnce());
     expect(mocks.fetch).toHaveBeenCalledWith(
       '/api/payments/status?registration_id=registration-1',
       { cache: 'no-store' },
     );
     expect(mocks.routerRefresh).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    [
+      'processing',
+      false,
+      'Payment is still pending. If you just completed checkout, check again shortly.',
+    ],
+    [
+      'succeeded',
+      false,
+      'Payment confirmed. Your registration is being finalized. Check again shortly.',
+    ],
+    [
+      'pending',
+      false,
+      'Payment is still pending. If you just completed checkout, check again shortly.',
+    ],
+  ])(
+    'keeps the registration reserved while Stripe reports %s without fulfillment',
+    async (status, fulfilled, message) => {
+      mocks.rows.payments = [{ id: 'card-payment', status: 'pending', amount_minor: 2500 }];
+      mocks.fetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ payment: { status }, fulfilled }),
+      });
+      const user = userEvent.setup();
+      renderClient({
+        currentRegistrationId: 'registration-1',
+        currentStatus: 'confirmed',
+        currentPaymentStatus: 'pending',
+        event: { ...event, price_cents: 2500 },
+      });
+
+      await user.click(screen.getByRole('button', { name: 'Pay' }));
+
+      expect(await screen.findByText(message)).toBeInTheDocument();
+      expect(mocks.routerRefresh).toHaveBeenCalled();
+    },
+  );
+
+  it('shows card status only after a pending attempt and returns canceled payments to the By card option', async () => {
+    mocks.rows.payments = [{ id: 'card-payment', status: 'pending', amount_minor: 2500 }];
+    mocks.rows.registrations = [
+      {
+        id: 'registration-1',
+        status: 'confirmed',
+        payment_status: 'failed',
+        created_at: '2026-01-01',
+      },
+    ];
+    mocks.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ payment: { status: 'canceled' }, fulfilled: false }),
+    });
+    const user = userEvent.setup();
+    renderClient({
+      currentRegistrationId: 'registration-1',
+      currentStatus: 'confirmed',
+      currentPaymentStatus: 'pending',
+      event: { ...event, price_cents: 2500 },
+    });
+    await user.click(screen.getByRole('button', { name: 'Pay' }));
+    await waitFor(() =>
+      expect(mocks.fetch).toHaveBeenCalledWith(
+        '/api/payments/status?registration_id=registration-1',
+        { cache: 'no-store' },
+      ),
+    );
+    expect(
+      await screen.findByText(
+        'The previous payment was not completed. You can try paying the fee again.',
+      ),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Pay' }));
+    expect(mocks.fetch).toHaveBeenCalledWith(
+      '/api/payments/checkout',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('"provider":"stripe"'),
+      }),
+    );
+  });
+
+  it('restarts checkout when no prior payment exists and reports payment-status errors', async () => {
+    mocks.rows.payments = [{ id: 'card-payment', status: 'pending', amount_minor: 2500 }];
+    mocks.fetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ payment: null }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({}) });
+    const user = userEvent.setup();
+    const { unmount } = renderClient({
+      currentRegistrationId: 'registration-1',
+      currentStatus: 'confirmed',
+      currentPaymentStatus: 'pending',
+      event: { ...event, price_cents: 2500 },
+    });
+    await user.click(screen.getByRole('button', { name: 'Pay' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not start checkout.');
+    expect(mocks.fetch).toHaveBeenNthCalledWith(
+      2,
+      '/api/payments/checkout',
+      expect.objectContaining({
+        body: expect.stringContaining('"businessRecordId":"registration-1"'),
+      }),
+    );
+    unmount();
+
+    mocks.fetch.mockReset().mockResolvedValue({
+      ok: false,
+      json: async () => ({ error: 'Payment status unavailable.' }),
+    });
+    mocks.rows.payments = [{ id: 'card-payment', status: 'pending', amount_minor: 2500 }];
+    renderClient({
+      currentRegistrationId: 'registration-1',
+      currentStatus: 'confirmed',
+      currentPaymentStatus: 'pending',
+      event: { ...event, price_cents: 2500 },
+    });
+    await user.click(screen.getByRole('button', { name: 'Pay' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Payment status unavailable.');
   });
 
   it('starts checkout after a paid event registration and preserves the reserved entry on failure', async () => {
@@ -266,6 +439,25 @@ describe('EventDetailClient registration workflow', () => {
       expect.objectContaining({ p_event_id: 'event-1' }),
     );
     expect(mocks.routerRefresh).not.toHaveBeenCalled();
+  });
+
+  it('uses event ID in checkout return paths and reports non-Error checkout failures', async () => {
+    mocks.rpc.mockResolvedValue({
+      data: [{ registration_id: 'registration-new', registration_state: 'confirmed' }],
+      error: null,
+    });
+    mocks.fetch.mockRejectedValue('network unavailable');
+    const user = userEvent.setup();
+    renderClient({ event: { ...event, slug: null, price_cents: 2500 } });
+
+    await user.click(screen.getByRole('button', { name: 'Register' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Registration is reserved, but payment could not be started. Please try again.',
+    );
+    expect(
+      screen.getByText('Your registration is reserved, but payment is still required.'),
+    ).toBeInTheDocument();
   });
 
   it('keeps an unpaid registration when payment cancellation fails before withdrawal', async () => {
@@ -413,6 +605,61 @@ describe('EventDetailClient registration workflow', () => {
     );
   });
 
+  it('lets a manager choose either team on a doubles court and saves the opposing pair', async () => {
+    const startedEvent = {
+      ...event,
+      starts_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      ends_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    };
+    const roster = ['Alex', 'Jordan', 'Casey', 'Taylor'].map((name, index) => ({
+      registration_id: `reg-${index + 1}`,
+      user_id: `member-${index + 1}`,
+      status: 'confirmed',
+      queue_position: null,
+      full_name: name,
+      avatar_url: null,
+      tennis_skill_level: null,
+    }));
+    const courts = roster.map((player) => ({
+      registration_id: player.registration_id,
+      court_number: 2,
+      segment_order: 3,
+    }));
+    const user = userEvent.setup();
+    renderClient({
+      event: startedEvent,
+      roster,
+      courts,
+      isManager: true,
+      canViewParticipants: true,
+    });
+
+    await user.selectOptions(screen.getByLabelText('Court / sub-session'), '2:3');
+    await user.selectOptions(screen.getByLabelText('Team player'), 'reg-3');
+    await user.selectOptions(screen.getByLabelText('Partner'), 'reg-4');
+    expect(screen.getByText('Opponents: Alex / Jordan')).toBeInTheDocument();
+    await user.type(screen.getByLabelText('Team score'), '6');
+    await user.type(screen.getByLabelText('Opposing team score'), '2');
+    fireEvent.submit(screen.getByText('Add a score').closest('form') as HTMLFormElement);
+
+    await waitFor(() =>
+      expect(mocks.writes).toContainEqual({
+        table: 'event_scores',
+        operation: 'insert',
+        values: {
+          event_id: 'event-1',
+          player_one_registration_id: 'reg-3',
+          player_two_registration_id: 'reg-4',
+          player_three_registration_id: 'reg-1',
+          player_four_registration_id: 'reg-2',
+          player_one_score: 6,
+          player_two_score: 2,
+          entered_by: 'member-1',
+        },
+      }),
+    );
+  });
+
   it('rejects score entry when the assigned court has fewer than two players', async () => {
     const startedEvent = {
       ...event,
@@ -445,6 +692,73 @@ describe('EventDetailClient registration workflow', () => {
     await user.type(screen.getByLabelText('Opponents’ score'), '2');
     fireEvent.submit(screen.getByText('Add a score').closest('form') as HTMLFormElement);
     expect(mocks.writes).toHaveLength(0);
+  });
+
+  it('shows manager contact details and waitlist entries in court view', async () => {
+    const user = userEvent.setup();
+    renderClient({
+      isManager: true,
+      canViewParticipants: true,
+      roster: [
+        {
+          registration_id: 'court-player-1',
+          user_id: 'member-1',
+          status: 'confirmed',
+          queue_position: null,
+          full_name: 'Alex Court',
+          avatar_url: null,
+          tennis_skill_level: 3.5,
+          email: 'alex@example.test',
+          phone: null,
+        },
+        {
+          registration_id: 'court-player-2',
+          user_id: 'member-2',
+          status: 'confirmed',
+          queue_position: null,
+          full_name: 'Jordan Court',
+          avatar_url: null,
+          tennis_skill_level: null,
+          email: null,
+          phone: '604-555-0123',
+        },
+        {
+          registration_id: 'waitlisted-player',
+          user_id: 'member-3',
+          status: 'waitlisted',
+          queue_position: 2,
+          full_name: 'Waitlisted Player',
+          avatar_url: null,
+          tennis_skill_level: null,
+          email: 'waiting@example.test',
+          phone: '604-555-0199',
+        },
+      ],
+      courts: [
+        { registration_id: 'court-player-1', court_number: 1, segment_order: 1 },
+        { registration_id: 'court-player-2', court_number: 1, segment_order: 1 },
+      ],
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Court view' }));
+    expect(screen.getByRole('heading', { name: 'Time slot 1' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Court 1' })).toBeInTheDocument();
+    expect(screen.getByText('Alex Court')).toBeInTheDocument();
+    expect(screen.getByText('3.5')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'alex@example.test' })).toHaveAttribute(
+      'href',
+      'mailto:alex@example.test',
+    );
+    expect(screen.getByRole('link', { name: '604-555-0123' })).toHaveAttribute(
+      'href',
+      'tel:604-555-0123',
+    );
+    expect(screen.getByText('Waitlisted Player')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'waiting@example.test' })).toHaveAttribute(
+      'href',
+      'mailto:waiting@example.test',
+    );
+    expect(screen.getByText('(position 2)')).toBeInTheDocument();
   });
 
   it('logs and displays registration and withdrawal RPC failure details', async () => {
@@ -615,5 +929,65 @@ describe('EventDetailClient registration workflow', () => {
     );
     expect(screen.queryByRole('button', { name: 'Register' })).not.toBeInTheDocument();
     expect(screen.getByText('Event cancelled')).toBeInTheDocument();
+  });
+
+  it('explains a future registration window and the member eligibility requirement', () => {
+    const future = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+    const { rerender } = renderClient({
+      event: {
+        ...event,
+        event_type: 'tournament',
+        ends_at: null,
+        registration_opens_at: future,
+        members_only: true,
+      },
+    });
+    expect(screen.getByText('Tournament')).toBeInTheDocument();
+    expect(screen.getByText(/Until To be announced/)).toBeInTheDocument();
+    expect(screen.getByText('Cutoff Not set')).toBeInTheDocument();
+    expect(screen.getByText('Active, paid membership required')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Registration closed' })).toBeDisabled();
+    expect(screen.getByText(/Registration is not currently open/)).toBeInTheDocument();
+
+    rerender(
+      <EventDetailClient
+        event={{ ...event, status: 'published', registration_opens_at: '2020-01-01T00:00:00Z' }}
+        roster={[]}
+        courts={[]}
+        scores={[]}
+        currentUserId="member-1"
+        currentRegistrationId={null}
+        currentStatus={null}
+        currentPaymentStatus={null}
+        locationQuery="Main courts"
+        isManager={false}
+        canViewParticipants={false}
+        remainingSpots={1}
+      />,
+    );
+    expect(screen.getByText('1 spot remaining')).toBeInTheDocument();
+
+    rerender(
+      <EventDetailClient
+        event={{
+          ...event,
+          registration_opens_at: '2020-01-01T00:00:00Z',
+          registration_closes_at: new Date(Date.now() - 60_000).toISOString(),
+        }}
+        roster={[]}
+        courts={[]}
+        scores={[]}
+        currentUserId="member-1"
+        currentRegistrationId={null}
+        currentStatus={null}
+        currentPaymentStatus={null}
+        locationQuery=""
+        isManager={false}
+        canViewParticipants={false}
+        remainingSpots={12}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Registration closed' })).toBeDisabled();
+    expect(screen.getByText(/Registration is not currently open/)).toBeInTheDocument();
   });
 });

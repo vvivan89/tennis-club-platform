@@ -67,6 +67,10 @@ describe('EventWeather', () => {
     ).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Conditions' })).toBeInTheDocument();
     await waitFor(() => expect(mocks.forecast).toHaveBeenCalledTimes(4));
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Details' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(mocks.forecast).toHaveBeenCalledTimes(4);
   });
 
   it('handles missing measurements without fabricating values', async () => {

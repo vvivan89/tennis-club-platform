@@ -92,6 +92,8 @@ describe('AuthForm', () => {
             phone: '604.555.0100',
             tennis_skill_level: '3.5',
             application_comment: 'Please contact me',
+            date_of_birth: null,
+            gender: null,
           },
         }),
       }),

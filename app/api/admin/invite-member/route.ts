@@ -20,14 +20,26 @@ export async function POST(request: Request) {
       .toLowerCase();
     const phone = String(body.phone ?? '').trim();
     const tennis_skill_level = String(body.tennis_skill_level ?? '');
+    const gender = String(body.gender ?? '').trim();
+    const date_of_birth = String(body.date_of_birth ?? '').trim();
     if (!full_name || !email || !phone || !validLevels.has(tennis_skill_level))
       return NextResponse.json(
         { error: 'Name, valid email, phone, and skill rating are required.' },
         { status: 400 },
       );
+    if (gender && !['male', 'female'].includes(gender))
+      return NextResponse.json({ error: 'Choose a valid gender.' }, { status: 400 });
+    if (
+      date_of_birth &&
+      (!/^\d{4}-\d{2}-\d{2}$/.test(date_of_birth) ||
+        Number.isNaN(Date.parse(`${date_of_birth}T00:00:00Z`)) ||
+        new Date(`${date_of_birth}T00:00:00Z`).toISOString().slice(0, 10) !== date_of_birth ||
+        date_of_birth > new Date().toISOString().slice(0, 10))
+    )
+      return NextResponse.json({ error: 'Choose a valid date of birth.' }, { status: 400 });
     const limited = await enforceRateLimit(request, {
       name: 'invite-member',
-      limit: 20,
+      limit: 100,
       windowSeconds: 3600,
       userId: user.id,
     });
@@ -40,7 +52,13 @@ export async function POST(request: Request) {
     const origin = getSiteOrigin(request);
     const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
       redirectTo: `${origin}/auth/callback?next=/reset-password`,
-      data: { full_name, phone, tennis_skill_level },
+      data: {
+        full_name,
+        phone,
+        tennis_skill_level,
+        gender: gender || null,
+        date_of_birth: date_of_birth || null,
+      },
     });
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     if (!data.user)

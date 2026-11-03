@@ -4,7 +4,7 @@ import path from 'node:path';
 
 describe('integrated League Tournament migration', () => {
   const migration = readFileSync(
-    path.join(process.cwd(), 'supabase/migrations/0062_integrated_league_tournaments.sql'),
+    path.join(process.cwd(), 'supabase/migration_archive/0062_integrated_league_tournaments.sql'),
     'utf8',
   );
 
@@ -30,7 +30,7 @@ describe('integrated League Tournament migration', () => {
 
   it('stores standings after each event using that event’s results and fixed teams', () => {
     const migration = readFileSync(
-      path.join(process.cwd(), 'supabase/migrations/0063_league_after_event_standings.sql'),
+      path.join(process.cwd(), 'supabase/migration_archive/0063_league_after_event_standings.sql'),
       'utf8',
     );
     expect(migration).toContain('ADD COLUMN IF NOT EXISTS standings_after jsonb');
@@ -41,7 +41,7 @@ describe('integrated League Tournament migration', () => {
 
   it('allows fixed team members to submit a League match score safely', () => {
     const migration = readFileSync(
-      path.join(process.cwd(), 'supabase/migrations/0064_league_overview_scores.sql'),
+      path.join(process.cwd(), 'supabase/migration_archive/0064_league_overview_scores.sql'),
       'utf8',
     );
     expect(migration).toContain('submit_league_match_score');
@@ -51,7 +51,10 @@ describe('integrated League Tournament migration', () => {
 
   it('qualifies participant relations in the pair validation trigger with an empty search path', () => {
     const migration = readFileSync(
-      path.join(process.cwd(), 'supabase/migrations/0065_fix_league_pair_creation_search_path.sql'),
+      path.join(
+        process.cwd(),
+        'supabase/migration_archive/0065_fix_league_pair_creation_search_path.sql',
+      ),
       'utf8',
     );
     expect(migration).toContain("SECURITY DEFINER SET search_path = ''");
@@ -65,7 +68,10 @@ describe('integrated League Tournament migration', () => {
 
   it('fixes League teams when a pair is created and supports series-wide admin replacements', () => {
     const migration = readFileSync(
-      path.join(process.cwd(), 'supabase/migrations/0066_league_teams_fixed_on_pair_creation.sql'),
+      path.join(
+        process.cwd(),
+        'supabase/migration_archive/0066_league_teams_fixed_on_pair_creation.sql',
+      ),
       'utf8',
     );
     expect(migration).toContain(
@@ -81,7 +87,7 @@ describe('integrated League Tournament migration', () => {
 
   it('stores League court assignments by pair and requires each pair once per slot', () => {
     const migration = readFileSync(
-      path.join(process.cwd(), 'supabase/migrations/0067_league_team_court_assignments.sql'),
+      path.join(process.cwd(), 'supabase/migration_archive/0067_league_team_court_assignments.sql'),
       'utf8',
     );
     expect(migration).toContain('CREATE TABLE IF NOT EXISTS public.league_event_court_assignments');
@@ -91,7 +97,10 @@ describe('integrated League Tournament migration', () => {
 
   it('requires active paid membership and exposes League pair eligibility for the admin selectors', () => {
     const migration = readFileSync(
-      path.join(process.cwd(), 'supabase/migrations/0068_league_pair_membership_eligibility.sql'),
+      path.join(
+        process.cwd(),
+        'supabase/migration_archive/0068_league_pair_membership_eligibility.sql',
+      ),
       'utf8',
     );
     expect(migration).toContain('public.has_active_paid_membership(p.id)');
@@ -103,7 +112,7 @@ describe('integrated League Tournament migration', () => {
     const migration = readFileSync(
       path.join(
         process.cwd(),
-        'supabase/migrations/0069_league_participant_member_selector_eligibility.sql',
+        'supabase/migration_archive/0069_league_participant_member_selector_eligibility.sql',
       ),
       'utf8',
     );
@@ -116,7 +125,7 @@ describe('integrated League Tournament migration', () => {
     const migration = readFileSync(
       path.join(
         process.cwd(),
-        'supabase/migrations/0070_allow_overfull_league_courts_with_warning.sql',
+        'supabase/migration_archive/0070_allow_overfull_league_courts_with_warning.sql',
       ),
       'utf8',
     );

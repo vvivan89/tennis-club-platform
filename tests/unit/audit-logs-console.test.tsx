@@ -64,8 +64,13 @@ vi.mock('@/lib/supabase-browser', () => ({
         },
         in: (...args: unknown[]) => {
           mocks.methods.in(...args);
-          return Promise.resolve(table === 'events' ? mocks.eventResult : mocks.profileResult);
+          return query;
         },
+        then: (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) =>
+          Promise.resolve(table === 'events' ? mocks.eventResult : mocks.profileResult).then(
+            resolve,
+            reject,
+          ),
       };
       return query;
     },

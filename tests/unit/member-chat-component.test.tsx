@@ -241,6 +241,70 @@ describe('MemberChat', () => {
     expect(mocks.upserts.at(-1)).toMatchObject({ user_id: 'member-1' });
   });
 
+  it('labels own edited messages and avoids duplicate mentions while appending emoji', async () => {
+    const user = userEvent.setup();
+    mocks.messages = [
+      chatRow({ user_id: 'member-1', updated_at: new Date().toISOString(), body: 'Earlier' }),
+    ];
+    render(<MemberChat userId="member-1" />);
+
+    expect(await screen.findByText('You')).toBeInTheDocument();
+    expect(screen.getByText('(edited)')).toBeInTheDocument();
+    const messageBox = screen.getByRole('textbox', { name: 'Message' });
+    await user.type(messageBox, '@Taylor');
+    await user.click(await screen.findByRole('button', { name: 'Taylor Member' }));
+    await user.type(messageBox, '@Taylor');
+    await user.click(await screen.findByRole('button', { name: 'Taylor Member' }));
+    await user.click(screen.getByRole('button', { name: 'Insert smiley' }));
+    await user.click(screen.getByRole('button', { name: 'Insert 🎾' }));
+    await user.click(screen.getByRole('button', { name: 'Send message' }));
+
+    await waitFor(() => expect(mocks.inserts).toHaveLength(1));
+    expect(mocks.inserts[0]).toMatchObject({
+      body: '@Taylor Member @Taylor Member 🎾',
+      mentions: ['member-2'],
+    });
+  });
+
+  it('handles a missing author profile, empty mention matches, and keyboard submission', async () => {
+    const user = userEvent.setup();
+    mocks.names = [];
+    mocks.unread = null;
+    mocks.messages = [
+      chatRow({ user_id: 'deleted-member', mentions: null as unknown as string[] }),
+    ];
+    render(<MemberChat userId="member-1" />);
+
+    expect(await screen.findByText('Hello club')).toBeInTheDocument();
+    expect(screen.getByText('Member')).toBeInTheDocument();
+    expect(screen.getByText('0 online · 0 unread')).toBeInTheDocument();
+    const messageBox = screen.getByRole('textbox', { name: 'Message' });
+    await user.type(messageBox, '@Nobody');
+    expect(screen.getByText('No members found')).toBeInTheDocument();
+    await user.clear(messageBox);
+    await user.type(messageBox, 'Sent with Enter');
+    await user.keyboard('{Enter}');
+    await waitFor(() =>
+      expect(mocks.inserts).toContainEqual(
+        expect.objectContaining({ body: 'Sent with Enter', mentions: [] }),
+      ),
+    );
+  });
+
+  it('sends an image-only message and uses a safe extension for names ending in a dot', async () => {
+    const user = userEvent.setup();
+    render(<MemberChat userId="member-1" />);
+    await screen.findByText('No messages found. Start the conversation.');
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(fileInput, {
+      target: { files: [new File(['image'], 'court.', { type: 'image/png' })] },
+    });
+    await user.click(screen.getByRole('button', { name: 'Send message' }));
+    await waitFor(() => expect(mocks.inserts).toHaveLength(1));
+    expect(mocks.uploads[0].path).toMatch(/\.jpg$/);
+    expect(mocks.inserts[0]).toMatchObject({ body: '', image_path: mocks.uploads[0].path });
+  });
+
   it('validates image type and size, uploads valid images, and removes failed uploads', async () => {
     const user = userEvent.setup();
     mocks.writeErrors['member_chat_messages.insert'] = { message: 'insert denied' };

@@ -153,6 +153,23 @@ describe('AdminPaymentRefundForm', () => {
     await user.click(screen.getByRole('button', { name: 'Request refund for payment-3' }));
     expect(await screen.findByRole('status')).toHaveTextContent('Refund unavailable');
   });
+
+  it('uses the default error for an empty API error and a non-Error network failure', async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 503 }))
+      .mockRejectedValueOnce('network failure');
+    const { rerender } = render(
+      <AdminPaymentRefundForm paymentId="payment-fallback" remainingMinor={1000} />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Request refund for payment-fallback' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Refund request failed.');
+
+    rerender(<AdminPaymentRefundForm paymentId="payment-network" remainingMinor={1000} />);
+    await user.click(screen.getByRole('button', { name: 'Request refund for payment-network' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Refund request failed.');
+  });
 });
 
 describe('AdminManualPaymentRefundForm', () => {
@@ -194,5 +211,23 @@ describe('AdminManualPaymentRefundForm', () => {
     await user.click(screen.getByRole('button', { name: 'Record manual refund for interac-2' }));
     await user.click(screen.getByRole('button', { name: 'Record refund' }));
     expect(await screen.findByRole('status')).toHaveTextContent('Manual ledger unavailable.');
+  });
+
+  it('omits an empty note and defaults a missing currency to CAD', async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ amountMinor: 500, currency: null }), { status: 200 }),
+    );
+    render(<AdminManualPaymentRefundForm paymentId="interac-default" remainingMinor={500} />);
+    await user.click(
+      screen.getByRole('button', { name: 'Record manual refund for interac-default' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Record refund' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Refund recorded: $5.00.');
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({
+      paymentId: 'interac-default',
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).note).toBeUndefined();
   });
 });

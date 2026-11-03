@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
   fetch: vi.fn(),
 }));
+let settingsResponses: Array<{ ok: boolean; json: () => Promise<unknown> }> = [];
+let reviewResponses: Array<{ ok: boolean; json: () => Promise<unknown> }> = [];
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: mocks.refresh, replace: mocks.replace }),
@@ -64,7 +66,15 @@ const rows = [
 beforeEach(() => {
   mocks.refresh.mockReset();
   mocks.replace.mockReset();
-  mocks.fetch.mockReset().mockResolvedValue({ ok: true, json: async () => ({}) });
+  settingsResponses = [];
+  reviewResponses = [];
+  mocks.fetch.mockReset().mockImplementation((input: RequestInfo | URL) => {
+    const endpoint = String(input);
+    if (endpoint.includes('pending-interac-count'))
+      return Promise.resolve({ ok: true, json: async () => ({ count: 0 }) });
+    const responses = endpoint.includes('interac-settings') ? settingsResponses : reviewResponses;
+    return Promise.resolve(responses.shift() ?? { ok: true, json: async () => ({}) });
+  });
   vi.stubGlobal('fetch', mocks.fetch);
 });
 afterEach(() => {
@@ -89,14 +99,17 @@ describe('AdminPaymentsWorkspace', () => {
     await user.type(screen.getByRole('textbox', { name: 'Instructions' }), 'Transfer details');
     await user.click(screen.getByRole('button', { name: 'Save instructions' }));
     expect(await screen.findByRole('status')).toHaveTextContent('Interac settings saved.');
-    expect(JSON.parse(String(mocks.fetch.mock.calls[0][1]?.body))).toEqual({
+    const settingsCall = mocks.fetch.mock.calls.find(([url]) =>
+      String(url).includes('interac-settings'),
+    );
+    expect(JSON.parse(String(settingsCall?.[1]?.body))).toEqual({
       enabled: true,
       recipientEmail: 'new@example.test',
       instructions: 'Transfer details',
     });
     expect(mocks.refresh).toHaveBeenCalledOnce();
 
-    mocks.fetch.mockResolvedValueOnce({
+    settingsResponses.push({
       ok: false,
       json: async () => ({ error: 'Settings unavailable.' }),
     });
@@ -106,9 +119,10 @@ describe('AdminPaymentsWorkspace', () => {
 
   it('confirms and retries a failed payment review, and requires a rejection note', async () => {
     const user = userEvent.setup();
-    mocks.fetch
-      .mockResolvedValueOnce({ ok: false, json: async () => ({ error: 'Review unavailable.' }) })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) });
+    reviewResponses.push(
+      { ok: false, json: async () => ({ error: 'Review unavailable.' }) },
+      { ok: true, json: async () => ({ ok: true }) },
+    );
     renderWorkspace();
     await user.click(screen.getByRole('tab', { name: 'Interac' }));
     expect(screen.getByText('Unknown user')).toBeInTheDocument();
@@ -124,7 +138,8 @@ describe('AdminPaymentsWorkspace', () => {
       within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Confirm payment' }),
     );
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
-    expect(JSON.parse(String(mocks.fetch.mock.calls[1][1]?.body))).toMatchObject({
+    const reviewCalls = mocks.fetch.mock.calls.filter(([url]) => String(url).includes('/review'));
+    expect(JSON.parse(String(reviewCalls[1][1]?.body))).toMatchObject({
       paymentId: 'interac-submitted',
       action: 'confirm',
     });
@@ -209,7 +224,8 @@ describe('AdminPaymentsWorkspace', () => {
       within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Confirm payment' }),
     );
     await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce());
-    expect(JSON.parse(String(mocks.fetch.mock.calls[0][1]?.body))).toMatchObject({
+    const reviewCalls = mocks.fetch.mock.calls.filter(([url]) => String(url).includes('/review'));
+    expect(JSON.parse(String(reviewCalls[0][1]?.body))).toMatchObject({
       paymentId: 'interac-submitted',
       action: 'confirm',
     });
@@ -222,8 +238,15 @@ describe('AdminPaymentsWorkspace', () => {
     await user.click(
       within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Reject payment' }),
     );
-    await waitFor(() => expect(mocks.fetch).toHaveBeenCalledTimes(2));
-    expect(JSON.parse(String(mocks.fetch.mock.calls[1][1]?.body))).toMatchObject({
+    await waitFor(() =>
+      expect(
+        mocks.fetch.mock.calls.filter(([url]) => String(url).includes('/review')),
+      ).toHaveLength(2),
+    );
+    const updatedReviewCalls = mocks.fetch.mock.calls.filter(([url]) =>
+      String(url).includes('/review'),
+    );
+    expect(JSON.parse(String(updatedReviewCalls[1][1]?.body))).toMatchObject({
       paymentId: 'interac-submitted',
       action: 'reject',
       note: 'No matching transfer',

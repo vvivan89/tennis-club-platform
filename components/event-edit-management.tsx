@@ -10,7 +10,11 @@ import { Button } from '@/components/ui/button';
 import { SearchableMemberSelect } from '@/components/searchable-member-select';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { AssignmentDropZone, DraggableItem } from '@/components/drag-drop';
-import { calculateLadderSession, type LadderMetric } from '@/lib/social-doubles-ladder';
+import {
+  calculateLadderSession,
+  normalizeLadderScores,
+  type LadderMetric,
+} from '@/lib/social-doubles-ladder';
 import { registrationErrorMessage } from '@/lib/registration-error-message';
 
 type Person = {
@@ -503,26 +507,7 @@ export function EventEditManagement({
         { setsWon: number; setsLost: number; gamesWon: number; gamesLost: number }
       >();
       for (const rows of byCourtSession.values()) {
-        const normalized = (rows ?? []).flatMap((row) => {
-          const sideOne = [row.player_one_registration_id, row.player_two_registration_id]
-            .filter(Boolean)
-            .map((id) => userByRegistration.get(id!))
-            .filter(Boolean) as string[];
-          const sideTwo = [row.player_three_registration_id, row.player_four_registration_id]
-            .filter(Boolean)
-            .map((id) => userByRegistration.get(id!))
-            .filter(Boolean) as string[];
-          if (!sideOne.length || !sideTwo.length) return [];
-          return [
-            {
-              playerIds: [...sideOne, ...sideTwo],
-              sideOneIds: sideOne,
-              sideTwoIds: sideTwo,
-              scoreOne: Number(row.player_one_score),
-              scoreTwo: Number(row.player_two_score),
-            },
-          ];
-        });
+        const normalized = normalizeLadderScores(rows ?? [], userByRegistration);
         const result = calculateLadderSession(
           normalized,
           names,

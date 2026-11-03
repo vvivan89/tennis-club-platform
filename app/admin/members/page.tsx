@@ -84,6 +84,7 @@ export default async function MembersAdminPage({
       .from('profiles')
       .select('id,full_name,email,phone,tennis_skill_level,application_comment,created_at')
       .eq('application_status', 'pending')
+      .eq('account_kind', 'member')
       .order('created_at');
     return (
       <main className="flex min-h-screen flex-col bg-background text-foreground">
@@ -119,6 +120,8 @@ export default async function MembersAdminPage({
     db
       .from('profiles')
       .select('id,full_name,email,phone,tennis_skill_level,role,created_at')
+      .eq('application_status', 'approved')
+      .eq('account_kind', 'member')
       .order('full_name'),
     db
       .from('memberships')

@@ -160,4 +160,55 @@ describe('admin event pages', () => {
       EditEventPage({ params: Promise.resolve({ slug: 'old-spring-slug' }) }),
     ).rejects.toThrow('redirect:/admin/events/spring-open/edit');
   });
+
+  it('loads an event by legacy UUID and carries shared League configuration into the form', async () => {
+    const legacyId = '11111111-1111-4111-8111-111111111111';
+    mocks.responses['profiles.maybeSingle'] = [{ role: 'admin' }, null];
+    mocks.responses['events.maybeSingle'] = [
+      null,
+      {
+        ...event,
+        id: legacyId,
+        slug: null,
+        created_by: null,
+        social_doubles_ladder_id: 'league-1',
+      },
+    ];
+    mocks.responses['club_settings.maybeSingle'] = [club];
+    mocks.responses['social_doubles_ladders.maybeSingle'] = [
+      {
+        id: 'league-1',
+        name: 'Summer League',
+        competition_type: 'league',
+        tournament_config: { categories: ['women'] },
+        tournament_rules_html: '<p>League rules</p>',
+        gender: 'female',
+      },
+    ];
+    mocks.responses['profiles.then'] = [[]];
+
+    const page = await EditEventPage({ params: Promise.resolve({ slug: legacyId }) });
+    expect(find(page, 'event-management-form')?.props.event).toEqual(
+      expect.objectContaining({
+        id: legacyId,
+        is_league_tournament: true,
+        league_name: 'Summer League',
+        ladder_gender: 'female',
+        tournament_config: { categories: ['women'] },
+        tournament_rules_html: '<p>League rules</p>',
+      }),
+    );
+  });
+
+  it('keeps ordinary event data and suppresses organizer choices for organizer-created events', async () => {
+    mocks.responses['profiles.maybeSingle'] = [{ role: 'admin' }, { role: 'organizer' }];
+    mocks.responses['events.maybeSingle'] = [{ ...event, created_by: 'organizer-1' }];
+    mocks.responses['club_settings.maybeSingle'] = [club];
+    const page = await EditEventPage({ params: Promise.resolve({ slug: event.slug }) });
+    expect(find(page, 'event-management-form')?.props).toMatchObject({
+      event: expect.objectContaining({ title: event.title }),
+      organizerOptions: [],
+      showOrganizerField: false,
+    });
+  });
 });

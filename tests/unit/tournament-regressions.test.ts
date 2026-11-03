@@ -6,6 +6,10 @@ const management = readFileSync(
   join(process.cwd(), 'components/tournament-management.tsx'),
   'utf8',
 );
+const managementConfirmations = readFileSync(
+  join(process.cwd(), 'components/tournament-management-confirmations.tsx'),
+  'utf8',
+);
 const publicView = readFileSync(
   join(process.cwd(), 'components/tournament-public-view.tsx'),
   'utf8',
@@ -44,7 +48,7 @@ describe('tournament regression fixes', () => {
   it('renders the participant roster only once in the tournament overview', () => {
     expect(
       publicView.match(
-        /aria-label=\{leagueTournament \? 'Players and courts' : 'Registered entries'\}/g,
+        /aria-label=\{leagueTournament \? 'Players and courts' : 'Registered Participants'\}/g,
       ) ?? [],
     ).toHaveLength(1);
     expect(publicView).not.toContain('The organizer has not published participants yet.');
@@ -64,8 +68,10 @@ describe('tournament regression fixes', () => {
 
   it('requires the app confirmation dialog before replacing a walkover with a score', () => {
     expect(management).toContain('setPendingWalkoverScore({ match, raw })');
-    expect(management).toContain('title="Replace walkover result?"');
-    expect(management).toContain('confirmLabel="Save score"');
+    expect(management).toContain('<TournamentManagementConfirmations');
+    expect(management).toContain('onConfirmWalkover={() => {');
+    expect(managementConfirmations).toContain('title="Replace walkover result?"');
+    expect(managementConfirmations).toContain('confirmLabel="Save score"');
     expect(management).not.toContain('window.confirm(');
   });
 

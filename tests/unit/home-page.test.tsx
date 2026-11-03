@@ -20,6 +20,10 @@ vi.mock('@/lib/supabase-browser', () => ({
           filters.push([column, value]);
           return query;
         },
+        in: (column: string, value: unknown) => {
+          filters.push([column, value]);
+          return query;
+        },
         gte: () => query,
         order: () => query,
         limit: () => query,
@@ -144,5 +148,50 @@ describe('home page data', () => {
       'status',
       'published',
     ]);
+  });
+
+  it('numbers home-page series and uses safe fallbacks for optional public content', async () => {
+    const seriesEvents = [1, 2].map((number) => ({
+      id: `series-event-${number}`,
+      series_id: 'friday-series',
+      slug: `friday-${number}`,
+      title: 'Friday Social',
+      description: '  ',
+      starts_at: `2027-06-0${number}T18:00:00Z`,
+      registration_opens_at: '2027-06-30T18:00:00Z',
+      registration_closes_at: null,
+      capacity: 12,
+      price_cents: 0,
+      members_only: false,
+      event_type: 'social',
+      status: 'published',
+      location: 'Main courts',
+    }));
+    mocks.rows.events = seriesEvents;
+    mocks.rows.news = [
+      { id: 'news-no-date', title: 'Club notice', body: '<p>Notice</p>', published_at: null },
+    ];
+    mocks.rows.gallery_albums = [
+      { id: 'album-no-previews', title: 'Summer Photos', description: null },
+    ];
+    mocks.rows['gallery_photos.album-no-previews'] = [
+      { id: 'photo-no-caption', storage_path: 'summer/photo.jpg', caption: '' },
+    ];
+    mocks.signedUrls = ['https://signed.example/summer/photo.jpg'];
+    mocks.singles.club_settings = {
+      club_name: 'PCTC',
+      short_name: 'PCTC',
+      social_links: null,
+      location_query: '',
+    };
+
+    render(<Home />);
+
+    expect(await screen.findByRole('heading', { name: 'Friday Social #1' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Friday Social #2' })).toBeInTheDocument();
+    expect(screen.getByText('Club news')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Summer Photos' })).toBeInTheDocument();
+    expect(screen.getAllByText(/Registration opens/)).toHaveLength(2);
+    expect(mocks.queries.filter((query) => query.table === 'events')).toHaveLength(2);
   });
 });

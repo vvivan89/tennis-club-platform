@@ -3,13 +3,14 @@ import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { eventPath } from '@/lib/event-slug';
-import { eventDateLabel as dateLabel } from '@/lib/event-format';
+import { eventDateLabel as dateLabel, eventDisplayTitle } from '@/lib/event-format';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 type EventRow = {
   id: string;
   slug?: string | null;
   title: string;
+  series_number?: number | null;
   description: string | null;
   starts_at: string;
   registration_opens_at: string;
@@ -64,7 +65,7 @@ export function PastEventsList({ events }: { events: EventRow[] }) {
                   </div>
                   <CardHeader className="pb-2">
                     <p className="text-xs text-muted-foreground">{dateLabel(event.starts_at)}</p>
-                    <h3 className="text-xl font-medium">{event.title}</h3>
+                    <h3 className="text-xl font-medium">{eventDisplayTitle(event)}</h3>
                   </CardHeader>
                   {event.description?.trim() && (
                     <CardContent>

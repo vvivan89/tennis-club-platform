@@ -6,6 +6,7 @@ import { Check, Download, Search, X, Save } from 'lucide-react';
 import { AdminPaymentRefundForm } from '@/components/admin-payment-refund-form';
 import { AdminManualPaymentRefundForm } from '@/components/admin-manual-payment-refund-form';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { usePendingInteracPaymentsCount } from '@/lib/use-pending-interac-payments-count';
 
 type Row = {
   id: string;
@@ -123,6 +124,7 @@ export function AdminPaymentsWorkspace({
     action: 'confirm' | 'reject';
   } | null>(null);
   const [actionError, setActionError] = useState('');
+  const pendingInteracPaymentCount = usePendingInteracPaymentsCount(true);
   useEffect(() => {
     setTab(
       validTabs.includes(urlTab as (typeof validTabs)[number])
@@ -270,6 +272,7 @@ export function AdminPaymentsWorkspace({
       if (!response.ok) throw new Error(result.error || 'Review action failed.');
       setReviewNote((v) => ({ ...v, [row.id]: '' }));
       setReviewDialog(null);
+      window.dispatchEvent(new Event('pctc-pending-interac-payments-refresh'));
       router.refresh();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : 'Review action failed.');
@@ -301,6 +304,14 @@ export function AdminPaymentsWorkspace({
             className={`rounded-md px-4 py-2 text-sm font-medium ${tab === t ? 'bg-primary text-primary-foreground' : 'border border-border hover:bg-muted'}`}
           >
             {t === 'report' ? 'Report' : title(t)}
+            {t === 'interac' && pendingInteracPaymentCount > 0 && (
+              <span
+                aria-label={`${pendingInteracPaymentCount} unreviewed Interac payments`}
+                className="ml-2 rounded-full bg-background/20 px-1.5 text-xs"
+              >
+                {pendingInteracPaymentCount > 99 ? '99+' : pendingInteracPaymentCount}
+              </span>
+            )}
           </button>
         ))}
         <div className="ml-auto flex gap-2">

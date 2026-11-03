@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -34,6 +33,7 @@ function PaymentReturnContent() {
   const [fulfilled, setFulfilled] = useState(false);
   const [error, setError] = useState('');
   const [cancellationNotice, setCancellationNotice] = useState('');
+  const [cancellationResolved, setCancellationResolved] = useState(!canceled || !paymentId);
   const [loading, setLoading] = useState(Boolean((sessionId || paymentId) && !canceled));
 
   useEffect(() => {
@@ -48,24 +48,28 @@ function PaymentReturnContent() {
         .then(async (response) => {
           const result = await response.json().catch(() => ({}));
           if (!active) return;
-          if (!response.ok)
+          if (!response.ok) {
             setCancellationNotice(
               'The payment state could not be verified. Any provisional tournament entry was kept until its status can be confirmed.',
             );
-          else if (result.provisionalRegistrationRemoved)
+          } else if (result.provisionalRegistrationRemoved) {
             setCancellationNotice(
               'Cancellation was confirmed and the provisional tournament registration was removed.',
             );
-          else
+          } else {
             setCancellationNotice(
               'Checkout cancellation was received. No provisional guest tournament registration needed to be removed.',
             );
+          }
+          setCancellationResolved(true);
         })
         .catch(() => {
-          if (active)
+          if (active) {
             setCancellationNotice(
               'The payment state could not be verified. Any provisional tournament entry was kept until its status can be confirmed.',
             );
+            setCancellationResolved(true);
+          }
         });
       return () => {
         active = false;
@@ -192,8 +196,8 @@ function PaymentReturnContent() {
           </p>
         )}
         <div className="mt-6 flex flex-wrap gap-3">
-          <Button asChild>
-            <Link href={returnTo}>{returnLabel}</Link>
+          <Button disabled={!cancellationResolved} onClick={() => window.location.assign(returnTo)}>
+            {returnLabel}
           </Button>
         </div>
       </section>

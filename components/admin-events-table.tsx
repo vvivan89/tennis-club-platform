@@ -8,6 +8,7 @@ import { Pencil, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { eventEditPath } from '@/lib/event-slug';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { eventDisplayTitle } from '@/lib/event-format';
 
 type AdminEvent = {
   id: string;
@@ -19,6 +20,7 @@ type AdminEvent = {
   capacity: number;
   price_cents: number;
   series_id: string | null;
+  series_number?: number | null;
   created_by?: string | null;
   organizer_id?: string | null;
   event_type?: string | null;
@@ -95,7 +97,7 @@ export function AdminEventsTable({ events }: { events: AdminEvent[] }) {
                   : 'doubles';
           const day = event.starts_at.slice(0, 10);
           return (
-            event.title.toLowerCase().includes(search.trim().toLowerCase()) &&
+            eventDisplayTitle(event).toLowerCase().includes(search.trim().toLowerCase()) &&
             (type === 'all' || type === eventType) &&
             (price === 'all' ||
               (price === 'free' ? event.price_cents === 0 : event.price_cents > 0)) &&
@@ -246,7 +248,7 @@ export function AdminEventsTable({ events }: { events: AdminEvent[] }) {
           <tbody>
             {filtered.map((event) => (
               <tr key={event.id} className="border-t border-border">
-                <td className="px-4 py-3 font-medium">{event.title}</td>
+                <td className="px-4 py-3 font-medium">{eventDisplayTitle(event)}</td>
                 <td className="whitespace-nowrap px-4 py-3">{typeLabel(event)}</td>
                 <td className="whitespace-nowrap px-4 py-3">{formatDateTime(event.starts_at)}</td>
                 <td className="whitespace-nowrap px-4 py-3">
@@ -270,7 +272,7 @@ export function AdminEventsTable({ events }: { events: AdminEvent[] }) {
                         asChild
                         size="icon"
                         variant="outline"
-                        aria-label={`Edit ${event.title}`}
+                        aria-label={`Edit ${eventDisplayTitle(event)}`}
                         title="Edit event"
                       >
                         <Link href={eventEditPath(event)}>
@@ -282,7 +284,7 @@ export function AdminEventsTable({ events }: { events: AdminEvent[] }) {
                       <Button
                         size="icon"
                         variant="outline"
-                        aria-label={`Delete ${event.title}`}
+                        aria-label={`Delete ${eventDisplayTitle(event)}`}
                         title="Delete event"
                         disabled={busyId === event.id}
                         onClick={() => setEventToDelete(event)}
@@ -306,8 +308,8 @@ export function AdminEventsTable({ events }: { events: AdminEvent[] }) {
         description={
           eventToDelete ? (
             <>
-              Are you sure you want to delete <strong>{eventToDelete.title}</strong>? This action
-              cannot be undone.
+              Are you sure you want to delete <strong>{eventDisplayTitle(eventToDelete)}</strong>?
+              This action cannot be undone.
             </>
           ) : null
         }

@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   singles: {} as Record<string, unknown>,
   errors: {} as Record<string, { message: string }>,
   writes: [] as Array<{ table: string; operation: string; values: Record<string, unknown> }>,
+  storageUploads: [] as Array<{ bucket: string; path: string; file: File; options: unknown }>,
+  storageUploadError: null as null | { message: string },
   routerReplace: vi.fn(),
   fetch: vi.fn(),
 }));
@@ -20,6 +22,15 @@ vi.mock('next/navigation', () => {
 vi.mock('@/lib/supabase-browser', () => ({
   createSupabaseBrowserClient: () => ({
     auth: { getUser: async () => ({ data: { user: mocks.user }, error: null }) },
+    storage: {
+      from: (bucket: string) => ({
+        upload: async (path: string, file: File, options: unknown) => {
+          mocks.storageUploads.push({ bucket, path, file, options });
+          return { error: mocks.storageUploadError };
+        },
+        getPublicUrl: (path: string) => ({ data: { publicUrl: `https://cdn.example/${path}` } }),
+      }),
+    },
     from: (table: string) => {
       let operation = 'select';
       let values: Record<string, unknown> = {};
@@ -108,6 +119,8 @@ beforeEach(() => {
   };
   mocks.errors = {};
   mocks.writes = [];
+  mocks.storageUploads = [];
+  mocks.storageUploadError = null;
   mocks.routerReplace.mockReset();
   window.history.replaceState({}, '', '/');
   mocks.fetch.mockReset().mockImplementation(async (url: string, init?: RequestInit) => {
@@ -165,6 +178,124 @@ describe('admin client pages', () => {
         social_links: [{ url: 'https://instagram.com/pctc' }],
       }),
     });
+  });
+
+  it('requires a map search location for valid map links and reports failed profile saves', async () => {
+    const user = userEvent.setup();
+    render(<ClubProfileAdminPage />);
+    await screen.findByRole('tab', { name: 'Club info' });
+    await user.clear(
+      screen.getByPlaceholderText('e.g. Port Coquitlam Tennis Club, Port Coquitlam, BC'),
+    );
+    await user.type(
+      screen.getByPlaceholderText('https://maps.app.goo.gl/...'),
+      'javascript:alert(1)',
+    );
+    fireEvent.submit(
+      screen.getByRole('button', { name: 'Save club information' }).closest('form')!,
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent('Enter a valid Google Maps link.');
+
+    await user.clear(screen.getByPlaceholderText('https://maps.app.goo.gl/...'));
+    await user.type(
+      screen.getByPlaceholderText('https://maps.app.goo.gl/...'),
+      'https://maps.google.com/?q=courts',
+    );
+    fireEvent.submit(
+      screen.getByRole('button', { name: 'Save club information' }).closest('form')!,
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Enter the club address or place name so the map can be embedded reliably.',
+    );
+
+    await user.type(
+      screen.getByPlaceholderText('e.g. Port Coquitlam Tennis Club, Port Coquitlam, BC'),
+      'Tennis courts',
+    );
+    mocks.errors['club_settings.upsert'] = { message: 'database unavailable' };
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    fireEvent.submit(
+      screen.getByRole('button', { name: 'Save club information' }).closest('form')!,
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not save club information. Please try again.',
+    );
+    expect(consoleError).toHaveBeenCalled();
+  });
+
+  it('renders the matching icon for each supported social network and a fallback icon', async () => {
+    mocks.singles.club_settings = {
+      ...(mocks.singles.club_settings as Record<string, unknown>),
+      social_links: [
+        { url: 'https://facebook.com/pctc' },
+        { url: 'https://instagram.com/pctc' },
+        { url: 'https://x.com/pctc' },
+        { url: 'https://youtu.be/pctc' },
+        { url: 'https://linkedin.com/company/pctc' },
+        { url: 'https://tiktok.com/@pctc' },
+        { url: 'https://example.test/pctc' },
+      ],
+    };
+    const { container } = render(<ClubProfileAdminPage />);
+    await screen.findByDisplayValue('Port Coquitlam Tennis Club');
+    expect(container.querySelectorAll('svg').length).toBeGreaterThanOrEqual(7);
+  });
+
+  it('validates logo files, uploads accepted images, and can remove the uploaded logo', async () => {
+    const user = userEvent.setup();
+    render(<ClubProfileAdminPage />);
+    await screen.findByRole('tab', { name: 'Club info' });
+    const input = screen.getByLabelText('Club logo') as HTMLInputElement;
+    const wrongType = new File(['not image'], 'logo.txt', { type: 'text/plain' });
+    fireEvent.change(input, { target: { files: [wrongType] } });
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Upload a PNG, JPEG, WebP, or SVG logo.',
+    );
+    expect(mocks.storageUploads).toHaveLength(0);
+
+    const tooLarge = new File(['image'], 'large.png', { type: 'image/png' });
+    Object.defineProperty(tooLarge, 'size', { value: 5 * 1024 * 1024 + 1 });
+    fireEvent.change(input, { target: { files: [tooLarge] } });
+    expect(await screen.findByRole('alert')).toHaveTextContent('The logo must be 5 MB or smaller.');
+    expect(mocks.storageUploads).toHaveLength(0);
+
+    const valid = new File(['image data'], 'club logo.png', { type: 'image/png' });
+    fireEvent.change(input, { target: { files: [valid] } });
+    expect(
+      await screen.findAllByText('Logo uploaded. Save the club profile to publish it.'),
+    ).toHaveLength(2);
+    expect(mocks.storageUploads).toHaveLength(1);
+    expect(mocks.storageUploads[0]).toMatchObject({
+      bucket: 'club-assets',
+      file: valid,
+      options: { upsert: true, contentType: 'image/png' },
+    });
+    expect(screen.getByRole('img', { name: 'Club logo preview' })).toHaveAttribute(
+      'src',
+      expect.stringContaining('https://cdn.example/logo/'),
+    );
+    await user.click(screen.getByRole('button', { name: 'Remove logo' }));
+    expect(screen.queryByRole('img', { name: 'Club logo preview' })).not.toBeInTheDocument();
+  });
+
+  it('reports storage upload failures without changing the configured logo', async () => {
+    mocks.singles.club_settings = {
+      ...(mocks.singles.club_settings as Record<string, unknown>),
+      logo_url: 'https://cdn.example/old.png',
+    };
+    mocks.storageUploadError = { message: 'storage unavailable' };
+    render(<ClubProfileAdminPage />);
+    await screen.findByRole('tab', { name: 'Club info' });
+    fireEvent.change(screen.getByLabelText('Club logo'), {
+      target: { files: [new File(['image'], 'new.png', { type: 'image/png' })] },
+    });
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not upload the logo. Please try again.',
+    );
+    expect(screen.getByRole('img', { name: 'Club logo preview' })).toHaveAttribute(
+      'src',
+      'https://cdn.example/old.png',
+    );
   });
 
   it('validates contact rows and saves normalized private club-contact details', async () => {
@@ -275,6 +406,51 @@ describe('admin client pages', () => {
     });
   });
 
+  it.each([
+    ['delete', 'Could not save contact details. Please try again.'],
+    ['insert', 'Could not save contact details. Please try again.'],
+  ])('shows an error when saving club contacts fails during %s', async (operation, message) => {
+    mocks.rows.profiles = [
+      { id: 'member-2', full_name: 'Jordan Member', email: 'jordan@example.com' },
+    ];
+    mocks.rows.club_contacts =
+      operation === 'delete'
+        ? [
+            {
+              id: 'old-contact',
+              profile_id: 'member-2',
+              position: 'Director',
+              emails: [],
+              phones: [],
+            },
+          ]
+        : [];
+    mocks.errors[`club_contacts.${operation}`] = { message: 'database unavailable' };
+    const user = userEvent.setup();
+    render(<ClubProfileAdminPage />);
+    await user.click(await screen.findByRole('tab', { name: 'Club contacts' }));
+
+    if (operation === 'delete') {
+      const existing = screen
+        .getByLabelText('Position')
+        .closest('.rounded-lg.border') as HTMLElement;
+      if (existing) await user.click(within(existing).getByRole('button', { name: 'Remove' }));
+    } else {
+      await user.click(screen.getByRole('button', { name: 'Add contact' }));
+      await user.selectOptions(screen.getByLabelText('Member'), 'member-2');
+      await user.type(screen.getByPlaceholderText('e.g. President'), 'President');
+    }
+
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    fireEvent.submit(
+      screen
+        .getByRole('button', { name: 'Save contact details' })
+        .closest('form') as HTMLFormElement,
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent(message);
+    expect(consoleError).toHaveBeenCalled();
+  });
+
   it('archives the current legal version and saves a new incremented version', async () => {
     window.history.replaceState({}, '', '/admin/documents?tab=terms_of_use');
     mocks.rows.legal_document_versions = [
@@ -328,6 +504,44 @@ describe('admin client pages', () => {
         is_current: true,
       }),
     });
+  });
+
+  it('validates legal document content and reports archive or insert failures', async () => {
+    const user = userEvent.setup();
+    render(<AdminLegalPage />);
+    const title = await screen.findByLabelText('Document title');
+    await user.clear(title);
+    fireEvent.submit(screen.getByRole('button', { name: 'Save new version' }).closest('form')!);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Enter a document title and text.');
+
+    await user.type(title, 'New waiver');
+    mocks.errors['legal_document_versions.update'] = { message: 'archive failed' };
+    fireEvent.submit(screen.getByRole('button', { name: 'Save new version' }).closest('form')!);
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not save legal document. Please try again.',
+    );
+
+    delete mocks.errors['legal_document_versions.update'];
+    mocks.errors['legal_document_versions.insert'] = { message: 'insert failed' };
+    fireEvent.submit(screen.getByRole('button', { name: 'Save new version' }).closest('form')!);
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not save legal document. Please try again.',
+    );
+  });
+
+  it('shows legal document load errors and supports the uploaded documents tab', async () => {
+    mocks.errors['legal_document_versions.select'] = { message: 'database unavailable' };
+    window.history.replaceState({}, '', '/admin/documents?tab=disclaimer');
+    const { unmount } = render(<AdminLegalPage />);
+    expect(
+      await screen.findByText('Could not load legal documents. Please try again.'),
+    ).toBeInTheDocument();
+    unmount();
+
+    window.history.replaceState({}, '', '/admin/documents?tab=uploaded_documents');
+    render(<AdminLegalPage />);
+    expect(await screen.findByText('Uploaded documents editor')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save new version' })).not.toBeInTheDocument();
   });
 
   it('sends email announcements to the selected group and reports delivery counts', async () => {
@@ -389,6 +603,94 @@ describe('admin client pages', () => {
         ([, init]) => init?.method === 'POST' && !JSON.parse(String(init.body)).preview,
       ),
     ).toHaveLength(0);
+  });
+
+  it('reports empty recipient groups and API validation errors during announcement preview', async () => {
+    window.history.replaceState({}, '', '/admin/website?tab=announcements');
+    const user = userEvent.setup();
+    render(<WebsiteAdminPage />);
+    await user.type(await screen.findByLabelText('Email subject'), 'Update');
+    await user.type(screen.getByLabelText('Rich text content'), 'Details');
+
+    mocks.fetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === '/api/admin/email-history') return new Response('{}', { status: 503 });
+      if (init?.method === 'POST')
+        return new Response(JSON.stringify({ recipientCount: 0 }), { status: 200 });
+      return new Response('{}', { status: 200 });
+    });
+    fireEvent.submit(
+      screen.getByRole('button', { name: 'Send email announcement' }).closest('form')!,
+    );
+    expect(
+      await screen.findByText('This group has no recipients with an email address.'),
+    ).toBeInTheDocument();
+
+    mocks.fetch.mockImplementation(async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'POST')
+        return new Response(JSON.stringify({ error: 'Audience is unavailable.' }), { status: 422 });
+      return new Response('{}', { status: 200 });
+    });
+    fireEvent.submit(
+      screen.getByRole('button', { name: 'Send email announcement' }).closest('form')!,
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent('Audience is unavailable.');
+  });
+
+  it('uses a generic preview error for server failures and handles malformed responses', async () => {
+    window.history.replaceState({}, '', '/admin/website?tab=announcements');
+    const user = userEvent.setup();
+    render(<WebsiteAdminPage />);
+    await user.type(await screen.findByLabelText('Email subject'), 'Update');
+    await user.type(screen.getByLabelText('Rich text content'), 'Details');
+
+    mocks.fetch.mockImplementation(async (_url: string, init?: RequestInit) =>
+      init?.method === 'POST'
+        ? new Response(JSON.stringify({ error: 'Internal detail' }), { status: 500 })
+        : new Response('{}', { status: 200 }),
+    );
+    fireEvent.submit(
+      screen.getByRole('button', { name: 'Send email announcement' }).closest('form')!,
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not send email. Please try again.',
+    );
+
+    mocks.fetch.mockImplementation(async (_url: string, init?: RequestInit) =>
+      init?.method === 'POST'
+        ? new Response('not json', { status: 400 })
+        : new Response('{}', { status: 200 }),
+    );
+    fireEvent.submit(
+      screen.getByRole('button', { name: 'Send email announcement' }).closest('form')!,
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not send email. Please try again.',
+    );
+  });
+
+  it('reports delivery failures and refreshes history after sending an announcement', async () => {
+    window.history.replaceState({}, '', '/admin/website?tab=announcements');
+    const user = userEvent.setup();
+    render(<WebsiteAdminPage />);
+    await user.type(await screen.findByLabelText('Email subject'), 'Update');
+    await user.type(screen.getByLabelText('Rich text content'), 'Details');
+    mocks.fetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === '/api/admin/email-history')
+        return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      if (init?.method === 'POST' && JSON.parse(String(init.body)).preview)
+        return new Response(JSON.stringify({ recipientCount: 1 }), { status: 200 });
+      if (init?.method === 'POST')
+        return new Response(JSON.stringify({ sent: 0, failed: 1 }), { status: 200 });
+      return new Response('{}', { status: 200 });
+    });
+    fireEvent.submit(
+      screen.getByRole('button', { name: 'Send email announcement' }).closest('form')!,
+    );
+    await user.click(await screen.findByRole('button', { name: 'Send' }));
+    expect(
+      await screen.findByText('Email announcement sent: 0 successful, 1 failed.'),
+    ).toBeInTheDocument();
+    expect(mocks.fetch).toHaveBeenCalledWith('/api/admin/email-history');
   });
 
   it('creates a news draft, publishes and unpublishes it, then confirms deletion', async () => {
@@ -460,5 +762,76 @@ describe('admin client pages', () => {
     );
     await waitFor(() => expect(screen.queryByText('Draft announcement')).not.toBeInTheDocument());
     expect(mocks.writes).toContainEqual({ table: 'news', operation: 'delete', values: {} });
+  });
+
+  it('reports website news load and mutation failures and renders historical email audiences', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    window.history.replaceState({}, '', '/admin/website?tab=gallery');
+    const gallery = render(<WebsiteAdminPage />);
+    expect(await screen.findByText('Gallery editor')).toBeInTheDocument();
+    gallery.unmount();
+
+    window.history.replaceState({}, '', '/admin/website');
+    mocks.errors['news.select'] = { message: 'temporarily unavailable' };
+    const { unmount } = render(<WebsiteAdminPage />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load website news');
+    unmount();
+    delete mocks.errors['news.select'];
+
+    mocks.rows.news = [
+      {
+        id: 'news-item',
+        title: 'Current draft',
+        body: '<p>Body</p>',
+        published: false,
+        published_at: null,
+        created_at: '2026-10-01T12:00:00Z',
+      },
+    ];
+    mocks.fetch.mockImplementation(async (url: string) =>
+      url === '/api/admin/email-history'
+        ? new Response(
+            JSON.stringify({
+              items: [
+                {
+                  id: 'email-1',
+                  subject: 'Older notice',
+                  body_html: '<p>Sent</p>',
+                  recipient_group: 'legacy_group',
+                  sent_count: 3,
+                  failed_count: 1,
+                  sent_at: '2026-10-01T12:00:00Z',
+                },
+              ],
+            }),
+            { status: 200 },
+          )
+        : new Response('{}', { status: 200 }),
+    );
+    window.history.replaceState({}, '', '/admin/website?tab=announcements');
+    const announcements = render(<WebsiteAdminPage />);
+    expect(await screen.findByText('Older notice')).toBeInTheDocument();
+    expect(screen.getByText('Older notice').closest('.rounded-xl')).toHaveTextContent(
+      'legacy_group',
+    );
+    announcements.unmount();
+
+    window.history.replaceState({}, '', '/admin/website?tab=news');
+    render(<WebsiteAdminPage />);
+    const draft = (await screen.findByText('Current draft')).closest('.rounded-xl') as HTMLElement;
+    mocks.errors['news.update'] = { message: 'write denied' };
+    const user = userEvent.setup();
+    await user.click(within(draft).getByRole('button', { name: 'Publish' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not update website news');
+    delete mocks.errors['news.update'];
+
+    mocks.errors['news.delete'] = { message: 'delete denied' };
+    await user.click(within(draft).getByRole('button', { name: 'Delete' }));
+    await user.click(
+      screen.getByRole('alertdialog').querySelector('button:last-child') as HTMLButtonElement,
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not delete website news');
+    delete mocks.errors['news.delete'];
+    expect(consoleError).toHaveBeenCalled();
   });
 });

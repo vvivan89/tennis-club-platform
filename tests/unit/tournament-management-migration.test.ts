@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const migration = readFileSync(
-  join(process.cwd(), 'supabase/migrations/0048_tournament_management.sql'),
+  join(process.cwd(), 'supabase/migration_archive/0048_tournament_management.sql'),
   'utf8',
 );
 const consolidated = readFileSync(
@@ -21,15 +21,15 @@ const publicView = readFileSync(
 );
 const rankings = readFileSync(join(process.cwd(), 'lib/rankings-data.ts'), 'utf8');
 const realtimeMigration = readFileSync(
-  join(process.cwd(), 'supabase/migrations/0050_tournament_realtime_publication.sql'),
+  join(process.cwd(), 'supabase/migration_archive/0050_tournament_realtime_publication.sql'),
   'utf8',
 );
 const genderEligibilityMigration = readFileSync(
-  join(process.cwd(), 'supabase/migrations/0051_tournament_gender_eligibility.sql'),
+  join(process.cwd(), 'supabase/migration_archive/0051_tournament_gender_eligibility.sql'),
   'utf8',
 );
 const publicGenderOverrideMigration = readFileSync(
-  join(process.cwd(), 'supabase/migrations/0052_tournament_public_gender_override.sql'),
+  join(process.cwd(), 'supabase/migration_archive/0052_tournament_public_gender_override.sql'),
   'utf8',
 );
 

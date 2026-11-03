@@ -26,6 +26,8 @@ export default async function CreateEventPage() {
           .from('profiles')
           .select('id,full_name,email,role')
           .in('role', ['admin', 'organizer'])
+          .eq('application_status', 'approved')
+          .eq('account_kind', 'member')
           .order('full_name')
       : { data: [] };
   return (

@@ -112,6 +112,9 @@ describe('POST /api/admin/invite-member', () => {
     expect((await POST(request({ ...valid, email: ' ' }))).status).toBe(400);
     expect((await POST(request({ ...valid, phone: ' ' }))).status).toBe(400);
     expect((await POST(request({ ...valid, tennis_skill_level: '8.0' }))).status).toBe(400);
+    expect((await POST(request({ ...valid, gender: 'other' }))).status).toBe(400);
+    expect((await POST(request({ ...valid, date_of_birth: '2020-02-31' }))).status).toBe(400);
+    expect((await POST(request({ ...valid, date_of_birth: '2999-01-01' }))).status).toBe(400);
     expect(mocks.createClient).not.toHaveBeenCalled();
   });
 
@@ -160,5 +163,20 @@ describe('POST /api/admin/invite-member', () => {
     expect(await membershipFailure.json()).toMatchObject({
       error: expect.stringContaining('membership insert failed'),
     });
+  });
+
+  it('returns clear errors when service configuration or the invited user is missing', async () => {
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', '');
+    const missingConfig = await POST(request(valid));
+    expect(missingConfig.status).toBe(500);
+    expect(await missingConfig.json()).toMatchObject({
+      error: expect.stringContaining('SUPABASE_SERVICE_ROLE_KEY'),
+    });
+
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service-key');
+    mocks.invitedUser = null;
+    const missingUser = await POST(request(valid));
+    expect(missingUser.status).toBe(500);
+    expect(await missingUser.json()).toEqual({ error: 'Invitation did not create a user.' });
   });
 });

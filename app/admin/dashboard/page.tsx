@@ -20,24 +20,25 @@ export default async function AdminPage() {
   if (profile?.role !== 'admin') redirect('/member/dashboard');
   const [
     { count: memberCount },
-    { count: pendingCount },
     { data: profiles },
     { data: memberships },
     { data: payments },
+    { data: familyMembers },
     { data: events },
     { data: settings },
     { data: registrations },
     { data: promotions },
   ] = await Promise.all([
-    supabase.from('profiles').select('*', { count: 'exact', head: true }),
     supabase
-      .from('memberships')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'pending'),
+      .from('profiles')
+      .select('id', { count: 'exact', head: true })
+      .eq('application_status', 'approved')
+      .eq('account_kind', 'member'),
     supabase
       .from('profiles')
       .select('id,full_name,email,application_status')
-      .eq('application_status', 'approved'),
+      .eq('application_status', 'approved')
+      .eq('account_kind', 'member'),
     supabase
       .from('memberships')
       .select('id,user_id,status,payment_status,created_at,ends_on')
@@ -46,6 +47,11 @@ export default async function AdminPage() {
       .from('payments')
       .select('business_record_id,status,succeeded_at,created_at')
       .eq('purpose', 'membership')
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('membership_family_members')
+      .select('family_id,user_id,status,created_at,membership_families(paid_at,season_year)')
+      .in('status', ['confirmed', 'removed_next_season'])
       .order('created_at', { ascending: false }),
     supabase
       .from('events')
@@ -59,17 +65,27 @@ export default async function AdminPage() {
     supabase.from('registrations').select('event_id,user_id,status,created_at'),
     supabase.from('event_waitlist_promotions').select('event_id,user_id,promoted_at'),
   ]);
-  const paymentByMembership = new Map<string, boolean>();
+  const paymentByRecord = new Map<string, boolean>();
   for (const payment of payments ?? []) {
-    if (!payment.business_record_id) continue;
-    const wasPaid =
-      payment.status === 'succeeded' ||
-      payment.status === 'partially_refunded' ||
-      payment.status === 'refunded';
-    paymentByMembership.set(
+    if (!payment.business_record_id || paymentByRecord.has(payment.business_record_id)) continue;
+    // Results are newest first: use the latest payment state so an older success
+    // cannot hide a later full refund.
+    paymentByRecord.set(
       payment.business_record_id,
-      (paymentByMembership.get(payment.business_record_id) ?? false) || wasPaid,
+      payment.status === 'succeeded' || payment.status === 'partially_refunded',
     );
+  }
+  const paidFamilyIds = new Set(
+    [...paymentByRecord.entries()]
+      .filter(([recordId, paid]) => recordId.startsWith('family:') && paid)
+      .map(([recordId]) => recordId.slice('family:'.length)),
+  );
+  const paidFamilyMembers = new Set<string>();
+  for (const member of familyMembers ?? []) {
+    const relation = member.membership_families;
+    const family = Array.isArray(relation) ? relation[0] : relation;
+    if (family?.paid_at || paidFamilyIds.has(member.family_id))
+      paidFamilyMembers.add(member.user_id);
   }
   const latestMembershipByUser = new Map<string, NonNullable<typeof memberships>[number]>();
   for (const membership of memberships ?? [])
@@ -79,7 +95,10 @@ export default async function AdminPage() {
     .flatMap((member) => {
       const m = latestMembershipByUser.get(member.id);
       if (!m || !['active', 'expired'].includes(m.status)) return [];
-      const paid = m.payment_status === 'paid' || paymentByMembership.get(m.id) === true;
+      const paid =
+        paidFamilyMembers.has(member.id) ||
+        m.payment_status === 'paid' ||
+        paymentByRecord.get(m.id) === true;
       if (paid) return [];
       return [
         { ...member, membershipStatus: m.status, createdAt: m.created_at, endsOn: m.ends_on },
@@ -87,9 +106,16 @@ export default async function AdminPage() {
     })
     .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
   const paidCount = (profiles ?? []).filter((member) => {
+    // A paid family record covers its confirmed members even if their individual
+    // membership rows remain pending; mirror the Members page's family logic.
+    if (paidFamilyMembers.has(member.id)) return true;
     const m = latestMembershipByUser.get(member.id);
     if (!m || !['active', 'expired'].includes(m.status)) return false;
-    return m.payment_status === 'paid' || paymentByMembership.get(m.id) === true;
+    return m.payment_status === 'paid' || paymentByRecord.get(m.id) === true;
+  }).length;
+  const pendingCount = (profiles ?? []).filter((member) => {
+    const m = latestMembershipByUser.get(member.id);
+    return m?.status === 'pending' && !paidFamilyMembers.has(member.id);
   }).length;
   const now = new Date();
   const startMonth = settings?.season_start_month ?? 4,
@@ -187,6 +213,7 @@ export default async function AdminPage() {
   function average(values: number[]) {
     return values.length ? values.reduce((sum, n) => sum + n, 0) / values.length : 0;
   }
+  const wholeCount = (value: number) => String(Math.round(value));
   return (
     <main className="flex min-h-screen flex-col bg-background text-foreground">
       <AdminNav />
@@ -212,7 +239,7 @@ export default async function AdminPage() {
                 </div>
                 <div>
                   <p className="text-muted-foreground">Pending</p>
-                  <p className="font-semibold">{pendingCount ?? 0}</p>
+                  <p className="font-semibold">{pendingCount}</p>
                 </div>
               </div>
             </CardHeader>
@@ -269,7 +296,7 @@ export default async function AdminPage() {
                     </div>
                     <div
                       className="h-7 w-full overflow-visible rounded-md bg-muted/60"
-                      title={`${row.title}: ${row.registered.toFixed(1)} average registered; ${row.sessions} sessions; ${row.vacant.toFixed(1)} average vacant spots; ${row.unpromoted.toFixed(1)} average waitlisted without a spot; ${row.promoted.toFixed(1)} average promoted from waitlist`}
+                      title={`${row.title}: ${wholeCount(row.registered)} average registered; ${row.sessions} sessions; ${wholeCount(row.vacant)} average vacant spots; ${wholeCount(row.unpromoted)} average waitlisted without a spot; ${wholeCount(row.promoted)} average promoted from waitlist`}
                     >
                       <div
                         className="flex h-7 min-w-0 overflow-visible rounded-md"
@@ -297,12 +324,12 @@ export default async function AdminPage() {
                       className="text-right text-sm tabular-nums text-muted-foreground"
                       title="Average total registrations including waitlist"
                     >
-                      {row.registered.toFixed(1)}
+                      {wholeCount(row.registered)}
                     </div>
                     <div className="text-xs text-muted-foreground sm:col-start-2">
-                      {row.sessions} sessions · {row.vacant.toFixed(1)} vacant ·{' '}
-                      {row.unpromoted.toFixed(1)} waitlisted without a spot ·{' '}
-                      {row.promoted.toFixed(1)} promoted on average
+                      {row.sessions} sessions · {wholeCount(row.vacant)} vacant ·{' '}
+                      {wholeCount(row.unpromoted)} waitlisted without a spot ·{' '}
+                      {wholeCount(row.promoted)} promoted on average
                     </div>
                   </div>
                 );

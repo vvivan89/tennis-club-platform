@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  user: null as null | { id: string; email?: string },
+  user: null as null | { id: string; email?: string; email_confirmed_at?: string },
   responses: {} as Record<string, unknown[]>,
   calls: [] as Array<{ table: string; operation: string; values?: unknown }>,
   createClient: vi.fn(),
@@ -105,8 +105,41 @@ const profile = {
   email: 'member@example.test',
   full_name: 'Alex Member',
   application_status: 'approved',
+  account_kind: 'member',
 };
 const waiver = { version: 3 };
+const currentSeasonYear = () => {
+  const now = new Date();
+  const start = new Date(
+    now.getFullYear(),
+    settings.season_start_month - 1,
+    settings.season_start_day,
+  );
+  const end = new Date(
+    now.getFullYear(),
+    settings.season_end_month - 1,
+    settings.season_end_day,
+    23,
+    59,
+    59,
+    999,
+  );
+  return now < start ? now.getFullYear() : now > end ? now.getFullYear() + 1 : now.getFullYear();
+};
+
+function currentMembership(id = 'membership-1') {
+  const now = new Date();
+  const endThisYear = new Date(now.getFullYear(), 8, 30, 23, 59, 59, 999);
+  const seasonYear = now > endThisYear ? now.getFullYear() + 1 : now.getFullYear();
+  return {
+    id,
+    payment_status: 'unpaid',
+    starts_on: `${seasonYear}-04-01`,
+    ends_on: `${seasonYear}-09-30`,
+    waiver_version: '3',
+    waiver_accepted_at: '2026-05-01T12:00:00.000Z',
+  };
+}
 
 function configureEventRegistration(
   overrides: Record<string, unknown> = {},
@@ -138,6 +171,38 @@ function configureEventRegistration(
     },
   ];
   return { purpose: 'event_registration', businessRecordId: 'registration-1' };
+}
+
+function configureTournamentRegistration(overrides: Record<string, unknown> = {}) {
+  configureCommon();
+  const participantId = '33333333-3333-4333-8333-333333333333';
+  mocks.responses['tournament_participants.then'] = [
+    [
+      {
+        id: participantId,
+        event_id: 'event-tournament',
+        user_id: 'member-1',
+        amount_cents: 2500,
+        payment_status: 'pending',
+        status: 'registered',
+        confirmation_status: 'confirmed',
+        display_name: 'Member Player',
+        ...overrides,
+      },
+    ],
+  ];
+  mocks.responses['events.maybeSingle'] = [
+    {
+      id: 'event-tournament',
+      title: 'Summer Open',
+      event_type: 'tournament',
+      status: 'published',
+      starts_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    },
+  ];
+  mocks.responses['payments.then'] = [[]];
+  mocks.responses['payments.maybeSingle'] = [null];
+  return { purpose: 'tournament_registration', businessRecordId: participantId };
 }
 
 function configureCommon() {
@@ -181,6 +246,261 @@ afterEach(() => {
 });
 
 describe('checkout route branch coverage', () => {
+  it('rejects unsupported requests and reports absent payment storage configuration', async () => {
+    expect((await POST(request({ purpose: 'other' }))).status).toBe(400);
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', '');
+    const unavailable = await POST(request({ purpose: 'event_registration' }));
+    expect(unavailable.status).toBe(500);
+    expect(await unavailable.json()).toMatchObject({
+      error: 'Could not start checkout. Please try again or contact the club administrator.',
+    });
+  });
+
+  it('rejects incomplete family checkouts and reports confirmed-member lookup failures', async () => {
+    configureCommon();
+    const body = {
+      purpose: 'membership',
+      membershipKind: 'family',
+      waiverAccepted: true,
+      waiverVersion: 3,
+    };
+    expect((await POST(request(body))).status).toBe(400);
+
+    configureCommon();
+    mocks.responses['membership_families.maybeSingle'] = [
+      { id: 'family-1', season_year: currentSeasonYear(), paid_at: null, payment_id: null },
+    ];
+    mocks.responses['membership_family_members.maybeSingle'] = [
+      { id: 'owner-link', status: 'confirmed' },
+    ];
+    mocks.responses['membership_family_members.then'] = [
+      { data: null, error: { message: 'members unavailable' } },
+    ];
+    const failedLookup = await POST(request({ ...body, businessRecordId: 'family-1' }));
+    expect(failedLookup.status).toBe(500);
+    expect(await failedLookup.json()).toMatchObject({
+      error: 'Could not start checkout. Please try again or contact the club administrator.',
+    });
+  });
+
+  it('rejects family membership checkout when the family is missing or the payer is not confirmed', async () => {
+    configureCommon();
+    mocks.responses['profiles.maybeSingle'] = [profile];
+    mocks.responses['membership_plan_settings.maybeSingle'] = [settings];
+    mocks.responses['legal_document_versions.maybeSingle'] = [waiver];
+    mocks.responses['membership_families.maybeSingle'] = [null];
+    let response = await POST(
+      request({
+        purpose: 'membership',
+        membershipKind: 'family',
+        businessRecordId: 'family-1',
+        waiverAccepted: true,
+        waiverVersion: 3,
+      }),
+    );
+    expect(response.status).toBe(403);
+
+    mocks.responses = {};
+    configureCommon();
+    mocks.responses['profiles.maybeSingle'] = [profile];
+    mocks.responses['membership_plan_settings.maybeSingle'] = [settings];
+    mocks.responses['legal_document_versions.maybeSingle'] = [waiver];
+    mocks.responses['membership_families.maybeSingle'] = [
+      { id: 'family-1', season_year: currentSeasonYear(), paid_at: null, payment_id: null },
+    ];
+    mocks.responses['membership_family_members.maybeSingle'] = [null];
+    response = await POST(
+      request({
+        purpose: 'membership',
+        membershipKind: 'family',
+        businessRecordId: 'family-1',
+        waiverAccepted: true,
+        waiverVersion: 3,
+      }),
+    );
+    expect(response.status).toBe(403);
+    expect(mocks.createPendingPayment).not.toHaveBeenCalled();
+  });
+
+  it('requires two confirmed family members and current individual waivers before checkout', async () => {
+    const setupFamily = (members: unknown[]) => {
+      configureCommon();
+      mocks.responses['profiles.maybeSingle'] = [profile];
+      mocks.responses['membership_plan_settings.maybeSingle'] = [settings];
+      mocks.responses['legal_document_versions.maybeSingle'] = [waiver];
+      mocks.responses['membership_families.maybeSingle'] = [
+        { id: 'family-1', season_year: currentSeasonYear(), paid_at: null, payment_id: null },
+      ];
+      mocks.responses['membership_family_members.maybeSingle'] = [
+        { id: 'link-1', status: 'confirmed' },
+      ];
+      mocks.responses['membership_family_members.then'] = [members, members];
+    };
+    const body = {
+      purpose: 'membership',
+      membershipKind: 'family',
+      businessRecordId: 'family-1',
+      waiverAccepted: true,
+      waiverVersion: 3,
+    };
+    setupFamily([{ user_id: 'member-1', waiver_version: '3', waiver_accepted_at: '2026-01-01' }]);
+    let response = await POST(request(body));
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toMatch(/At least two family members/);
+
+    setupFamily([
+      {
+        user_id: 'member-1',
+        waiver_version: '3',
+        waiver_accepted_at: '2026-01-01',
+        profiles: { application_status: 'approved' },
+      },
+      {
+        user_id: 'member-2',
+        waiver_version: '2',
+        waiver_accepted_at: '2026-01-01',
+        profiles: { application_status: 'approved' },
+      },
+    ]);
+    response = await POST(request(body));
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toMatch(/current waiver/);
+    expect(mocks.createPendingPayment).not.toHaveBeenCalled();
+  });
+
+  it('rejects already-paid families and families containing an unapproved member', async () => {
+    const body = {
+      purpose: 'membership',
+      membershipKind: 'family',
+      businessRecordId: 'family-1',
+      waiverAccepted: true,
+      waiverVersion: 3,
+    };
+    configureCommon();
+    mocks.responses['membership_families.maybeSingle'] = [
+      { id: 'family-1', season_year: currentSeasonYear(), paid_at: '2026-05-01', payment_id: null },
+    ];
+    mocks.responses['membership_family_members.maybeSingle'] = [{ id: 'owner-link' }];
+    mocks.responses['membership_family_members.then'] = [
+      [
+        { user_id: 'member-1', waiver_version: '3', waiver_accepted_at: '2026-01-01' },
+        { user_id: 'member-2', waiver_version: '3', waiver_accepted_at: '2026-01-01' },
+      ],
+    ];
+    expect((await POST(request(body))).status).toBe(409);
+
+    configureCommon();
+    mocks.responses['membership_families.maybeSingle'] = [
+      { id: 'family-1', season_year: currentSeasonYear(), paid_at: null, payment_id: null },
+    ];
+    mocks.responses['membership_family_members.maybeSingle'] = [{ id: 'owner-link' }];
+    mocks.responses['membership_family_members.then'] = [
+      [
+        { user_id: 'member-1', waiver_version: '3', waiver_accepted_at: '2026-01-01' },
+        { user_id: 'member-2', waiver_version: '3', waiver_accepted_at: '2026-01-01' },
+      ],
+      [
+        {
+          user_id: 'member-1',
+          waiver_version: '3',
+          waiver_accepted_at: '2026-01-01',
+          profiles: { application_status: 'approved' },
+        },
+        {
+          user_id: 'member-2',
+          waiver_version: '3',
+          waiver_accepted_at: '2026-01-01',
+          profiles: { application_status: 'pending' },
+        },
+      ],
+    ];
+    const unapproved = await POST(request(body));
+    expect(unapproved.status).toBe(409);
+    expect((await unapproved.json()).error).toMatch(/approved profile/);
+  });
+
+  it('renews an unpaid family for the current season and rolls back a failed member copy', async () => {
+    const configureRenewal = () => {
+      configureCommon();
+      const previousYear = currentSeasonYear() - 1;
+      mocks.responses['membership_families.maybeSingle'] = [
+        { id: 'old-family', season_year: previousYear, paid_at: null, payment_id: null },
+      ];
+      mocks.responses['membership_family_members.maybeSingle'] = [{ id: 'owner-link' }];
+      mocks.responses['membership_family_members.then'] = [
+        [
+          {
+            user_id: 'member-1',
+            invited_by: 'member-1',
+            waiver_version: '3',
+            waiver_accepted_at: '2026-01-01',
+          },
+          {
+            user_id: 'member-2',
+            invited_by: 'member-1',
+            waiver_version: '3',
+            waiver_accepted_at: '2026-01-01',
+          },
+        ],
+        [
+          {
+            user_id: 'member-1',
+            waiver_version: '3',
+            waiver_accepted_at: '2026-01-01',
+            profiles: { application_status: 'approved' },
+          },
+          {
+            user_id: 'member-2',
+            waiver_version: '3',
+            waiver_accepted_at: '2026-01-01',
+            profiles: [{ application_status: 'approved' }],
+          },
+        ],
+      ];
+      mocks.responses['membership_families.insert.single'] = [{ id: 'current-family' }];
+      mocks.responses['membership_family_members.insert.then'] = [{ data: [], error: null }];
+      mocks.responses['payments.maybeSingle'] = [null];
+      mocks.responses['payments.then'] = [{ data: null, error: null }];
+      return {
+        purpose: 'membership',
+        membershipKind: 'family',
+        businessRecordId: 'old-family',
+        waiverAccepted: true,
+        waiverVersion: 3,
+      };
+    };
+
+    const body = configureRenewal();
+    const response = await POST(request(body));
+    expect(response.status).toBe(200);
+    expect(mocks.calls).toContainEqual(
+      expect.objectContaining({
+        table: 'membership_family_members',
+        operation: 'insert',
+        values: expect.arrayContaining([
+          expect.objectContaining({ family_id: 'current-family', user_id: 'member-1' }),
+          expect.objectContaining({ family_id: 'current-family', user_id: 'member-2' }),
+        ]),
+      }),
+    );
+    expect(mocks.createPendingPayment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessRecordId: 'family:current-family',
+        amountMinor: settings.family_price_cents,
+      }),
+    );
+
+    configureRenewal();
+    mocks.responses['membership_family_members.insert.then'] = [
+      { data: null, error: { message: 'copy failed' } },
+    ];
+    const failed = await POST(request(body));
+    expect(failed.status).toBe(500);
+    expect(mocks.calls).toContainEqual(
+      expect.objectContaining({ table: 'membership_families', operation: 'delete' }),
+    );
+  });
+
   it('rejects long idempotency keys, unavailable profiles, and settings failures', async () => {
     const longKey = await POST(
       request({ purpose: 'event_registration', idempotencyKey: 'x'.repeat(201) }),
@@ -228,7 +548,7 @@ describe('checkout route branch coverage', () => {
 
   it('creates an individual membership checkout and restricts unsafe return paths', async () => {
     configureCommon();
-    mocks.responses['memberships.maybeSingle'] = [null];
+    mocks.responses['memberships.maybeSingle'] = [currentMembership()];
     mocks.responses['memberships.single'] = [{ id: 'membership-1' }];
     mocks.responses['payments.maybeSingle'] = [null];
     mocks.responses['payments.then'] = [{ data: null, error: null }];
@@ -274,9 +594,110 @@ describe('checkout route branch coverage', () => {
     );
   });
 
+  it('rejects missing, stale, paid, or waiver-incomplete membership records', async () => {
+    configureCommon();
+    mocks.responses['memberships.maybeSingle'] = [null];
+    let response = await POST(
+      request({
+        purpose: 'membership',
+        businessRecordId: 'missing-membership',
+        waiverAccepted: true,
+        waiverVersion: 3,
+      }),
+    );
+    expect(response.status).toBe(404);
+
+    configureCommon();
+    mocks.responses['memberships.maybeSingle'] = [
+      { ...currentMembership(), starts_on: '2025-04-01', ends_on: '2025-09-30' },
+    ];
+    response = await POST(
+      request({
+        purpose: 'membership',
+        businessRecordId: 'old-membership',
+        waiverAccepted: true,
+        waiverVersion: 3,
+      }),
+    );
+    expect(response.status).toBe(409);
+
+    configureCommon();
+    mocks.responses['memberships.maybeSingle'] = [
+      { ...currentMembership(), payment_status: 'paid' },
+    ];
+    response = await POST(
+      request({
+        purpose: 'membership',
+        businessRecordId: 'paid-membership',
+        waiverAccepted: true,
+        waiverVersion: 3,
+      }),
+    );
+    expect(response.status).toBe(409);
+
+    configureCommon();
+    mocks.responses['memberships.maybeSingle'] = [
+      { ...currentMembership(), waiver_accepted_at: null },
+    ];
+    response = await POST(
+      request({
+        purpose: 'membership',
+        businessRecordId: 'unsigned-membership',
+        waiverAccepted: true,
+        waiverVersion: 3,
+      }),
+    );
+    expect(response.status).toBe(409);
+  });
+
+  it('returns a safe checkout error when membership lookups fail', async () => {
+    configureCommon();
+    mocks.responses['memberships.maybeSingle'] = [
+      { data: null, error: { message: 'current membership lookup failed' } },
+    ];
+    const current = await POST(
+      request({ purpose: 'membership', waiverAccepted: true, waiverVersion: 3 }),
+    );
+    expect(current.status).toBe(500);
+
+    configureCommon();
+    mocks.responses['memberships.maybeSingle'] = [
+      { data: null, error: { message: 'membership record lookup failed' } },
+    ];
+    const existing = await POST(
+      request({
+        purpose: 'membership',
+        businessRecordId: 'membership-1',
+        waiverAccepted: true,
+        waiverVersion: 3,
+      }),
+    );
+    expect(existing.status).toBe(500);
+  });
+
+  it('rejects membership prices that are not positive safe amounts', async () => {
+    configureCommon();
+    mocks.responses['memberships.maybeSingle'] = [currentMembership()];
+    mocks.responses['membership_plan_settings.maybeSingle'] = [
+      { ...settings, single_price_cents: 0 },
+    ];
+    const response = await POST(
+      request({
+        purpose: 'membership',
+        businessRecordId: 'membership-1',
+        waiverAccepted: true,
+        waiverVersion: 3,
+      }),
+    );
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      error: expect.stringContaining('positive amount'),
+    });
+  });
+
   it('returns a current pending membership when one already exists', async () => {
     configureCommon();
-    mocks.responses['memberships.maybeSingle'] = [{ id: 'membership-existing' }];
+    mocks.responses['memberships.maybeSingle'] = [currentMembership('membership-existing')];
     mocks.responses['memberships.then'] = [{ data: null, error: null }];
     mocks.responses['payments.maybeSingle'] = [null];
     mocks.createPendingPayment.mockResolvedValue({
@@ -366,16 +787,18 @@ describe('checkout route branch coverage', () => {
         payment_status: 'pending',
         amount_cents: 2500,
         created_at: new Date(now - 60_000).toISOString(),
-        event: {
-          id: 'event-1',
-          title: 'Summer Social',
-          price_cents: 2500,
-          status: 'published',
-          starts_at: new Date(now + 24 * 60 * 60 * 1000).toISOString(),
-          registration_opens_at: '2020-01-01T00:00:00Z',
-          registration_closes_at: null,
-          members_only: false,
-        },
+        event: [
+          {
+            id: 'event-1',
+            title: 'Summer Social',
+            price_cents: 2500,
+            status: 'published',
+            starts_at: new Date(now + 24 * 60 * 60 * 1000).toISOString(),
+            registration_opens_at: '2020-01-01T00:00:00Z',
+            registration_closes_at: null,
+            members_only: false,
+          },
+        ],
       },
     ];
     mocks.responses['payments.maybeSingle'] = [null];
@@ -414,7 +837,7 @@ describe('checkout route branch coverage', () => {
 
   it('reuses succeeded payments and open checkout sessions', async () => {
     configureCommon();
-    mocks.responses['memberships.maybeSingle'] = [null];
+    mocks.responses['memberships.maybeSingle'] = [currentMembership()];
     mocks.responses['memberships.single'] = [{ id: 'membership-1' }];
     mocks.responses['payments.maybeSingle'] = [
       {
@@ -437,7 +860,7 @@ describe('checkout route branch coverage', () => {
     mocks.responses['profiles.maybeSingle'] = [profile];
     mocks.responses['membership_plan_settings.maybeSingle'] = [settings];
     mocks.responses['legal_document_versions.maybeSingle'] = [waiver];
-    mocks.responses['memberships.maybeSingle'] = [null];
+    mocks.responses['memberships.maybeSingle'] = [currentMembership()];
     mocks.responses['memberships.single'] = [{ id: 'membership-1' }];
     mocks.responses['payments.maybeSingle'] = [
       {
@@ -466,6 +889,128 @@ describe('checkout route branch coverage', () => {
     );
     expect(await open.json()).toMatchObject({ checkoutUrl: 'https://checkout.example/existing' });
     expect(mocks.sessionCreate).not.toHaveBeenCalled();
+  });
+
+  it('returns by payment ID when a succeeded Stripe payment has no session reference', async () => {
+    configureCommon();
+    mocks.responses['memberships.maybeSingle'] = [currentMembership()];
+    mocks.responses['memberships.single'] = [{ id: 'membership-1' }];
+    mocks.responses['payments.maybeSingle'] = [
+      {
+        id: 'succeeded-without-session',
+        status: 'succeeded',
+        amount_minor: 15000,
+        currency: 'cad',
+        stripe_checkout_session_id: null,
+      },
+    ];
+
+    const response = await POST(
+      request({ purpose: 'membership', waiverAccepted: true, waiverVersion: 3 }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.rpc).toHaveBeenCalledWith('fulfill_successful_payment', {
+      p_payment_id: 'succeeded-without-session',
+    });
+    expect((await response.json()).checkoutUrl).toContain('payment_id=succeeded-without-session');
+  });
+
+  it('returns to a completed existing Stripe session instead of starting another checkout', async () => {
+    configureCommon();
+    mocks.responses['memberships.maybeSingle'] = [currentMembership()];
+    mocks.responses['memberships.single'] = [{ id: 'membership-1' }];
+    mocks.responses['payments.maybeSingle'] = [
+      {
+        id: 'payment-completed-session',
+        status: 'pending',
+        amount_minor: 15000,
+        currency: 'cad',
+        stripe_checkout_session_id: 'cs-complete',
+      },
+    ];
+    mocks.sessionRetrieve.mockResolvedValue({
+      id: 'cs-complete',
+      status: 'complete',
+      url: null,
+      amount_total: 15000,
+      currency: 'cad',
+      metadata: {
+        pctc_payment_id: 'payment-completed-session',
+        pctc_purpose: 'membership',
+        pctc_business_record_id: 'membership-1',
+        pctc_user_id: 'member-1',
+      },
+    });
+
+    const response = await POST(
+      request({ purpose: 'membership', waiverAccepted: true, waiverVersion: 3 }),
+    );
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).checkoutUrl).toContain('session_id=cs-complete');
+    expect(mocks.sessionCreate).not.toHaveBeenCalled();
+  });
+
+  it('replaces an expired Stripe checkout session after marking its payment attempt canceled', async () => {
+    configureCommon();
+    mocks.responses['memberships.maybeSingle'] = [currentMembership()];
+    mocks.responses['memberships.single'] = [{ id: 'membership-1' }];
+    mocks.responses['payments.maybeSingle'] = [
+      {
+        id: 'payment-expired',
+        status: 'pending',
+        amount_minor: 15000,
+        currency: 'cad',
+        stripe_checkout_session_id: 'cs-expired',
+      },
+    ];
+    mocks.responses['payments.update.maybeSingle'] = [{ id: 'payment-expired' }];
+    mocks.sessionRetrieve.mockResolvedValue({
+      id: 'cs-expired',
+      status: 'expired',
+      url: null,
+      amount_total: 15000,
+      currency: 'cad',
+      metadata: {
+        pctc_payment_id: 'payment-expired',
+        pctc_purpose: 'membership',
+        pctc_business_record_id: 'membership-1',
+        pctc_user_id: 'member-1',
+      },
+    });
+    mocks.createPendingPayment.mockResolvedValue({
+      id: 'payment-retried',
+      user_id: 'member-1',
+      purpose: 'membership',
+      business_record_id: 'membership-1',
+      amount_minor: 15000,
+      currency: 'cad',
+      status: 'pending',
+    });
+
+    const response = await POST(
+      request({ purpose: 'membership', waiverAccepted: true, waiverVersion: 3 }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.calls).toContainEqual(
+      expect.objectContaining({
+        table: 'payments',
+        operation: 'update',
+        values: expect.objectContaining({ status: 'canceled' }),
+      }),
+    );
+    expect(mocks.createPendingPayment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'member-1',
+        purpose: 'membership',
+        businessRecordId: 'membership-1',
+        amountMinor: 15000,
+      }),
+    );
+    expect(mocks.sessionCreate).toHaveBeenCalledOnce();
+    expect(await response.json()).toMatchObject({ paymentId: 'payment-retried' });
   });
 
   it('rejects event registrations outside payment-eligible states and windows', async () => {
@@ -550,19 +1095,184 @@ describe('checkout route branch coverage', () => {
     );
   });
 
-  it('creates an anonymous Stripe checkout for an eligible provisional tournament entry', async () => {
+  it('rejects unavailable Interac configuration and existing requests owned by someone else', async () => {
+    let body = configureEventRegistration();
+    mocks.responses['payment_method_settings.maybeSingle'] = [
+      { data: null, error: { message: 'settings unavailable' } },
+    ];
+    let response = await POST(request({ ...body, provider: 'interac' }));
+    expect(response.status).toBe(500);
+
+    body = configureEventRegistration();
+    mocks.responses['payment_method_settings.maybeSingle'] = [
+      { interac_enabled: false, interac_recipient_email: 'transfer@example.test' },
+    ];
+    response = await POST(request({ ...body, provider: 'interac' }));
+    expect(response.status).toBe(503);
+
+    body = configureEventRegistration();
+    mocks.responses['payment_method_settings.maybeSingle'] = [
+      { interac_enabled: true, interac_recipient_email: 'transfer@example.test' },
+    ];
+    mocks.responses['payments.maybeSingle'] = [
+      {
+        id: 'other-payment',
+        user_id: 'another-member',
+        provider: 'interac',
+        amount_minor: 2500,
+        currency: 'cad',
+        status: 'pending',
+      },
+    ];
+    response = await POST(request({ ...body, provider: 'interac' }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: expect.stringContaining('An active payment already exists'),
+    });
+  });
+
+  it('rejects Interac requests with mismatched amounts and unsafe Stripe session states', async () => {
+    let body = configureEventRegistration();
+    mocks.responses['payment_method_settings.maybeSingle'] = [
+      { interac_enabled: true, interac_recipient_email: 'transfer@example.test' },
+    ];
+    mocks.responses['payments.maybeSingle'] = [
+      {
+        id: 'wrong-amount',
+        user_id: 'member-1',
+        provider: 'interac',
+        amount_minor: 3000,
+        currency: 'cad',
+        status: 'pending',
+      },
+    ];
+    let response = await POST(request({ ...body, provider: 'interac' }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: expect.stringContaining('different amount'),
+    });
+
+    body = configureEventRegistration();
+    mocks.responses['payment_method_settings.maybeSingle'] = [
+      { interac_enabled: true, interac_recipient_email: 'transfer@example.test' },
+    ];
+    mocks.responses['payments.maybeSingle'] = [
+      {
+        id: 'stripe-no-session',
+        user_id: 'member-1',
+        provider: 'stripe',
+        amount_minor: 2500,
+        currency: 'cad',
+        status: 'pending',
+        stripe_checkout_session_id: null,
+      },
+    ];
+    response = await POST(request({ ...body, provider: 'interac' }));
+    expect(response.status).toBe(409);
+
+    body = configureEventRegistration();
+    mocks.responses['payment_method_settings.maybeSingle'] = [
+      { interac_enabled: true, interac_recipient_email: 'transfer@example.test' },
+    ];
+    mocks.responses['payments.maybeSingle'] = [
+      {
+        id: 'stripe-complete',
+        user_id: 'member-1',
+        provider: 'stripe',
+        amount_minor: 2500,
+        currency: 'cad',
+        status: 'pending',
+        stripe_checkout_session_id: 'cs-complete',
+      },
+    ];
+    mocks.sessionRetrieve.mockResolvedValue({ id: 'cs-complete', status: 'complete' });
+    response = await POST(request({ ...body, provider: 'interac' }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: expect.stringContaining('already been completed'),
+    });
+  });
+
+  it('handles concurrent and empty Interac payment inserts safely', async () => {
+    const body = configureEventRegistration();
+    const interacSettings = {
+      interac_enabled: true,
+      interac_recipient_email: 'transfer@example.test',
+      interac_instructions: 'Add your member name.',
+    };
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    mocks.responses['payment_method_settings.maybeSingle'] = [interacSettings];
+    mocks.responses['payments.maybeSingle'] = [null];
+    mocks.responses['payments.insert.single'] = [
+      {
+        data: null,
+        error: { code: '23505', message: 'duplicate active payment' },
+      },
+    ];
+    let response = await POST(request({ ...body, provider: 'interac' }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: expect.stringContaining('already exists'),
+    });
+
+    configureEventRegistration();
+    mocks.responses['payment_method_settings.maybeSingle'] = [interacSettings];
+    mocks.responses['payments.maybeSingle'] = [null];
+    mocks.responses['payments.insert.single'] = [{ data: null, error: null }];
+    response = await POST(request({ ...body, provider: 'interac' }));
+    expect(response.status).toBe(500);
+  });
+
+  it('reports missing Checkout URLs and failed session reference writes', async () => {
+    const body = configureEventRegistration();
+    mocks.responses['payments.maybeSingle'] = [null];
+    mocks.responses['payments.then'] = [{ data: null, error: null }];
+    mocks.sessionCreate.mockResolvedValue({ id: 'cs-no-url', url: null, customer: null });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    let response = await POST(request(body));
+    expect(response.status).toBe(500);
+
+    configureEventRegistration();
+    mocks.responses['payments.maybeSingle'] = [null];
+    mocks.responses['payments.then'] = [{ data: null, error: null }];
+    mocks.responses['payments.update.then'] = [
+      {
+        data: null,
+        error: { message: 'write failed' },
+      },
+    ];
+    response = await POST(request(body));
+    expect(response.status).toBe(500);
+  });
+
+  it('creates a Stripe checkout for a verified event guest entry', async () => {
     configureCommon();
-    mocks.user = null;
+    mocks.user = {
+      id: 'guest-user',
+      email: 'guest@example.test',
+      email_confirmed_at: '2026-05-01T12:00:00.000Z',
+    };
+    mocks.responses['profiles.maybeSingle'] = [
+      {
+        id: 'guest-user',
+        email: 'guest@example.test',
+        full_name: 'Guest Player',
+        application_status: 'pending',
+        account_kind: 'event_guest',
+      },
+    ];
     const participantId = '11111111-1111-4111-8111-111111111111';
     mocks.responses['tournament_participants.then'] = [
       [
         {
           id: participantId,
           event_id: 'event-tournament',
-          user_id: null,
+          user_id: 'guest-user',
           amount_cents: 2500,
           payment_status: 'pending',
-          status: 'provisional',
+          status: 'registered',
+          confirmation_status: 'confirmed',
           display_name: 'Guest Player',
         },
       ],
@@ -581,7 +1291,7 @@ describe('checkout route branch coverage', () => {
     mocks.responses['payments.maybeSingle'] = [null];
     mocks.createPendingPayment.mockResolvedValue({
       id: 'guest-payment',
-      user_id: null,
+      user_id: 'guest-user',
       purpose: 'tournament_registration',
       business_record_id: participantId,
       amount_minor: 2500,
@@ -604,7 +1314,7 @@ describe('checkout route branch coverage', () => {
     });
     expect(mocks.createPendingPayment).toHaveBeenCalledWith(
       expect.objectContaining({
-        userId: null,
+        userId: 'guest-user',
         purpose: 'tournament_registration',
         businessRecordId: participantId,
         amountMinor: 2500,
@@ -617,7 +1327,7 @@ describe('checkout route branch coverage', () => {
         metadata: expect.objectContaining({
           pctc_purpose: 'tournament_registration',
           pctc_business_record_id: participantId,
-          pctc_user_id: '',
+          pctc_user_id: 'guest-user',
         }),
         success_url: expect.stringContaining(
           encodeURIComponent('/?guest_payment_ids=entry%2Cpartner'),
@@ -648,6 +1358,7 @@ describe('checkout route branch coverage', () => {
           amount_cents: 2500,
           payment_status: 'pending',
           status: 'registered',
+          confirmation_status: 'confirmed',
           display_name: 'Member Player',
         },
       ],
@@ -680,4 +1391,112 @@ describe('checkout route branch coverage', () => {
     });
     expect(mocks.createPendingPayment).not.toHaveBeenCalled();
   });
+
+  it('validates tournament entry queries, payer membership, partner confirmation and event state', async () => {
+    let body = configureTournamentRegistration();
+    mocks.responses['tournament_participants.then'] = [
+      { data: null, error: { message: 'participant query failed' } },
+    ];
+    expect((await POST(request(body))).status).toBe(500);
+
+    body = configureTournamentRegistration({ user_id: 'someone-else' });
+    expect((await POST(request(body))).status).toBe(403);
+
+    body = configureTournamentRegistration();
+    mocks.responses['tournament_pairs.then'] = [
+      [{ player_one_id: '33333333-3333-4333-8333-333333333333', player_two_id: 'partner-id' }],
+    ];
+    mocks.responses['tournament_participants.then'] = [
+      [
+        {
+          id: '33333333-3333-4333-8333-333333333333',
+          event_id: 'event-tournament',
+          user_id: 'member-1',
+          amount_cents: 2500,
+          payment_status: 'pending',
+          status: 'registered',
+          confirmation_status: 'confirmed',
+        },
+      ],
+      [{ id: 'partner-id', status: 'registered', confirmation_status: 'pending' }],
+    ];
+    expect((await POST(request(body))).status).toBe(409);
+
+    body = configureTournamentRegistration();
+    mocks.responses['tournament_participants.then'] = [
+      [
+        {
+          id: '33333333-3333-4333-8333-333333333333',
+          event_id: 'event-tournament',
+          user_id: 'member-1',
+          amount_cents: 2500,
+          payment_status: 'paid',
+          status: 'registered',
+          confirmation_status: 'confirmed',
+        },
+      ],
+    ];
+    expect((await POST(request(body))).status).toBe(409);
+
+    body = configureTournamentRegistration();
+    mocks.responses['events.maybeSingle'] = [null];
+    expect((await POST(request(body))).status).toBe(409);
+
+    body = configureTournamentRegistration();
+    mocks.responses['events.maybeSingle'] = [
+      {
+        id: 'event-tournament',
+        title: 'Draft Open',
+        event_type: 'tournament',
+        status: 'draft',
+        starts_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      },
+    ];
+    expect((await POST(request(body))).status).toBe(409);
+  });
+
+  it.each([
+    ['first', 'selectedOne'],
+    ['second', 'selectedTwo'],
+  ])(
+    'allows a confirmed partner to pay when the payer is selected on the %s side',
+    async (_label, side) => {
+      const body = configureTournamentRegistration();
+      const participantId = '33333333-3333-4333-8333-333333333333';
+      const partnerId = '44444444-4444-4444-8444-444444444444';
+      mocks.responses['tournament_participants.then'] = [
+        [
+          {
+            id: participantId,
+            event_id: 'event-tournament',
+            user_id: 'member-1',
+            amount_cents: 2500,
+            payment_status: 'pending',
+            status: 'registered',
+            confirmation_status: 'confirmed',
+          },
+        ],
+        [{ id: partnerId, status: 'registered', confirmation_status: 'confirmed' }],
+      ];
+      mocks.responses['tournament_pairs.then'] = [
+        [
+          side === 'selectedOne'
+            ? { player_one_id: participantId, player_two_id: partnerId }
+            : { player_one_id: partnerId, player_two_id: participantId },
+        ],
+      ];
+
+      const response = await POST(request(body));
+
+      expect(response.status).toBe(200);
+      expect(mocks.createPendingPayment).toHaveBeenCalledWith(
+        expect.objectContaining({
+          purpose: 'tournament_registration',
+          businessRecordId: participantId,
+          amountMinor: 2500,
+        }),
+      );
+      expect(mocks.sessionCreate).toHaveBeenCalledOnce();
+    },
+  );
 });

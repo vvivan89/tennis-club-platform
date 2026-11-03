@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('server-only', () => ({}));
 vi.mock('@supabase/supabase-js', () => ({ createClient: mocks.createClient }));
 
-import { createPendingPayment } from '@/lib/payments/server';
+import { createPaymentServiceClient, createPendingPayment } from '@/lib/payments/server';
 
 const payment = {
   id: 'pay_123',
@@ -100,5 +100,67 @@ describe('createPendingPayment', () => {
       }),
     ).rejects.toThrow(/Idempotency key was already used/);
     expect(mocks.auditUpsert).not.toHaveBeenCalled();
+  });
+
+  it('validates idempotency keys and server configuration before creating a client', async () => {
+    await expect(
+      createPendingPayment({
+        userId: 'user_123',
+        purpose: 'membership',
+        amountMinor: 1250,
+        currency: 'CAD',
+        idempotencyKey: '',
+      }),
+    ).rejects.toThrow(/idempotency key/i);
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+    expect(() => createPaymentServiceClient()).toThrow(/not configured/i);
+    expect(mocks.createClient).not.toHaveBeenCalled();
+  });
+
+  it('retrieves the existing row after an idempotent upsert and records system attribution', async () => {
+    const systemPayment = { ...payment, user_id: null };
+    mocks.paymentMaybeSingle
+      .mockResolvedValueOnce({ data: null, error: null })
+      .mockResolvedValueOnce({ data: systemPayment, error: null });
+    const result = await createPendingPayment({
+      userId: null,
+      purpose: 'membership',
+      amountMinor: 1250,
+      currency: 'CAD',
+      idempotencyKey: 'system-create',
+    });
+    expect(result).toEqual(systemPayment);
+    expect(mocks.paymentEq).toHaveBeenCalledWith('idempotency_key', 'system-create');
+    expect(mocks.auditUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({ actor_user_id: null, actor_label: 'system' }),
+      expect.any(Object),
+    );
+  });
+
+  it('reports payment lookup and audit persistence failures', async () => {
+    mocks.paymentMaybeSingle
+      .mockResolvedValueOnce({ data: null, error: null })
+      .mockResolvedValueOnce({ data: null, error: { message: 'read failed' } });
+    await expect(
+      createPendingPayment({
+        userId: 'user_123',
+        purpose: 'membership',
+        amountMinor: 1250,
+        currency: 'CAD',
+        idempotencyKey: 'lookup-failure',
+      }),
+    ).rejects.toThrow(/retrieve idempotent/i);
+
+    mocks.paymentMaybeSingle.mockResolvedValue({ data: payment, error: null });
+    mocks.auditUpsert.mockResolvedValue({ error: { message: 'audit failed' } });
+    await expect(
+      createPendingPayment({
+        userId: 'user_123',
+        purpose: 'membership',
+        amountMinor: 1250,
+        currency: 'CAD',
+        idempotencyKey: 'audit-failure',
+      }),
+    ).rejects.toThrow(/audit record could not be written/i);
   });
 });

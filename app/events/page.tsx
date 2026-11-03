@@ -5,6 +5,7 @@ import { SiteHeader } from '@/components/site-header';
 import { SiteFooter } from '@/components/site-footer';
 import { Button } from '@/components/ui/button';
 import { EventsBrowser } from '@/components/events-browser';
+import { withLoadedEventSeriesNumbers } from '@/lib/event-format';
 export default async function EventsPage() {
   const db = await createSupabaseServerClient();
   const [
@@ -23,18 +24,19 @@ export default async function EventsPage() {
     db
       .from('events')
       .select(
-        'id,slug,title,description,starts_at,ends_at,registration_opens_at,registration_closes_at,capacity,price_cents,members_only,status,event_type,location',
+        'id,slug,title,description,starts_at,ends_at,registration_opens_at,registration_closes_at,capacity,price_cents,members_only,status,event_type,location,series_id',
       )
       .in('status', ['published', 'cancelled'])
       .order('starts_at'),
     db.from('event_public_counts').select('event_id,confirmed_count'),
     db.auth.getUser(),
   ]);
+  const numberedEvents = await withLoadedEventSeriesNumbers(events ?? [], db);
   const now = Date.now();
-  const upcoming = (events ?? []).filter(
+  const upcoming = numberedEvents.filter(
     (e) => new Date(e.ends_at || e.starts_at).getTime() >= now,
   );
-  const past = (events ?? []).filter((e) => new Date(e.ends_at || e.starts_at).getTime() < now);
+  const past = numberedEvents.filter((e) => new Date(e.ends_at || e.starts_at).getTime() < now);
   let manager = false;
   if (user) {
     const { data: profile } = await db

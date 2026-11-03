@@ -89,7 +89,12 @@ export default async function AdminPaymentsPage() {
     const [eventTitleByPaymentId, { data: profiles }] = await Promise.all([
       loadPaymentEventTitles(db, payments),
       userIds.length
-        ? db.from('profiles').select('id,full_name,email').in('id', userIds)
+        ? db
+            .from('profiles')
+            .select('id,full_name,email')
+            .in('id', userIds)
+            .eq('application_status', 'approved')
+            .eq('account_kind', 'member')
         : Promise.resolve({ data: [] }),
     ]);
     const profileRows = (profiles ?? []) as Array<{
@@ -98,6 +103,42 @@ export default async function AdminPaymentsPage() {
       email: string | null;
     }>;
     const profileById = new Map(profileRows.map((item) => [item.id, item]));
+    const paymentsWithoutMemberProfile = payments.filter(
+      (payment) =>
+        payment.purpose === 'tournament_registration' &&
+        (!payment.user_id || !profileById.has(payment.user_id)) &&
+        payment.business_record_id,
+    );
+    const guestParticipantIds = [
+      ...new Set(
+        paymentsWithoutMemberProfile.flatMap((payment) =>
+          (payment.business_record_id ?? '')
+            .split(',')
+            .map((id) => id.trim())
+            .filter(Boolean),
+        ),
+      ),
+    ];
+    const { data: guestParticipants, error: guestParticipantsError } = guestParticipantIds.length
+      ? await db
+          .from('tournament_participants')
+          .select('id,display_name,email')
+          .in('id', guestParticipantIds)
+      : { data: [], error: null };
+    if (guestParticipantsError) {
+      console.error('[Payments] Could not load tournament guest payment details', {
+        message: guestParticipantsError.message,
+      });
+    }
+    const guestParticipantById = new Map(
+      (
+        (guestParticipants ?? []) as Array<{
+          id: string;
+          display_name: string;
+          email: string | null;
+        }>
+      ).map((participant) => [participant.id, participant]),
+    );
 
     await Promise.all(
       payments
@@ -136,6 +177,18 @@ export default async function AdminPaymentsPage() {
     );
     rows = payments.map((payment) => {
       const person = profileById.get(payment.user_id);
+      const guestParticipantsForPayment = (payment.business_record_id ?? '')
+        .split(',')
+        .map((id) => guestParticipantById.get(id.trim()))
+        .filter((participant) => participant !== undefined);
+      const guestName = guestParticipantsForPayment
+        .map((participant) => participant.display_name.trim())
+        .filter(Boolean)
+        .join(' + ');
+      const guestEmail = guestParticipantsForPayment
+        .map((participant) => participant.email?.trim())
+        .filter((email): email is string => Boolean(email))
+        .join(', ');
       const remaining = payment.amount_minor - payment.refunded_amount_minor;
       return {
         id: payment.id,
@@ -154,8 +207,8 @@ export default async function AdminPaymentsPage() {
             : payment.proceeds_minor - payment.refunded_amount_minor,
         createdAt: payment.created_at,
         succeededAt: payment.succeeded_at,
-        userName: person?.full_name ?? null,
-        userEmail: person?.email ?? null,
+        userName: person?.full_name || guestName || null,
+        userEmail: person?.email || guestEmail || null,
         refundable: Boolean(
           payment.provider === 'stripe' &&
           payment.stripe_payment_intent_id &&

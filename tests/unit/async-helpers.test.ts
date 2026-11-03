@@ -42,5 +42,22 @@ describe('fetchAllRows', () => {
       error: { message: 'x' },
     }));
     expect(failed).toEqual({ rows: [], error: { message: 'x' } });
+
+    let page = 0;
+    const failedAfterFirstPage = await fetchAllRows<number>(async () => {
+      page += 1;
+      return page === 1
+        ? { data: Array.from({ length: 1000 }, (_, index) => index + 1), error: null }
+        : { data: null, error: { message: 'second page failed' } };
+    });
+    expect(failedAfterFirstPage.error).toEqual({ message: 'second page failed' });
+    expect(failedAfterFirstPage.rows).toHaveLength(1000);
+    expect(failedAfterFirstPage.rows.at(0)).toBe(1);
+    expect(failedAfterFirstPage.rows.at(-1)).toBe(1000);
+  });
+
+  it('treats a null page without an error as an empty result', async () => {
+    const result = await fetchAllRows<number>(async () => ({ data: null, error: null }));
+    expect(result).toEqual({ rows: [], error: null });
   });
 });

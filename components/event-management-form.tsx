@@ -8,7 +8,11 @@ import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import { requireBrowserUser } from '@/lib/supabase-browser-user';
 import { dispatchEventNotificationsInBackground } from '@/lib/event-notifications';
 import { reorderRankingPriority, type TournamentConfig } from '@/lib/tournament-config';
-import { calculateLadderSession, type LadderMetric } from '@/lib/social-doubles-ladder';
+import {
+  calculateLadderSession,
+  normalizeLadderScores,
+  type LadderMetric,
+} from '@/lib/social-doubles-ladder';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { RichTextEditor } from '@/components/rich-text-editor';
@@ -741,26 +745,7 @@ export function EventManagementForm({
             >();
             const names: Record<string, string> = {};
             for (const group of priorGroups.values()) {
-              const normalized = (group ?? []).flatMap((row) => {
-                const sideOne = [row.player_one_registration_id, row.player_two_registration_id]
-                  .filter(Boolean)
-                  .map((id) => priorUserByRegistration.get(id!))
-                  .filter(Boolean) as string[];
-                const sideTwo = [row.player_three_registration_id, row.player_four_registration_id]
-                  .filter(Boolean)
-                  .map((id) => priorUserByRegistration.get(id!))
-                  .filter(Boolean) as string[];
-                if (!sideOne.length || !sideTwo.length) return [];
-                return [
-                  {
-                    playerIds: [...sideOne, ...sideTwo],
-                    sideOneIds: sideOne,
-                    sideTwoIds: sideTwo,
-                    scoreOne: Number(row.player_one_score),
-                    scoreTwo: Number(row.player_two_score),
-                  },
-                ];
-              });
+              const normalized = normalizeLadderScores(group ?? [], priorUserByRegistration);
               const results = calculateLadderSession(
                 normalized,
                 names,

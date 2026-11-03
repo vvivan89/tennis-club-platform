@@ -7,6 +7,7 @@ import { SiteFooter } from '@/components/site-footer';
 import { RankingsTable } from '@/components/rankings-table';
 import { TournamentPublicView } from '@/components/tournament-public-view';
 import { RankingsCompetitionSelector } from '@/components/rankings-competition-selector';
+import { buildRankingsCompetitionOptions } from '@/lib/rankings-competition-options';
 import type { TournamentConfig } from '@/lib/tournament-config';
 import { calculateLadderSession, type LadderMetric } from '@/lib/social-doubles-ladder';
 import {
@@ -147,7 +148,13 @@ export default async function RankingsPage({ searchParams: searchParamsPromise }
         .maybeSingle()
     : { data: null };
   const leagueStandings = Array.isArray(leagueCurrent?.standings)
-    ? (leagueCurrent.standings as Array<Record<string, unknown>>)
+    ? (leagueCurrent.standings as Array<Record<string, unknown>>).filter(
+        (row) =>
+          typeof row.player_one_id === 'string' &&
+          typeof row.player_two_id === 'string' &&
+          data.profileById.has(row.player_one_id) &&
+          data.profileById.has(row.player_two_id),
+      )
     : [];
   const rawTournament = searchParams?.tournament;
   const requestedTournament = Array.isArray(rawTournament) ? rawTournament[0] : rawTournament;
@@ -230,23 +237,12 @@ export default async function RankingsPage({ searchParams: searchParamsPromise }
     }
   }
   const { clubName, shortName, socialLinks } = getClubDisplay(club);
-  const competitionOptions = [
-    ...[...new Set([defaultYear, ...allSeasonYears])]
-      .sort((a, b) => b - a)
-      .map((year) => ({ value: String(year), label: `Full ${year} season` })),
-    ...regularLadders.map((ladder) => ({
-      value: `ladder:${ladder.id}`,
-      label: `${ladder.name} (${ladder.gender === 'male' ? "Men's" : "Women's"} ladder)`,
-    })),
-    ...leagues.map((league) => ({
-      value: `league:${league.id}`,
-      label: `${league.name} (${league.gender === 'male' ? "Men's" : "Women's"} league)`,
-    })),
-    ...tournaments.map((tournament) => ({
-      value: `tournament:${tournament.id}`,
-      label: `${tournament.title} (Doubles tournament)`,
-    })),
-  ];
+  const competitionOptions = buildRankingsCompetitionOptions(
+    [defaultYear, ...allSeasonYears],
+    regularLadders,
+    leagues,
+    tournaments,
+  );
   return (
     <main className="flex min-h-screen flex-col bg-background text-foreground">
       <SiteHeader clubName={clubName} shortName={shortName} />

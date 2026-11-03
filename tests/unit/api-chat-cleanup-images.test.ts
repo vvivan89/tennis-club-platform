@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   queued: [{ id: 1, image_path: 'member-1/old-image.png' }],
   queueError: null as null | { message: string },
   storageError: null as null | { message: string },
+  deleteError: null as null | { message: string },
   createClient: vi.fn(),
   removedPaths: [] as string[][],
   deletedIds: [] as number[][],
@@ -43,7 +44,7 @@ function serviceClient() {
             table === 'profiles'
               ? { data: mocks.profile, error: null }
               : operation === 'delete'
-                ? { data: null, error: null }
+                ? { data: null, error: mocks.deleteError }
                 : { data: mocks.queued, error: mocks.queueError };
           return Promise.resolve(result).then(resolve, reject);
         },
@@ -68,6 +69,7 @@ beforeEach(() => {
   mocks.queued = [{ id: 1, image_path: 'member-1/old-image.png' }];
   mocks.queueError = null;
   mocks.storageError = null;
+  mocks.deleteError = null;
   mocks.removedPaths = [];
   mocks.deletedIds = [];
   mocks.createClient.mockImplementation(serviceClient);
@@ -101,5 +103,34 @@ describe('POST /api/member/chat/cleanup-images', () => {
     const response = await POST();
     expect(response.status).toBe(500);
     expect(mocks.deletedIds).toEqual([]);
+  });
+
+  it('handles empty queues, queue lookup errors, and queue clearing failures', async () => {
+    mocks.queued = [];
+    const empty = await POST();
+    expect(await empty.json()).toEqual({ processed: 0 });
+    expect(mocks.removedPaths).toEqual([]);
+
+    mocks.queued = [{ id: 2, image_path: 'member-1/another.png' }];
+    mocks.queueError = { message: 'queue unavailable' };
+    const readError = await POST();
+    expect(readError.status).toBe(500);
+    expect(await readError.json()).toEqual({ error: 'Unable to load image cleanup queue.' });
+
+    mocks.queueError = null;
+    mocks.deleteError = { message: 'delete unavailable' };
+    const deleteError = await POST();
+    expect(deleteError.status).toBe(500);
+    expect(await deleteError.json()).toEqual({
+      error: 'Images were removed, but the cleanup queue could not be cleared.',
+    });
+    expect(mocks.removedPaths).toHaveLength(1);
+  });
+
+  it('returns the configuration error when service credentials are missing', async () => {
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', '');
+    const response = await POST();
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: 'Chat image cleanup is not configured.' });
   });
 });

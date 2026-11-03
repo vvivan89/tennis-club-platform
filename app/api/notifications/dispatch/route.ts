@@ -50,7 +50,7 @@ export async function POST(request: Request) {
       : typeof body.eventId === 'string'
         ? [body.eventId]
         : [];
-    if (!eventIds.length || eventIds.length > 100)
+    if (!eventIds.length || eventIds.length > 200)
       return NextResponse.json({ error: 'Provide one or more event IDs.' }, { status: 400 });
     const { db: admin, response: configError } = getConfiguredServiceClient(
       'Notification service is not configured.',
@@ -126,7 +126,10 @@ export async function POST(request: Request) {
               'id,email,full_name,email_registration_updates,email_waitlist_updates,email_event_cancellations,email_registration_reminders,email_new_events,email_newsletter',
             )
             .in('id', userIds),
-          admin.from('events').select('id,title,slug,starts_at,location').in('id', queueEventIds),
+          admin
+            .from('events')
+            .select('id,title,slug,starts_at,location,series_id')
+            .in('id', queueEventIds),
           admin
             .from('registrations')
             .select('event_id,user_id,status,queue_position,created_at')
@@ -140,10 +143,52 @@ export async function POST(request: Request) {
       await releaseClaims(queue.map((item) => item.id));
       return NextResponse.json({ error: 'Could not load notification details.' }, { status: 500 });
     }
+    const seriesIds = [
+      ...new Set(
+        (eventsResult?.data ?? [])
+          .map((event) => event.series_id as string | null)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const [seriesResult, seriesEventsResult] = seriesIds.length
+      ? await Promise.all([
+          admin.from('event_series').select('id,recurrence_rule,starts_on').in('id', seriesIds),
+          admin
+            .from('events')
+            .select('id,title,slug,starts_at,location,series_id')
+            .in('series_id', seriesIds)
+            .eq('status', 'published')
+            .order('starts_at'),
+        ])
+      : [
+          { data: [], error: null },
+          { data: [], error: null },
+        ];
+    if (seriesResult.error || seriesEventsResult.error) {
+      await releaseClaims(queue.map((item) => item.id));
+      return NextResponse.json(
+        { error: 'Could not load recurring event details.' },
+        { status: 500 },
+      );
+    }
     const recipientById = new Map(
       (recipientsResult?.data ?? []).map((r) => [r.id as string, r] as const),
     );
     const eventById = new Map((eventsResult?.data ?? []).map((e) => [e.id as string, e] as const));
+    const seriesById = new Map(
+      (seriesResult.data ?? []).map((series) => [series.id as string, series] as const),
+    );
+    const nextEventBySeries = new Map<string, (typeof seriesEventsResult.data)[number]>();
+    const nowMs = Date.now();
+    for (const event of seriesEventsResult.data ?? []) {
+      const seriesId = event.series_id as string;
+      if (!nextEventBySeries.has(seriesId) && new Date(event.starts_at).getTime() >= nowMs)
+        nextEventBySeries.set(seriesId, event);
+    }
+    for (const event of seriesEventsResult.data ?? []) {
+      const seriesId = event.series_id as string;
+      if (!nextEventBySeries.has(seriesId)) nextEventBySeries.set(seriesId, event);
+    }
     // Rows are newest first, so the first one seen per event and user is the latest.
     const registrationByKey = new Map<string, RegistrationRow>();
     for (const reg of (registrationsResult?.data ?? []) as RegistrationRow[]) {
@@ -168,7 +213,10 @@ export async function POST(request: Request) {
 
     const processItem = async (item: QueueItem): Promise<Outcome> => {
       const recipient = recipientById.get(item.user_id);
-      const event = eventById.get(item.event_id);
+      const queuedEvent = eventById.get(item.event_id);
+      const seriesId = queuedEvent?.series_id as string | null;
+      const event = seriesId ? nextEventBySeries.get(seriesId) || queuedEvent : queuedEvent;
+      const series = seriesId ? seriesById.get(seriesId) : null;
       const reg = registrationByKey.get(`${item.event_id}:${item.user_id}`);
       const pref = preferenceKey[item.notification_type];
       if (pref && recipient && recipient[pref as keyof typeof recipient] === false) {
@@ -207,6 +255,37 @@ export async function POST(request: Request) {
       ).toString();
       const name = esc(recipient.full_name || 'member');
       const title = esc(event.title);
+      const recurrence = series?.recurrence_rule as
+        { frequency?: string; day_of_week?: number } | undefined;
+      const weekdays = [
+        'Sunday',
+        'Monday',
+        'Tuesday',
+        'Wednesday',
+        'Thursday',
+        'Friday',
+        'Saturday',
+      ];
+      const weekday =
+        typeof recurrence?.day_of_week === 'number' ? weekdays[recurrence.day_of_week] : null;
+      const seriesStart = series?.starts_on ? new Date(`${series.starts_on}T12:00:00`) : null;
+      const monthlyOrdinal = seriesStart ? Math.floor((seriesStart.getDate() - 1) / 7) : null;
+      const ordinalNames = ['first', 'second', 'third', 'fourth', 'fifth'];
+      const monthlyDescription =
+        seriesStart && monthlyOrdinal !== null
+          ? seriesStart.getDate() + 7 >
+            new Date(seriesStart.getFullYear(), seriesStart.getMonth() + 1, 0).getDate()
+            ? 'last'
+            : ordinalNames[monthlyOrdinal]
+          : null;
+      const schedule =
+        weekday && recurrence?.frequency === 'weekly'
+          ? `Every ${weekday}`
+          : weekday && recurrence?.frequency === 'biweekly'
+            ? `Every other ${weekday}`
+            : weekday && recurrence?.frequency === 'monthly'
+              ? `Monthly on the ${monthlyDescription || 'same'} ${weekday}`
+              : null;
       const status =
         reg?.status === 'waitlisted'
           ? `You are on the waitlist${reg.queue_position ? ` at position ${reg.queue_position}` : ''}.`
@@ -221,7 +300,7 @@ export async function POST(request: Request) {
               ? `Registration confirmed: ${event.title}`
               : template.subject
           : template.subject;
-      const html = `<p>Hello ${name},</p><p>${template.intro}</p><h2>${title}</h2><p>${esc(new Date(event.starts_at).toLocaleString('en-CA'))}${event.location ? ` · ${esc(event.location)}` : ''}</p>${status ? `<p><strong>Registration status:</strong> ${esc(status)}</p>` : ''}<p><a href="${esc(eventUrl)}">View event details</a></p><p>Port Coquitlam Tennis Club</p>`;
+      const html = `<p>Hello ${name},</p><p>${template.intro}</p><h2>${title}</h2>${schedule ? `<p><strong>Schedule:</strong> ${esc(schedule)}.</p>` : ''}<p><strong>${schedule ? 'Next session:' : 'Date:'}</strong> ${esc(new Date(event.starts_at).toLocaleString('en-CA'))}${event.location ? ` · ${esc(event.location)}` : ''}</p>${status ? `<p><strong>Registration status:</strong> ${esc(status)}</p>` : ''}<p><a href="${esc(eventUrl)}">View event details</a></p><p>Port Coquitlam Tennis Club</p>`;
       try {
         const response = await sendResendEmail({
           apiKey: resendKey,

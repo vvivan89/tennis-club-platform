@@ -224,4 +224,64 @@ describe('getRankingsData', () => {
     });
     expect(result.games).toEqual([]);
   });
+
+  it('uses event timestamps for completed tournament sets and handles entirely empty score data', async () => {
+    mocks.tables.events = [
+      { id: 'tournament-event', title: '', starts_at: '2025-06-01T12:00:00Z', ends_at: null },
+      { id: 'unknown-date', title: 'No date', starts_at: '', ends_at: null },
+    ];
+    mocks.tables.event_scores = [];
+    mocks.tables.tournament_ranked_sets = [
+      {
+        id: 'tournament-set',
+        event_id: 'tournament-event',
+        played_at: null,
+        player_one_user_id: 'p1',
+        player_two_user_id: null,
+        player_three_user_id: 'p2',
+        player_four_user_id: null,
+        player_one_score: 0,
+        player_two_score: 6,
+      },
+      {
+        id: 'incomplete-set',
+        event_id: 'tournament-event',
+        played_at: '2025-06-02T12:00:00Z',
+        player_one_user_id: 'p1',
+        player_two_user_id: null,
+        player_three_user_id: null,
+        player_four_user_id: null,
+        player_one_score: 6,
+        player_two_score: 0,
+      },
+      {
+        id: 'missing-date',
+        event_id: 'unknown-date',
+        played_at: null,
+        player_one_user_id: 'p1',
+        player_two_user_id: null,
+        player_three_user_id: 'p2',
+        player_four_user_id: null,
+        player_one_score: 6,
+        player_two_score: 2,
+      },
+    ];
+    const result = await getRankingsData();
+    expect(result.games).toEqual([
+      expect.objectContaining({
+        id: 'tournament-set',
+        eventTitle: 'Tournament',
+        playedAt: '2025-06-01T12:00:00Z',
+        playerIds: ['p1', 'p2'],
+        scoreOne: 0,
+        scoreTwo: 6,
+      }),
+    ]);
+
+    mocks.tables.event_scores = [];
+    mocks.tables.tournament_ranked_sets = [];
+    const empty = await getRankingsData();
+    expect(empty.games).toEqual([]);
+    expect(empty.players).toHaveLength(5);
+  });
 });

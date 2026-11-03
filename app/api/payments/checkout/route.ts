@@ -9,6 +9,7 @@ import { getSignedInUser } from '@/lib/api-helpers';
 import { canceledPaymentPatch } from '@/lib/payments/checkout-cleanup';
 import { createPendingPayment } from '@/lib/payments/server';
 import { getStripeClient } from '@/lib/payments/stripe';
+import { getMembershipSeason, type MembershipSeasonSettings } from '@/lib/membership-season';
 
 export const runtime = 'nodejs';
 
@@ -31,42 +32,6 @@ function getServiceClient() {
   return createServiceRoleClient(url, key);
 }
 
-function seasonDates(settings: {
-  season_start_month: number;
-  season_start_day: number;
-  season_end_month: number;
-  season_end_day: number;
-}) {
-  const now = new Date();
-  const startThisYear = new Date(
-    now.getFullYear(),
-    settings.season_start_month - 1,
-    settings.season_start_day,
-  );
-  const endThisYear = new Date(
-    now.getFullYear(),
-    settings.season_end_month - 1,
-    settings.season_end_day,
-    23,
-    59,
-    59,
-    999,
-  );
-  const year =
-    now < startThisYear
-      ? now.getFullYear()
-      : now > endThisYear
-        ? now.getFullYear() + 1
-        : now.getFullYear();
-  const start = new Date(year, settings.season_start_month - 1, settings.season_start_day);
-  const end = new Date(year, settings.season_end_month - 1, settings.season_end_day);
-  return {
-    startsOn: start.toISOString().slice(0, 10),
-    endsOn: end.toISOString().slice(0, 10),
-    seasonYear: year,
-  };
-}
-
 export async function POST(request: Request) {
   try {
     const { user } = await getSignedInUser();
@@ -78,7 +43,7 @@ export async function POST(request: Request) {
     });
     if (limited) return limited;
     const body = (await request.json()) as CheckoutBody;
-    if (!user && (body.purpose !== 'tournament_registration' || body.provider === 'interac')) {
+    if (!user) {
       return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
     }
     if (
@@ -96,13 +61,21 @@ export async function POST(request: Request) {
       user
         ? db
             .from('profiles')
-            .select('id,email,full_name,application_status')
+            .select('id,email,full_name,application_status,account_kind')
             .eq('id', user!.id)
             .maybeSingle()
         : Promise.resolve({ data: null, error: null }),
       db.from('membership_plan_settings').select('*').eq('id', 1).maybeSingle(),
     ]);
-    if (user && (!profile || profile.application_status !== 'approved')) {
+    const eventOnlyTournamentPayer =
+      body.purpose === 'tournament_registration' &&
+      profile?.account_kind === 'event_guest' &&
+      Boolean(
+        user?.email &&
+        user.email_confirmed_at &&
+        profile.email?.toLowerCase() === user.email.toLowerCase(),
+      );
+    if (!profile || (profile.application_status !== 'approved' && !eventOnlyTournamentPayer)) {
       return NextResponse.json(
         { error: 'An approved member profile is required to make a payment.' },
         { status: 403 },
@@ -114,7 +87,7 @@ export async function POST(request: Request) {
     let amountMinor = 0;
     const currency = 'cad';
     let description = '';
-    let customerEmail = profile?.email || user?.email || undefined;
+    const customerEmail = profile?.email || user?.email || undefined;
 
     if (body.purpose === 'membership') {
       if (!settings)
@@ -138,6 +111,7 @@ export async function POST(request: Request) {
           { error: 'The current membership waiver is unavailable.' },
           { status: 503 },
         );
+      const season = getMembershipSeason(settings as MembershipSeasonSettings)!;
       if (body.waiverVersion !== undefined && body.waiverVersion !== waiver.version)
         return NextResponse.json(
           {
@@ -167,9 +141,23 @@ export async function POST(request: Request) {
             { error: 'You are not authorized to pay for this family membership.' },
             { status: 403 },
           );
-        const season = seasonDates(settings);
+        const { data: confirmedFamilyMembers, error: confirmedMembersError } = await db
+          .from('membership_family_members')
+          .select('user_id,invited_by,waiver_version,waiver_accepted_at')
+          .eq('family_id', originalFamily.id)
+          .eq('status', 'confirmed');
+        if (confirmedMembersError)
+          throw new Error('Could not verify the confirmed family members.');
+        if (!confirmedFamilyMembers || confirmedFamilyMembers.length < 2)
+          return NextResponse.json(
+            {
+              error:
+                'At least two family members must accept the invitation before family membership can be paid.',
+            },
+            { status: 409 },
+          );
         if (
-          originalFamily.season_year === season.seasonYear &&
+          originalFamily.season_year === season.year &&
           (originalFamily.paid_at || originalFamily.payment_id)
         ) {
           return NextResponse.json(
@@ -177,23 +165,16 @@ export async function POST(request: Request) {
             { status: 409 },
           );
         }
-        if (originalFamily.season_year !== season.seasonYear) {
-          const { data: priorMembers, error: priorMembersError } = await db
-            .from('membership_family_members')
-            .select('user_id,invited_by,waiver_version,waiver_accepted_at')
-            .eq('family_id', originalFamily.id)
-            .eq('status', 'confirmed');
-          if (priorMembersError || !priorMembers?.length)
-            throw new Error('Could not load the existing family members for renewal.');
+        if (originalFamily.season_year !== season.year) {
           const { data: renewedFamily, error: renewedFamilyError } = await db
             .from('membership_families')
-            .insert({ season_year: season.seasonYear })
+            .insert({ season_year: season.year })
             .select('id')
             .single();
           if (renewedFamilyError || !renewedFamily)
             throw new Error('Could not create the family membership for the new season.');
           const { error: copyMembersError } = await db.from('membership_family_members').insert(
-            priorMembers.map((member) => ({
+            confirmedFamilyMembers.map((member) => ({
               family_id: renewedFamily.id,
               user_id: member.user_id,
               invited_by: member.invited_by,
@@ -209,16 +190,6 @@ export async function POST(request: Request) {
           }
           businessRecordId = renewedFamily.id;
         }
-        const { error: ownWaiverError } = await db
-          .from('membership_family_members')
-          .update({
-            waiver_version: String(waiver.version),
-            waiver_accepted_at: new Date().toISOString(),
-          })
-          .eq('family_id', businessRecordId)
-          .eq('user_id', user!.id)
-          .eq('status', 'confirmed');
-        if (ownWaiverError) throw new Error('Could not save family waiver acceptance.');
         const { data: members, error: membersError } = await db
           .from('membership_family_members')
           .select(
@@ -226,9 +197,20 @@ export async function POST(request: Request) {
           )
           .eq('family_id', businessRecordId)
           .eq('status', 'confirmed');
+        if (membersError || !members?.length)
+          return NextResponse.json(
+            { error: 'Every confirmed family member must have an approved profile.' },
+            { status: 409 },
+          );
+        if (members.length < 2)
+          return NextResponse.json(
+            {
+              error:
+                'At least two family members must accept the invitation before family membership can be paid.',
+            },
+            { status: 409 },
+          );
         if (
-          membersError ||
-          !members?.length ||
           members.some((m) => {
             const p = Array.isArray(m.profiles) ? m.profiles[0] : m.profiles;
             return p?.application_status !== 'approved';
@@ -251,91 +233,65 @@ export async function POST(request: Request) {
         }
         businessRecordId = `family:${businessRecordId}`;
         amountMinor = Number(settings.family_price_cents);
-        description = `PCTC family membership — season ${season.seasonYear}`;
+        description = `PCTC family membership — season ${season.year}`;
       } else {
+        const targetSeason = season;
+        let membership: {
+          id: string;
+          payment_status: string;
+          starts_on: string | null;
+          ends_on: string | null;
+          waiver_version: string | null;
+          waiver_accepted_at: string | null;
+        } | null = null;
         if (businessRecordId) {
-          const { data: existing } = await db
+          const { data: existing, error: existingError } = await db
             .from('memberships')
-            .select(
-              'id,user_id,status,payment_status,membership_type,starts_on,ends_on,waiver_version,waiver_accepted_at',
-            )
+            .select('id,user_id,payment_status,starts_on,ends_on,waiver_version,waiver_accepted_at')
             .eq('id', businessRecordId)
             .eq('user_id', user!.id)
             .maybeSingle();
+          if (existingError) throw new Error('Could not verify the membership record.');
           if (!existing)
             return NextResponse.json({ error: 'Membership record not found.' }, { status: 404 });
-          const targetSeason = seasonDates(settings);
-          if (
-            existing.starts_on !== targetSeason.startsOn ||
-            existing.ends_on !== targetSeason.endsOn
-          ) {
-            return NextResponse.json(
-              {
-                error:
-                  'This membership record belongs to another season. Refresh the page and start checkout for the current season.',
-              },
-              { status: 409 },
-            );
-          }
-          if (existing.payment_status === 'paid')
-            return NextResponse.json(
-              { error: 'This membership is already paid.' },
-              { status: 409 },
-            );
-          businessRecordId = existing.id;
-          const { error: waiverUpdateError } = await db
-            .from('memberships')
-            .update({
-              waiver_version: String(waiver.version),
-              waiver_accepted_at: new Date().toISOString(),
-            })
-            .eq('id', existing.id)
-            .eq('user_id', user!.id);
-          if (waiverUpdateError) throw new Error('Could not save membership waiver acceptance.');
+          membership = existing;
         } else {
-          const { data: pendingMembership, error: pendingMembershipError } = await db
+          const { data: currentMembership, error: membershipReadError } = await db
             .from('memberships')
-            .select('id')
+            .select('id,payment_status,starts_on,ends_on,waiver_version,waiver_accepted_at')
             .eq('user_id', user!.id)
-            .eq('status', 'pending')
-            .eq('payment_status', 'unpaid')
+            .eq('starts_on', targetSeason.startsOn)
+            .eq('ends_on', targetSeason.endsOn)
             .order('created_at', { ascending: false })
             .limit(1)
             .maybeSingle();
-          if (pendingMembershipError)
-            throw new Error('Could not check for an existing membership application.');
-          if (pendingMembership) {
-            const { error: waiverUpdateError } = await db
-              .from('memberships')
-              .update({
-                waiver_version: String(waiver.version),
-                waiver_accepted_at: new Date().toISOString(),
-              })
-              .eq('id', pendingMembership.id)
-              .eq('user_id', user!.id);
-            if (waiverUpdateError) throw new Error('Could not save membership waiver acceptance.');
-            businessRecordId = pendingMembership.id;
-          } else {
-            const season = seasonDates(settings);
-            const { data: membership, error: membershipError } = await db
-              .from('memberships')
-              .insert({
-                user_id: user!.id,
-                membership_type: 'individual',
-                status: 'pending',
-                payment_status: 'unpaid',
-                starts_on: season.startsOn,
-                ends_on: season.endsOn,
-                waiver_version: String(waiver.version),
-                waiver_accepted_at: new Date().toISOString(),
-              })
-              .select('id')
-              .single();
-            if (membershipError || !membership)
-              throw new Error('Could not create the membership record.');
-            businessRecordId = membership.id;
-          }
+          if (membershipReadError) throw new Error('Could not check for a current membership.');
+          membership = currentMembership;
         }
+        if (!membership)
+          return NextResponse.json(
+            { error: 'Accept the current membership waiver before paying.' },
+            { status: 409 },
+          );
+        if (
+          membership.starts_on !== targetSeason.startsOn ||
+          membership.ends_on !== targetSeason.endsOn
+        )
+          return NextResponse.json(
+            {
+              error:
+                'This membership record belongs to another season. Refresh the page and start checkout for the current season.',
+            },
+            { status: 409 },
+          );
+        if (membership.payment_status === 'paid')
+          return NextResponse.json({ error: 'This membership is already paid.' }, { status: 409 });
+        if (membership.waiver_version !== String(waiver.version) || !membership.waiver_accepted_at)
+          return NextResponse.json(
+            { error: 'Accept the current membership waiver before paying.' },
+            { status: 409 },
+          );
+        businessRecordId = membership.id;
         amountMinor = Number(settings.single_price_cents);
         description = 'PCTC individual membership';
       }
@@ -431,16 +387,17 @@ export async function POST(request: Request) {
       businessRecordId = participantIds.join(',');
       const { data: entries, error: entriesError } = await db
         .from('tournament_participants')
-        .select('id,event_id,user_id,amount_cents,payment_status,status,display_name')
+        .select(
+          'id,event_id,user_id,amount_cents,payment_status,status,display_name,confirmation_status',
+        )
         .in('id', participantIds);
       if (entriesError) throw new Error('Could not verify tournament entries.');
       if (
         !entries ||
         entries.length !== participantIds.length ||
+        entries.some((entry) => entry.event_id !== entries[0].event_id) ||
         entries.some(
-          (entry) =>
-            entry.status !== 'registered' &&
-            !(entry.status === 'provisional' && !user && entry.user_id === null),
+          (entry) => entry.status !== 'registered' || entry.confirmation_status !== 'confirmed',
         )
       ) {
         return NextResponse.json(
@@ -451,15 +408,49 @@ export async function POST(request: Request) {
           { status: 409 },
         );
       }
-      if (
-        user
-          ? !entries.some((entry) => entry.user_id === user!.id)
-          : entries.every((entry) => entry.user_id !== null)
-      ) {
+      if (!entries.some((entry) => entry.user_id === user!.id)) {
         return NextResponse.json(
           { error: 'The payer must be a registered participant in the selected entries.' },
           { status: 403 },
         );
+      }
+      const { data: eventPairs, error: eventPairsError } = await db
+        .from('tournament_pairs')
+        .select('player_one_id,player_two_id')
+        .eq('event_id', entries[0].event_id)
+        .eq('status', 'active');
+      if (eventPairsError) throw new Error('Could not verify tournament partner confirmations.');
+      const selectedIds = new Set(participantIds);
+      const partnerIds = [
+        ...new Set(
+          (eventPairs ?? []).flatMap((pair) => {
+            const selectedOne = selectedIds.has(pair.player_one_id);
+            const selectedTwo = selectedIds.has(pair.player_two_id);
+            return selectedOne && !selectedTwo
+              ? [pair.player_two_id]
+              : selectedTwo && !selectedOne
+                ? [pair.player_one_id]
+                : [];
+          }),
+        ),
+      ];
+      if (partnerIds.length) {
+        const { data: partners, error: partnersError } = await db
+          .from('tournament_participants')
+          .select('id,status,confirmation_status')
+          .in('id', partnerIds);
+        if (
+          partnersError ||
+          partners?.length !== partnerIds.length ||
+          partners.some(
+            (partner) =>
+              partner.status !== 'registered' || partner.confirmation_status !== 'confirmed',
+          )
+        )
+          return NextResponse.json(
+            { error: 'Your partner must confirm before this team can pay.' },
+            { status: 409 },
+          );
       }
       const unpaidEntries = entries.filter((entry) =>
         ['pending', 'failed'].includes(entry.payment_status),
@@ -469,20 +460,6 @@ export async function POST(request: Request) {
           { error: 'The selected tournament entries are already paid.' },
           { status: 409 },
         );
-      if (!user) {
-        const guestRecord = entries.find((entry) => !entry.user_id);
-        if (!guestRecord)
-          return NextResponse.json(
-            { error: 'Guest registration payment is unavailable.' },
-            { status: 409 },
-          );
-        const { data: guestContact } = await db
-          .from('tournament_participants')
-          .select('email')
-          .eq('id', guestRecord.id)
-          .maybeSingle();
-        customerEmail = guestContact?.email || undefined;
-      }
       businessRecordId = unpaidEntries
         .map((entry) => entry.id)
         .sort()

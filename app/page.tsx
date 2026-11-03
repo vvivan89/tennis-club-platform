@@ -11,7 +11,12 @@ import { EventCardActions } from '@/components/event-card-actions';
 import { EventCardWeather } from '@/components/event-card-weather';
 import { newsPathSlug } from '@/lib/news-slug';
 import { eventPath } from '@/lib/event-slug';
-import { eventPriceLabel as money, type EventRow } from '@/lib/event-format';
+import {
+  eventDisplayTitle,
+  eventPriceLabel as money,
+  type EventRow,
+  withEventSeriesNumbers,
+} from '@/lib/event-format';
 import { sanitizeHtml } from '@/lib/sanitize-html';
 
 type ClubEvent = EventRow & { status: 'draft' | 'published' | 'cancelled' };
@@ -105,7 +110,7 @@ export default function Home() {
       const db = createSupabaseBrowserClient();
       db.from('events')
         .select(
-          'id,slug,title,description,starts_at,ends_at,registration_opens_at,registration_closes_at,capacity,price_cents,members_only,event_type,status,location',
+          'id,slug,title,description,starts_at,ends_at,registration_opens_at,registration_closes_at,capacity,price_cents,members_only,event_type,status,location,series_id',
         )
         .eq('status', 'published')
         .gte('starts_at', new Date().toISOString())
@@ -113,8 +118,22 @@ export default function Home() {
         .limit(3)
         .then(({ data, error }) => {
           if (active && !error && data) {
-            setEvents(data as ClubEvent[]);
-            setConnected(true);
+            const visibleEvents = data as ClubEvent[];
+            const seriesIds = [
+              ...new Set(
+                visibleEvents
+                  .map((event) => event.series_id)
+                  .filter((seriesId): seriesId is string => Boolean(seriesId)),
+              ),
+            ];
+            const loadSeriesNumbers = seriesIds.length
+              ? db.from('events').select('id,series_id,starts_at').in('series_id', seriesIds)
+              : Promise.resolve({ data: [] });
+            void loadSeriesNumbers.then(({ data: seriesSessions }) => {
+              if (!active) return;
+              setEvents(withEventSeriesNumbers(visibleEvents, seriesSessions ?? []) as ClubEvent[]);
+              setConnected(true);
+            });
           }
         });
       db.from('club_settings')
@@ -302,7 +321,7 @@ export default function Home() {
                       {hydrated ? dateLabel(event.starts_at) : 'Session time'}
                     </p>
                     <h3 className="pt-1 text-2xl font-medium group-hover:text-primary">
-                      {event.title}
+                      {eventDisplayTitle(event)}
                     </h3>
                   </CardHeader>
                   <CardContent className="pb-3">

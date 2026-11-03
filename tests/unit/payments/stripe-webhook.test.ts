@@ -198,6 +198,48 @@ describe('Stripe webhook endpoint', () => {
     expect(mocks.rpc).not.toHaveBeenCalledWith('fulfill_successful_payment', expect.anything());
   });
 
+  it.each([
+    ['stored PaymentIntent id', 'reference'],
+    ['payment purpose', 'purpose'],
+    ['business record id', 'business'],
+    ['payment owner', 'owner'],
+    ['payment amount', 'amount'],
+    ['payment currency', 'currency'],
+  ])('rejects a succeeded intent with a mismatched %s', async (_label, mismatch) => {
+    const payment = {
+      id: 'payment-mismatch',
+      status: 'pending',
+      amount_minor: 1250,
+      currency: 'cad',
+      stripe_payment_intent_id: mismatch === 'reference' ? 'pi-other' : null,
+      last_stripe_event_id: null,
+      purpose: 'membership',
+      business_record_id: 'membership-1',
+      user_id: 'user-1',
+    };
+    const metadata = {
+      pctc_payment_id: payment.id,
+      pctc_purpose: mismatch === 'purpose' ? 'event_registration' : payment.purpose,
+      pctc_business_record_id:
+        mismatch === 'business' ? 'membership-2' : payment.business_record_id,
+      pctc_user_id: mismatch === 'owner' ? 'user-2' : payment.user_id,
+    };
+    configureEvent('payment_intent.succeeded', {
+      id: 'pi-mismatch',
+      amount: mismatch === 'amount' ? 1500 : payment.amount_minor,
+      currency: mismatch === 'currency' ? 'usd' : payment.currency,
+      metadata,
+    });
+    configureStorage(payment);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const response = await POST(request('valid-signature'));
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: 'Webhook processing failed; retry is safe.' });
+    expect(mocks.writes).toEqual([]);
+  });
+
   it('cancels pending payments on checkout expiration and preserves a concurrent success', async () => {
     const payment = {
       id: 'payment-expired',
@@ -289,6 +331,66 @@ describe('Stripe webhook endpoint', () => {
         refunded_amount_minor: 250,
       }),
     });
+  });
+
+  it('updates the payment when an asynchronous checkout failure includes a PaymentIntent', async () => {
+    const payment = {
+      id: 'payment-async-failed',
+      status: 'pending',
+      amount_minor: 1250,
+      currency: 'cad',
+      stripe_payment_intent_id: null,
+      last_stripe_event_id: null,
+      purpose: 'membership',
+      business_record_id: 'membership-1',
+      user_id: 'user-1',
+    };
+    const metadata = {
+      pctc_payment_id: payment.id,
+      pctc_purpose: payment.purpose,
+      pctc_business_record_id: payment.business_record_id,
+      pctc_user_id: payment.user_id,
+    };
+    configureEvent('checkout.session.async_payment_failed', {
+      id: 'cs-async-failed',
+      payment_intent: 'pi-async-failed',
+      metadata: { ...metadata, pctc_payment_id: payment.id },
+    });
+    configureStorage(payment, { latestPayment: payment });
+    mocks.retrievePaymentIntent.mockResolvedValue({
+      id: 'pi-async-failed',
+      status: 'requires_payment_method',
+      amount: 1250,
+      currency: 'cad',
+      metadata,
+      last_payment_error: { code: 'card_declined' },
+    });
+
+    const response = await POST(request('valid-signature'));
+
+    expect(response.status).toBe(200);
+    expect(mocks.retrievePaymentIntent).toHaveBeenCalledWith('pi-async-failed');
+    expect(mocks.writes).toContainEqual({
+      table: 'payments',
+      values: expect.objectContaining({ status: 'failed', failure_code: 'card_declined' }),
+    });
+  });
+
+  it('rejects a charge refund without a PaymentIntent reference', async () => {
+    configureEvent('charge.refunded', {
+      id: 'ch-without-intent',
+      payment_intent: null,
+      amount: 1250,
+      currency: 'cad',
+    });
+    configureStorage({ id: 'unreachable' });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const response = await POST(request('valid-signature'));
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: 'Webhook processing failed; retry is safe.' });
+    expect(mocks.retrieveCharge).not.toHaveBeenCalled();
   });
 
   it('fulfills the linked business record after a validated successful payment', async () => {
@@ -471,6 +573,55 @@ describe('Stripe webhook endpoint', () => {
     expect(await response.json()).toEqual({ received: true });
     expect(mocks.retrievePaymentIntent).not.toHaveBeenCalled();
     expect(mocks.writes).toEqual([]);
+  });
+
+  it.each([
+    ['mode', { mode: 'subscription' }],
+    ['purpose metadata', { pctc_purpose: 'membership' }],
+    ['business record metadata', { pctc_business_record_id: 'other-record' }],
+    ['user metadata', { pctc_user_id: 'other-user' }],
+    ['client reference', { client_reference_id: 'other-payment' }],
+    ['amount', { amount_total: 5000 }],
+    ['currency', { currency: 'usd' }],
+  ])('rejects a completed session with a mismatched %s', async (_label, changes) => {
+    const payment = {
+      id: 'payment-session-mismatch',
+      status: 'pending',
+      amount_minor: 2500,
+      currency: 'cad',
+      purpose: 'event_registration',
+      business_record_id: 'registration-1',
+      user_id: 'user-1',
+      stripe_checkout_session_id: 'cs_session_mismatch',
+    };
+    const metadata = {
+      pctc_payment_id: payment.id,
+      pctc_purpose: payment.purpose,
+      pctc_business_record_id: payment.business_record_id,
+      pctc_user_id: payment.user_id,
+      ...('pctc_purpose' in changes ? { pctc_purpose: changes.pctc_purpose } : {}),
+      ...('pctc_business_record_id' in changes
+        ? { pctc_business_record_id: changes.pctc_business_record_id }
+        : {}),
+      ...('pctc_user_id' in changes ? { pctc_user_id: changes.pctc_user_id } : {}),
+    };
+    configureEvent('checkout.session.completed', {
+      id: 'cs_session_mismatch',
+      mode: 'payment',
+      payment_status: 'unpaid',
+      amount_total: 2500,
+      currency: 'cad',
+      client_reference_id: payment.id,
+      metadata,
+      ...changes,
+    });
+    configureStorage(payment);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const response = await POST(request('valid-signature'));
+
+    expect(response.status).toBe(500);
+    expect(mocks.retrievePaymentIntent).not.toHaveBeenCalled();
   });
 
   it('replays a succeeded intent idempotently and writes an audit only for its last event', async () => {

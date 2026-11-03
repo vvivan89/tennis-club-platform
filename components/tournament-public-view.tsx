@@ -6,6 +6,7 @@ import { evaluateTournamentScore } from '@/lib/tournament-score';
 import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import {
   isGenderEligibleForCategory,
@@ -15,7 +16,7 @@ import {
 } from '@/lib/tournament-config';
 import { Input } from '@/components/ui/input';
 import { EventWeather } from '@/components/event-weather';
-import { Sparkles, Triangle, Trophy } from 'lucide-react';
+import { Sparkles, Trophy } from 'lucide-react';
 import { TennisLoader } from '@/components/tennis-loader';
 import { SearchableMemberSelect, type MemberOption } from '@/components/searchable-member-select';
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -25,6 +26,12 @@ import {
   type LeagueCourtAssignment,
 } from '@/components/league-court-assignment-dialog';
 import { FloatingFeedback } from '@/components/floating-feedback';
+import { LeagueEventStandings } from '@/components/league-event-standings';
+import {
+  InteracPaymentInstructionsDialog,
+  type InteracPaymentNotice,
+} from '@/components/interac-payment-instructions-dialog';
+import { PaymentOptionsButton, type PaymentOption } from '@/components/payment-options-button';
 import { PartnerSkillLevelSelect } from '@/components/partner-skill-level-select';
 import {
   compareTournamentEntries,
@@ -122,14 +129,23 @@ const phaseLabel = (value: string) =>
   value.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 const dateLabel = (value: string | null) =>
   value ? formatDateTime(value) : 'Time to be announced';
+const formatMoney = (amountMinor: number) =>
+  new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(amountMinor / 100);
 
 export function TournamentPublicView({
   adminContent = null,
   eventTitle = '',
   eventDescription = '',
   genderRestriction = null,
+  eventSlug = '',
   eventId,
   currentUserId,
+  currentUserEmail = null,
+  currentUserAccountKind = 'member',
+  currentUserName = '',
+  currentUserPhone = '',
+  currentUserSkillLevel = null,
+  currentUserGender = null,
   format,
   config,
   rulesHtml,
@@ -157,8 +173,15 @@ export function TournamentPublicView({
   eventTitle?: string;
   eventDescription?: string | null;
   genderRestriction?: string | null;
+  eventSlug?: string;
   eventId: string;
   currentUserId: string | null;
+  currentUserEmail?: string | null;
+  currentUserAccountKind?: string;
+  currentUserName?: string;
+  currentUserPhone?: string;
+  currentUserSkillLevel?: string | null;
+  currentUserGender?: string | null;
   format: string | null;
   config: TournamentConfig | null;
   rulesHtml: string | null;
@@ -188,11 +211,11 @@ export function TournamentPublicView({
     if (eventTitle) document.title = `PCTC | ${eventTitle}`;
   }, [eventTitle]);
   const hasRules = Boolean(rulesHtml?.trim()) && !leagueTournament;
+  const isEventGuest = !!currentUserId && currentUserAccountKind === 'event_guest';
   const canManageLeagueScores = leagueTournament && Boolean(adminContent);
   const [tab, setTab] = useState<
     'overview' | 'rules' | 'competition' | 'participants' | 'matches' | 'audit'
   >(resultsOnly ? 'competition' : 'overview');
-  const [leagueStandingsMode, setLeagueStandingsMode] = useState<'before' | 'after'>('before');
   const [leagueCourtModalOpen, setLeagueCourtModalOpen] = useState(false);
   const [leagueCourtSaving, setLeagueCourtSaving] = useState(false);
   const [leagueCourtAssignments, setLeagueCourtAssignments] = useState<LeagueCourtAssignment[]>([]);
@@ -306,9 +329,23 @@ export function TournamentPublicView({
       category: string;
       payment_status: string;
       amount_cents: number;
+      display_name?: string;
+      email?: string;
+      phone?: string | null;
+      gender?: string | null;
+      tennis_skill_level?: number | null;
+      confirmation_status?: string;
+      partner_id?: string | null;
+      partner_name?: string | null;
+      partner_email?: string | null;
+      partner_phone?: string | null;
+      partner_gender?: string | null;
+      partner_skill_level?: number | null;
+      partner_confirmation_status?: string | null;
+      partner_is_league_team?: boolean;
     }>
   >([]);
-  const [profileGender, setProfileGender] = useState<string | null>(null);
+  const [profileGender, setProfileGender] = useState<string | null>(currentUserGender);
   const [ownCategories, setOwnCategories] = useState<string[]>([]);
   const [ownTeamIds, setOwnTeamIds] = useState<string[]>([]);
   const [ownLeagueTeamId, setOwnLeagueTeamId] = useState<string | null>(null);
@@ -321,11 +358,44 @@ export function TournamentPublicView({
     config?.registration_mode === 'doubles' ? 'pair' : 'individual',
   );
   const [partnerChoice, setPartnerChoice] = useState('');
-  const [entrantName, setEntrantName] = useState('');
-  const [entrantEmail, setEntrantEmail] = useState('');
-  const [entrantPhone, setEntrantPhone] = useState('');
-  const [entrantGender, setEntrantGender] = useState('');
-  const [entrantSkillLevel, setEntrantSkillLevel] = useState('');
+  const [entrantName, setEntrantName] = useState(currentUserName);
+  const [entrantEmail, setEntrantEmail] = useState(currentUserEmail || '');
+  const [entrantPhone, setEntrantPhone] = useState(currentUserPhone);
+  const [entrantGender, setEntrantGender] = useState(currentUserGender || '');
+  const [entrantSkillLevel, setEntrantSkillLevel] = useState(currentUserSkillLevel || '');
+  const [guestAccessEmail, setGuestAccessEmail] = useState('');
+  const [guestAccessVisible, setGuestAccessVisible] = useState(false);
+  const [guestAccessMessage, setGuestAccessMessage] = useState('');
+  const [guestAccessError, setGuestAccessError] = useState('');
+  const [guestAccessBusy, setGuestAccessBusy] = useState(false);
+  const [partnerConfirmation, setPartnerConfirmation] = useState<{
+    participantId: string;
+    participantName: string;
+    email: string;
+    phone: string | null;
+    gender: string | null;
+    tennisSkillLevel: number | null;
+    eventTitle: string;
+    invitedBy: string;
+  } | null>(null);
+  const [partnerConfirmationError, setPartnerConfirmationError] = useState('');
+  const [partnerConfirmationBusy, setPartnerConfirmationBusy] = useState(false);
+  const [partnerEditTarget, setPartnerEditTarget] = useState<string | null>(null);
+  const [partnerEditName, setPartnerEditName] = useState('');
+  const [partnerEditEmail, setPartnerEditEmail] = useState('');
+  const [partnerEditPhone, setPartnerEditPhone] = useState('');
+  const [partnerEditGender, setPartnerEditGender] = useState('');
+  const [partnerEditSkill, setPartnerEditSkill] = useState('');
+  const [partnerEditBusy, setPartnerEditBusy] = useState(false);
+  const [ownEditTarget, setOwnEditTarget] = useState<string | null>(null);
+  const [ownEditName, setOwnEditName] = useState('');
+  const [ownEditPhone, setOwnEditPhone] = useState('');
+  const [ownEditGender, setOwnEditGender] = useState('');
+  const [ownEditSkill, setOwnEditSkill] = useState('');
+  const [ownEditBusy, setOwnEditBusy] = useState(false);
+  const [withdrawTarget, setWithdrawTarget] = useState<string | null>(null);
+  const [withdrawBusy, setWithdrawBusy] = useState(false);
+  const [withdrawError, setWithdrawError] = useState('');
   const [partnerName, setPartnerName] = useState('');
   const [partnerEmail, setPartnerEmail] = useState('');
   const [partnerPhone, setPartnerPhone] = useState('');
@@ -350,12 +420,8 @@ export function TournamentPublicView({
   } | null>(null);
   const [leagueWithdrawBusy, setLeagueWithdrawBusy] = useState(false);
   const [leagueWithdrawError, setLeagueWithdrawError] = useState('');
-  const [interacDetails, setInteracDetails] = useState<{
-    paymentId: string;
-    amountMinor: number;
-    recipientEmail: string;
-    instructions: string;
-  } | null>(null);
+  const [interacRequests, setInteracRequests] = useState<Record<string, InteracPaymentNotice>>({});
+  const [interacNotice, setInteracNotice] = useState<InteracPaymentNotice | null>(null);
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const guestIds =
@@ -374,6 +440,43 @@ export function TournamentPublicView({
       setPaymentParticipantIds(guestIds);
     }
   }, []);
+  useEffect(() => {
+    if (!currentUserId || typeof window === 'undefined') return;
+    const participantId = new URLSearchParams(window.location.search).get('confirm_partner');
+    if (!participantId) return;
+    let active = true;
+    setPartnerConfirmationError('');
+    void fetch(
+      `/api/events/partner-confirmation?participantId=${encodeURIComponent(participantId)}`,
+      {
+        cache: 'no-store',
+      },
+    )
+      .then(async (response) => {
+        const result = await response.json().catch(() => ({}));
+        if (!active) return;
+        if (!response.ok) throw new Error(result.error || 'This invitation could not be loaded.');
+        setPartnerConfirmation({
+          participantId,
+          participantName: result.participant.displayName,
+          email: result.participant.email,
+          phone: result.participant.phone,
+          gender: result.participant.gender,
+          tennisSkillLevel: result.participant.tennisSkillLevel,
+          eventTitle: result.event.title,
+          invitedBy: result.invitedBy,
+        });
+      })
+      .catch((error) => {
+        if (active)
+          setPartnerConfirmationError(
+            error instanceof Error ? error.message : 'This invitation could not be loaded.',
+          );
+      });
+    return () => {
+      active = false;
+    };
+  }, [currentUserId]);
   useEffect(() => {
     let active = true;
     // Keep the results area in a loading state when the Rankings selector changes
@@ -403,6 +506,8 @@ export function TournamentPublicView({
         groupOverrideResult,
         leagueCourtAssignmentResult,
         leagueTeamResult,
+        pendingInteracPaymentsResult,
+        interacSettingsResult,
       ] = await Promise.all([
         db.from('tournament_public_teams').select('*').eq('event_id', eventId).order('name'),
         db
@@ -418,12 +523,7 @@ export function TournamentPublicView({
           .order('scheduled_at', { ascending: true, nullsFirst: false })
           .order('court_number', { ascending: true, nullsFirst: true }),
         currentUserId
-          ? db
-              .from('tournament_participants')
-              .select('id,team_id,category,payment_status,amount_cents')
-              .eq('event_id', eventId)
-              .eq('user_id', currentUserId)
-              .eq('status', 'registered')
+          ? db.rpc('event_tournament_my_entries', { p_event_id: eventId })
           : Promise.resolve({ data: [], error: null }),
         currentUserId
           ? db.from('profiles').select('gender').eq('id', currentUserId).maybeSingle()
@@ -458,6 +558,23 @@ export function TournamentPublicView({
               .or(`player_one_id.eq.${currentUserId},player_two_id.eq.${currentUserId}`)
               .maybeSingle()
           : Promise.resolve({ data: null, error: null }),
+        currentUserId && interacEnabled
+          ? db
+              .from('payments')
+              .select('id,business_record_id,amount_minor,status,provider')
+              .eq('user_id', currentUserId)
+              .eq('purpose', 'tournament_registration')
+              .eq('provider', 'interac')
+              .in('status', ['pending', 'processing'])
+              .order('created_at', { ascending: false })
+          : Promise.resolve({ data: [], error: null }),
+        currentUserId && interacEnabled
+          ? db
+              .from('payment_method_settings')
+              .select('interac_recipient_email,interac_instructions')
+              .eq('id', 1)
+              .maybeSingle()
+          : Promise.resolve({ data: null, error: null }),
       ]);
       const matchIds = (matchResult.data ?? []).map((m) => m.id);
       const matchPlayerResult = matchIds.length
@@ -480,6 +597,27 @@ export function TournamentPublicView({
       setMatchPlayers((matchPlayerResult.data ?? []) as MatchPlayer[]);
       setProfileGender((profileResult.data as { gender?: string | null } | null)?.gender ?? null);
       setOwnParticipantIds((ownResult.data ?? []).map((p: { id: string }) => p.id));
+      const interacRequestMap: Record<string, InteracPaymentNotice> = {};
+      const interacRecipient = interacSettingsResult.data?.interac_recipient_email || '';
+      const interacInstructions = interacSettingsResult.data?.interac_instructions || '';
+      for (const payment of pendingInteracPaymentsResult.data ?? []) {
+        const participantIds = String(payment.business_record_id || '')
+          .split(',')
+          .filter(Boolean)
+          .sort();
+        if (!participantIds.length || !payment.id) continue;
+        const amount = Number(payment.amount_minor || 0);
+        const amountLabel = formatMoney(amount);
+        const payerScope = participantIds.length > 1 ? 'both partner entries' : 'your entry';
+        interacRequestMap[tournamentPaymentActionKey(participantIds, 'interac')] = {
+          amount: amountLabel,
+          recipientEmail: interacRecipient,
+          paymentId: payment.id,
+          instructions: interacInstructions,
+          message: `Your Interac request for ${payerScope} (${amountLabel}) is pending club confirmation.`,
+        };
+      }
+      setInteracRequests(interacRequestMap);
       setOwnEntries(
         (ownResult.data ?? []) as Array<{
           id: string;
@@ -487,6 +625,20 @@ export function TournamentPublicView({
           category: string;
           payment_status: string;
           amount_cents: number;
+          confirmation_status?: string;
+          partner_id?: string | null;
+          partner_confirmation_status?: string | null;
+          display_name?: string;
+          email?: string;
+          phone?: string | null;
+          gender?: string | null;
+          tennis_skill_level?: number | null;
+          partner_name?: string | null;
+          partner_email?: string | null;
+          partner_phone?: string | null;
+          partner_gender?: string | null;
+          partner_skill_level?: number | null;
+          partner_is_league_team?: boolean;
         }>,
       );
       const unpaidOwnEntry = (ownResult.data ?? []).find(
@@ -497,10 +649,10 @@ export function TournamentPublicView({
         setPaymentParticipantIds((current) => (current.length ? current : [unpaidOwnEntry.id]));
       setOwnCategories((ownResult.data ?? []).map((p: { category: string }) => p.category));
       setOwnTeamIds([
-        ...new Set(
-          (ownResult.data ?? [])
-            .map((p: { team_id: string | null }) => p.team_id)
-            .filter((id: string | null): id is string => !!id),
+        ...new Set<string>(
+          ((ownResult.data ?? []) as Array<{ team_id: string | null }>)
+            .map((p) => p.team_id)
+            .filter((id): id is string => !!id),
         ),
       ]);
       setOwnLeagueTeamId((leagueTeamResult.data as { id?: string } | null)?.id ?? null);
@@ -509,7 +661,7 @@ export function TournamentPublicView({
     return () => {
       active = false;
     };
-  }, [db, eventId, currentUserId, registrationRefresh, leagueTournament, leagueId]);
+  }, [db, eventId, currentUserId, registrationRefresh, leagueTournament, leagueId, interacEnabled]);
   useEffect(() => {
     const channel = db
       .channel(`tournament-public-${eventId}`)
@@ -591,6 +743,148 @@ export function TournamentPublicView({
       void db.removeChannel(channel);
     };
   }, [db, eventId, router]);
+  async function requestEventGuestAccess(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setGuestAccessBusy(true);
+    setGuestAccessError('');
+    setGuestAccessMessage('');
+    try {
+      const response = await fetch('/api/events/guest-access', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: guestAccessEmail, eventId }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Could not send the sign-in link.');
+      if (result.memberLoginRequired) {
+        setGuestAccessMessage('Please log in as a member.');
+        return;
+      }
+      setRegistrationMessage(result.message || 'Check your email for a sign-in link.');
+    } catch (error) {
+      setGuestAccessError(
+        error instanceof Error ? error.message : 'Could not send the sign-in link.',
+      );
+    } finally {
+      setGuestAccessBusy(false);
+    }
+  }
+
+  async function requestPartnerInvitation(participantId: string) {
+    const response = await fetch('/api/events/partner-invitations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ participantIds: [participantId] }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok)
+      throw new Error(result.error || 'The partner confirmation request could not be sent.');
+  }
+
+  async function confirmPartnerParticipation() {
+    if (!partnerConfirmation) return;
+    setPartnerConfirmationBusy(true);
+    setPartnerConfirmationError('');
+    try {
+      const response = await fetch('/api/events/partner-confirmation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ participantId: partnerConfirmation.participantId }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Could not confirm this participation.');
+      setPartnerConfirmation(null);
+      const url = new URL(window.location.href);
+      url.searchParams.delete('confirm_partner');
+      window.history.replaceState({}, '', url.toString());
+      setRegistrationMessage(
+        'Your participation is confirmed. The team can now pay the event fee.',
+      );
+      setRegistrationRefresh((value) => value + 1);
+    } catch (error) {
+      setPartnerConfirmationError(
+        error instanceof Error ? error.message : 'Could not confirm this participation.',
+      );
+    } finally {
+      setPartnerConfirmationBusy(false);
+    }
+  }
+
+  async function savePartnerChange(participantId: string) {
+    setPartnerEditBusy(true);
+    setRegistrationError('');
+    try {
+      const { data, error } = await db.rpc('update_unconfirmed_tournament_partner', {
+        p_participant_id: participantId,
+        p_partner_user_id: null,
+        p_partner_name: partnerEditName.trim(),
+        p_partner_email: partnerEditEmail.trim(),
+        p_partner_phone: partnerEditPhone.trim() || null,
+        p_partner_gender: partnerEditGender || null,
+        p_partner_skill_level: partnerEditSkill ? Number(partnerEditSkill) : null,
+      });
+      if (error) throw new Error(error.message);
+      const invite = data as { partnerParticipantId?: string };
+      if (invite.partnerParticipantId) await requestPartnerInvitation(invite.partnerParticipantId);
+      setPartnerEditTarget(null);
+      setRegistrationMessage(
+        'Partner updated. The new partner must confirm before the team can pay.',
+      );
+      setRegistrationRefresh((value) => value + 1);
+    } catch (error) {
+      setRegistrationError(
+        error instanceof Error ? error.message : 'Could not update your partner.',
+      );
+    } finally {
+      setPartnerEditBusy(false);
+    }
+  }
+
+  async function switchToSingle(participantId: string) {
+    setPartnerEditBusy(true);
+    setRegistrationError('');
+    try {
+      const { error } = await db.rpc('remove_unconfirmed_tournament_partner', {
+        p_participant_id: participantId,
+      });
+      if (error) throw new Error(error.message);
+      setRegistrationMessage(
+        'Your pending partner was removed. Your individual entry remains saved.',
+      );
+      setRegistrationRefresh((value) => value + 1);
+    } catch (error) {
+      setRegistrationError(
+        error instanceof Error ? error.message : 'Could not change to a single entry.',
+      );
+    } finally {
+      setPartnerEditBusy(false);
+    }
+  }
+
+  async function saveOwnEventDetails(participantId: string) {
+    setOwnEditBusy(true);
+    setRegistrationError('');
+    try {
+      const { error } = await db.rpc('update_event_guest_registration_details', {
+        p_participant_id: participantId,
+        p_display_name: ownEditName.trim(),
+        p_phone: ownEditPhone.trim() || null,
+        p_gender: ownEditGender || null,
+        p_tennis_skill_level: ownEditSkill ? Number(ownEditSkill) : null,
+      });
+      if (error) throw new Error(error.message);
+      setOwnEditTarget(null);
+      setRegistrationMessage('Your event registration details were updated.');
+      setRegistrationRefresh((value) => value + 1);
+    } catch (error) {
+      setRegistrationError(
+        error instanceof Error ? error.message : 'Could not update your details.',
+      );
+    } finally {
+      setOwnEditBusy(false);
+    }
+  }
+
   async function submitRegistration(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setRegistrationBusy(true);
@@ -598,15 +892,20 @@ export function TournamentPublicView({
     setRegistrationMessage('');
     try {
       const entryCategory = leagueTournament ? leagueRegistrationCategory : registrationCategory;
-      if (!currentUserId && (!entrantName.trim() || !entrantEmail.trim()))
-        throw new Error('Enter your name and email to register without an account.');
+      if (isEventGuest && (!entrantName.trim() || !currentUserEmail))
+        throw new Error('Enter your name to continue. Your verified email is required.');
       const useNewPartner =
-        effectiveRegistrationMode === 'pair' && (!currentUserId || partnerChoice === 'new');
+        effectiveRegistrationMode === 'pair' &&
+        (isEventGuest || !currentUserId || partnerChoice === 'new');
       if (currentUserId && effectiveRegistrationMode === 'pair' && !partnerChoice)
         throw new Error('Choose a registered partner or enter new partner details.');
       if (useNewPartner && (!partnerName.trim() || !partnerEmail.trim()))
         throw new Error('Enter your partner’s name and email.');
-      const entrantGenderValue = currentUserId ? profileGender : entrantGender || null;
+      const entrantGenderValue = isEventGuest
+        ? entrantGender || null
+        : currentUserId
+          ? profileGender
+          : entrantGender || null;
       const selectedPartner = currentUserId
         ? partnerMembers.find((member) => member.id === partnerChoice)
         : participants.find((participant) => participant.id === partnerChoice);
@@ -646,18 +945,26 @@ export function TournamentPublicView({
         throw new Error(
           'Mixed doubles requires one male and one female player when both genders are known.',
         );
-      const { data, error: registrationError } = await db.rpc('register_tournament_entry', {
-        p_event_id: eventId,
-        p_category: entryCategory,
-        p_display_name: entrantName.trim() || null,
-        p_email: entrantEmail.trim() || null,
-        p_phone: entrantPhone.trim() || null,
-        p_gender: entrantGender || null,
-        p_partner_participant_id: null,
+      const partnerRegistrationArgs = {
         p_partner_name: useNewPartner ? partnerName.trim() : null,
         p_partner_email: useNewPartner ? partnerEmail.trim() : null,
         p_partner_phone: useNewPartner ? partnerPhone.trim() || null : null,
         p_partner_gender: useNewPartner ? partnerGender || null : null,
+      };
+      const partnerSkillLevelValue =
+        useNewPartner && partnerSkillLevel ? Number(partnerSkillLevel) : null;
+      const sharedRegistrationArgs = {
+        p_event_id: eventId,
+        p_category: entryCategory,
+        p_phone: entrantPhone.trim() || null,
+        p_gender: entrantGender || null,
+        ...partnerRegistrationArgs,
+      };
+      const registrationArgs = {
+        ...sharedRegistrationArgs,
+        p_display_name: entrantName.trim() || null,
+        p_email: entrantEmail.trim() || null,
+        p_partner_participant_id: null,
         p_partner_user_id:
           effectiveRegistrationMode === 'pair' &&
           currentUserId &&
@@ -665,31 +972,46 @@ export function TournamentPublicView({
           partnerChoice !== 'new'
             ? partnerChoice
             : null,
-        p_tennis_skill_level:
-          !currentUserId && entrantSkillLevel ? Number(entrantSkillLevel) : null,
-        p_partner_tennis_skill_level:
-          (useNewPartner || (!currentUserId && partnerChoice && partnerChoice !== 'new')) &&
-          partnerSkillLevel
-            ? Number(partnerSkillLevel)
-            : null,
-      });
+        p_tennis_skill_level: isEventGuest && entrantSkillLevel ? Number(entrantSkillLevel) : null,
+        p_partner_tennis_skill_level: partnerSkillLevelValue,
+      };
+      const { data, error: registrationError } = isEventGuest
+        ? await db.rpc('register_event_guest_tournament_entry', {
+            ...sharedRegistrationArgs,
+            p_display_name: entrantName.trim(),
+            p_tennis_skill_level: entrantSkillLevel ? Number(entrantSkillLevel) : null,
+            p_partner_skill_level: partnerSkillLevelValue,
+          })
+        : await db.rpc('register_tournament_entry', registrationArgs);
       if (registrationError) throw new Error(registrationError.message);
       const result = data as {
         participantId?: string;
         amountCents?: number;
         partnerParticipantId?: string | null;
         paymentStatus?: string;
+        partnerEmail?: string | null;
+        partnerIsMember?: boolean;
       };
       const amountDue = (result.amountCents ?? priceCents) > 0;
-      setRegistrationMessage(
+      let statusMessage =
         amountDue && result.paymentStatus === 'paid'
           ? 'Your previous non-refunded payment was applied to this category.'
           : amountDue
-            ? currentUserId
-              ? 'Registration saved. Payment is pending; you can pay for your entry and your partner together.'
-              : 'Provisional registration created. Complete card payment to confirm your entry.'
-            : 'Registration confirmed.',
-      );
+            ? result.partnerParticipantId
+              ? 'Registration saved. Your team can pay after your partner confirms.'
+              : 'Registration saved. Payment is pending; you can pay when ready.'
+            : 'Registration confirmed.';
+      if (result.partnerParticipantId) {
+        try {
+          await requestPartnerInvitation(result.partnerParticipantId);
+          statusMessage += result.partnerEmail
+            ? ` If that member exists, they will receive a notification to confirm their tournament participation. A non-member partner will receive a sign-in link.`
+            : ' Your partner will receive a confirmation request.';
+        } catch (error) {
+          statusMessage += ` The entry is saved, but the partner confirmation email could not be sent: ${error instanceof Error ? error.message : 'please retry'}.`;
+        }
+      }
+      setRegistrationMessage(statusMessage);
       const selectedPartnerAlreadyPaid =
         !!result.partnerParticipantId &&
         participants.some(
@@ -709,11 +1031,13 @@ export function TournamentPublicView({
           : [],
       );
       setPartnerChoice('');
-      setEntrantName('');
-      setEntrantEmail('');
-      setEntrantPhone('');
-      setEntrantGender('');
-      setEntrantSkillLevel('');
+      if (!isEventGuest) {
+        setEntrantName('');
+        setEntrantEmail('');
+        setEntrantPhone('');
+        setEntrantGender('');
+        setEntrantSkillLevel('');
+      }
       setPartnerName('');
       setPartnerEmail('');
       setPartnerPhone('');
@@ -828,6 +1152,39 @@ export function TournamentPublicView({
       setLeagueWithdrawBusy(false);
     }
   }
+  async function confirmTournamentWithdrawal() {
+    const entry = ownEntries.find((candidate) => candidate.id === withdrawTarget);
+    if (!entry) return;
+    setWithdrawBusy(true);
+    setWithdrawError('');
+    try {
+      const cancelResponse = await fetch('/api/payments/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ participantId: entry.id }),
+      });
+      const cancelResult = await cancelResponse.json().catch(() => ({}));
+      if (!cancelResponse.ok)
+        throw new Error(cancelResult.error || 'Could not safely cancel the pending payment.');
+      const { error } = await db.rpc('withdraw_tournament_entry', { p_participant_id: entry.id });
+      if (error) throw new Error(error.message);
+      setWithdrawTarget(null);
+      setRegistrationMessage(
+        entry.confirmation_status === 'confirmed' &&
+          entry.payment_status === 'paid' &&
+          entry.partner_confirmation_status === 'confirmed'
+          ? 'The whole team has been withdrawn. Contact the organizer about any refund.'
+          : `${categoryLabel(entry.category)} registration withdrawn.`,
+      );
+      setRegistrationRefresh((value) => value + 1);
+    } catch (error) {
+      setWithdrawError(
+        error instanceof Error ? error.message : 'Could not withdraw this registration.',
+      );
+    } finally {
+      setWithdrawBusy(false);
+    }
+  }
   function tournamentPaymentActionKey(
     participantIds: string[],
     provider: 'stripe' | 'interac' = 'stripe',
@@ -868,13 +1225,22 @@ export function TournamentPublicView({
         return;
       }
       if (provider === 'interac' && result.message) {
-        setInteracDetails({
+        const sortedParticipantIds = [...new Set(participantIds)].sort();
+        const amountLabel = formatMoney(Number(result.amountMinor || 0));
+        const payerScope = sortedParticipantIds.length > 1 ? 'both partner entries' : 'your entry';
+        const notice: InteracPaymentNotice = {
+          amount: amountLabel,
+          recipientEmail: result.recipientEmail || '',
           paymentId: result.paymentId,
-          amountMinor: result.amountMinor,
-          recipientEmail: result.recipientEmail,
           instructions: result.instructions || '',
-        });
-        setRegistrationMessage(result.message);
+          message: `Your Interac request for ${payerScope} (${amountLabel}) is pending club confirmation.`,
+        };
+        setInteracRequests((current) => ({
+          ...current,
+          [tournamentPaymentActionKey(sortedParticipantIds, 'interac')]: notice,
+        }));
+        setInteracNotice(notice);
+        setRegistrationMessage(notice.message);
         return;
       }
       throw new Error(
@@ -1188,7 +1554,11 @@ export function TournamentPublicView({
   };
   const canViewCompetition = detailsPublic || (!!currentUserId && ownParticipantIds.length > 0);
   const leagueRegistrationCategory = leagueGender === 'male' ? 'men' : 'women';
-  const registrationGender = currentUserId ? profileGender : entrantGender || null;
+  const registrationGender = isEventGuest
+    ? entrantGender || null
+    : currentUserId
+      ? profileGender
+      : entrantGender || null;
   const enabledDoublesCategories = (config?.categories ?? ['mixed', 'men', 'women']).filter(
     (category: string) => ['mixed', 'men', 'women'].includes(category),
   );
@@ -1233,7 +1603,7 @@ export function TournamentPublicView({
     Date.now() < new Date(registrationClosesAt || startsAt).getTime();
   const registrationModeConfig = config?.registration_mode ?? 'both';
   const effectiveRegistrationMode =
-    leagueTournament || registrationModeConfig === 'single'
+    (leagueTournament && !isEventGuest) || registrationModeConfig === 'single'
       ? 'individual'
       : registrationModeConfig === 'doubles'
         ? 'pair'
@@ -1768,6 +2138,31 @@ export function TournamentPublicView({
     setLeagueCourtSaving(false);
     router.refresh();
   }
+  const withdrawEntry = ownEntries.find((entry) => entry.id === withdrawTarget);
+  const withdrawPair = withdrawEntry
+    ? pairs.find(
+        (pair) =>
+          pair.status !== 'withdrawn' &&
+          pair.category === withdrawEntry.category &&
+          (pair.player_one_id === withdrawEntry.id || pair.player_two_id === withdrawEntry.id),
+      )
+    : undefined;
+  const withdrawPairPayment = withdrawPair
+    ? pairPaymentStatuses.find((status) => status.pair_id === withdrawPair.id)
+    : undefined;
+  const withdrawEitherPartnerPaid =
+    !!withdrawPairPayment &&
+    ['paid', 'not_required'].some((status) =>
+      [
+        withdrawPairPayment.player_one_payment_status,
+        withdrawPairPayment.player_two_payment_status,
+      ].includes(status),
+    );
+  const withdrawPaidTeam = Boolean(
+    withdrawEntry?.confirmation_status === 'confirmed' &&
+    withdrawEntry.partner_confirmation_status === 'confirmed' &&
+    withdrawEitherPartnerPaid,
+  );
   return (
     <section className={leagueTournament ? 'space-y-8' : 'space-y-5'}>
       <FloatingFeedback error={registrationError} message={registrationMessage} />
@@ -2052,16 +2447,8 @@ export function TournamentPublicView({
           (!leagueTournament || !['matches', 'audit'].includes(tab)) ? (
             adminContent
           ) : loading ? (
-            <div
-              className="flex items-center gap-2 py-6 text-sm text-muted-foreground"
-              role="status"
-              aria-live="polite"
-            >
-              <span
-                className="h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent"
-                aria-hidden="true"
-              />
-              Loading tournament details…
+            <div className="py-6">
+              <TennisLoader label="Loading tournament details" />
             </div>
           ) : tab === 'rules' && hasRules ? (
             <section className="rounded-lg border border-border p-4" aria-label="Tournament rules">
@@ -2161,14 +2548,14 @@ export function TournamentPublicView({
                     className={
                       leagueTournament ? 'order-4 space-y-4' : 'rounded-lg border border-border p-4'
                     }
-                    aria-label={leagueTournament ? 'Players and courts' : 'Registered entries'}
+                    aria-label={leagueTournament ? 'Players and courts' : 'Registered Participants'}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <h3
                           className={leagueTournament ? 'text-xl font-semibold' : 'font-semibold'}
                         >
-                          {leagueTournament ? 'Players and courts' : 'Registered entries'}
+                          {leagueTournament ? 'Players and courts' : 'Registered Participants'}
                         </h3>
                         {leagueTournament && (
                           <p className="mt-1 text-sm text-muted-foreground">
@@ -2551,10 +2938,11 @@ export function TournamentPublicView({
               )}
               {tab === 'overview' && (
                 <div
+                  id="registration"
                   className={
                     leagueTournament
-                      ? 'order-3 rounded-xl border border-border p-5'
-                      : 'rounded-lg border border-border p-4'
+                      ? 'order-3 scroll-mt-24 rounded-xl border border-border p-5'
+                      : 'scroll-mt-24 rounded-lg border border-border p-4'
                   }
                 >
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2562,6 +2950,7 @@ export function TournamentPublicView({
                       {leagueTournament ? 'Registration' : 'Tournament registration'}
                     </h3>
                     {leagueTournament &&
+                      !isEventGuest &&
                       registrationOpen &&
                       !ownEntries.some((entry) => entry.category === leagueRegistrationCategory) &&
                       !loading &&
@@ -2591,7 +2980,63 @@ export function TournamentPublicView({
                           </button>
                         )
                       ))}
+                    {isEventGuest && (
+                      <Link
+                        href="/my-events"
+                        className="text-sm font-medium text-primary underline"
+                      >
+                        My events
+                      </Link>
+                    )}
                   </div>
+                  {partnerConfirmation && (
+                    <section
+                      className="mt-4 rounded-lg border border-primary/30 bg-primary/[0.03] p-4"
+                      aria-label="Partner confirmation"
+                    >
+                      <h4 className="font-semibold">Confirm your tournament participation</h4>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {partnerConfirmation.invitedBy} listed you as a partner for{' '}
+                        {partnerConfirmation.eventTitle}. Review your details and confirm to make
+                        the team eligible for payment.
+                      </p>
+                      <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+                        <div>
+                          <dt className="font-medium">Name</dt>
+                          <dd>{partnerConfirmation.participantName}</dd>
+                        </div>
+                        <div>
+                          <dt className="font-medium">Email</dt>
+                          <dd>{partnerConfirmation.email}</dd>
+                        </div>
+                        <div>
+                          <dt className="font-medium">Phone</dt>
+                          <dd>{partnerConfirmation.phone || 'Not provided'}</dd>
+                        </div>
+                        <div>
+                          <dt className="font-medium">Gender</dt>
+                          <dd>{partnerConfirmation.gender || 'Not specified'}</dd>
+                        </div>
+                        <div>
+                          <dt className="font-medium">Tennis skill rating</dt>
+                          <dd>{partnerConfirmation.tennisSkillLevel ?? 'Not specified'}</dd>
+                        </div>
+                      </dl>
+                      <button
+                        type="button"
+                        disabled={partnerConfirmationBusy}
+                        onClick={() => void confirmPartnerParticipation()}
+                        className="mt-4 h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
+                      >
+                        {partnerConfirmationBusy ? 'Confirming…' : 'Confirm participation'}
+                      </button>
+                    </section>
+                  )}
+                  {partnerConfirmationError && (
+                    <p role="alert" className="mt-3 text-sm text-destructive">
+                      {partnerConfirmationError}
+                    </p>
+                  )}
                   {currentUserId && ownEntries.length > 0 && (
                     <div className="mt-3 space-y-3" aria-label="Your tournament registrations">
                       {ownEntries.map((entry) => {
@@ -2633,6 +3078,83 @@ export function TournamentPublicView({
                                 : entry.payment_status === 'failed'
                                   ? 'Payment failed'
                                   : 'Payment pending';
+                        const partnerPending = entry.partner_confirmation_status === 'pending';
+                        const selfInteracKey = tournamentPaymentActionKey([entry.id], 'interac');
+                        const selfInteracRequest = interacRequests[selfInteracKey];
+                        const teamParticipantIds = entryPair
+                          ? [entryPair.player_one_id, entryPair.player_two_id]
+                          : [];
+                        const teamInteracKey = teamParticipantIds.length
+                          ? tournamentPaymentActionKey(teamParticipantIds, 'interac')
+                          : '';
+                        const teamInteracRequest = teamInteracKey
+                          ? interacRequests[teamInteracKey]
+                          : undefined;
+                        const teamInteracAmount = entry.amount_cents * 2;
+                        const pendingInteracRequest = selfInteracRequest || teamInteracRequest;
+                        const canPaySelf = !partnerPending && !paid && entry.amount_cents > 0;
+                        const canPayTeam =
+                          !!entryPair &&
+                          !partnerPending &&
+                          entry.confirmation_status === 'confirmed' &&
+                          !!pairPayment &&
+                          !teamFullyPaid &&
+                          !eitherPartnerPaid &&
+                          entry.amount_cents > 0;
+                        const paymentOptions: PaymentOption[] = [];
+                        if (canPaySelf) {
+                          paymentOptions.push({
+                            label: `For myself by card · ${formatMoney(entry.amount_cents)}`,
+                            onSelect: () => void startTournamentPayment([entry.id]),
+                            loading: paymentBusyKey === tournamentPaymentActionKey([entry.id]),
+                            loadingLabel: 'Opening payment',
+                          });
+                        }
+                        if (currentUserId && interacEnabled && canPaySelf && !teamInteracRequest) {
+                          paymentOptions.push({
+                            label: selfInteracRequest
+                              ? `View Interac instructions · ${selfInteracRequest.amount}`
+                              : `For myself by Interac · ${formatMoney(entry.amount_cents)}`,
+                            onSelect: () =>
+                              selfInteracRequest
+                                ? setInteracNotice(selfInteracRequest)
+                                : void startTournamentPayment([entry.id], 'interac'),
+                          });
+                        }
+                        if (canPayTeam && entryPair) {
+                          paymentOptions.push({
+                            label: `For both by card · ${formatMoney(teamInteracAmount)}`,
+                            onSelect: () =>
+                              void startTournamentPayment([
+                                entryPair.player_one_id,
+                                entryPair.player_two_id,
+                              ]),
+                            loading:
+                              paymentBusyKey ===
+                              tournamentPaymentActionKey([
+                                entryPair.player_one_id,
+                                entryPair.player_two_id,
+                              ]),
+                            loadingLabel: 'Opening payment',
+                          });
+                        }
+                        if (
+                          currentUserId &&
+                          interacEnabled &&
+                          canPayTeam &&
+                          entryPair &&
+                          (!selfInteracRequest || !!teamInteracRequest)
+                        ) {
+                          paymentOptions.push({
+                            label: teamInteracRequest
+                              ? `View Interac instructions · ${teamInteracRequest.amount}`
+                              : `For both by Interac · ${formatMoney(teamInteracAmount)}`,
+                            onSelect: () =>
+                              teamInteracRequest
+                                ? setInteracNotice(teamInteracRequest)
+                                : void startTournamentPayment(teamParticipantIds, 'interac'),
+                          });
+                        }
                         return (
                           <div
                             key={entry.id}
@@ -2640,76 +3162,97 @@ export function TournamentPublicView({
                           >
                             <div className="min-w-0">
                               <p className="font-medium">{categoryLabel(entry.category)}</p>
+                              <p className="mt-1 text-sm">
+                                {entry.display_name || currentUserName}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {entry.email || currentUserEmail} ·{' '}
+                                {entry.phone || 'Phone not provided'} ·{' '}
+                                {entry.gender || 'Gender not specified'} · Rating{' '}
+                                {entry.tennis_skill_level ?? 'not specified'}
+                              </p>
                               <p className="text-sm text-muted-foreground">
-                                {paymentStatus}
-                                {entryPair
-                                  ? ` · Partner: ${entryPair.player_one_id === entry.id ? entryPair.player_two_name : entryPair.player_one_name} · Team payment: ${teamFullyPaid ? 'Paid' : 'Pending'}`
+                                {entry.confirmation_status === 'pending'
+                                  ? 'Awaiting your confirmation'
+                                  : pendingInteracRequest
+                                    ? `Interac payment requested (${pendingInteracRequest.amount}); awaiting club confirmation`
+                                    : paymentStatus}
+                                {entry.partner_id
+                                  ? ` · Partner: ${entry.partner_name || 'Partner'} · ${partnerPending ? 'Awaiting partner confirmation' : 'Partner confirmed'}${entryPair ? ` · Team payment: ${teamFullyPaid ? 'Paid' : 'Pending'}` : ''}`
                                   : ''}
                               </p>
+                              {entry.partner_id && (
+                                <p className="text-xs text-muted-foreground">
+                                  Partner details: {entry.partner_name || 'Name not provided'} ·{' '}
+                                  {entry.partner_email || 'Email not provided'} ·{' '}
+                                  {entry.partner_phone || 'Phone not provided'} ·{' '}
+                                  {entry.partner_gender || 'Gender not specified'} · Rating{' '}
+                                  {entry.partner_skill_level ?? 'not specified'}
+                                </p>
+                              )}
                             </div>
                             <div className="flex flex-wrap gap-2">
-                              {!paid && entry.amount_cents > 0 && (
+                              {isEventGuest && cutoffOpen && (
                                 <button
                                   type="button"
-                                  disabled={paymentBusy}
-                                  onClick={() => void startTournamentPayment([entry.id])}
-                                  className="h-9 rounded-md border border-primary px-3 text-sm disabled:opacity-50"
+                                  className="h-9 rounded-md border border-border px-3 text-sm"
+                                  onClick={() => {
+                                    setOwnEditTarget(entry.id);
+                                    setOwnEditName(entry.display_name || '');
+                                    setOwnEditPhone(entry.phone || '');
+                                    setOwnEditGender(entry.gender || '');
+                                    setOwnEditSkill(entry.tennis_skill_level?.toString() || '');
+                                  }}
                                 >
-                                  {paymentBusyKey === tournamentPaymentActionKey([entry.id]) ? (
-                                    <TennisLoader label="Opening payment" compact />
-                                  ) : (
-                                    'Pay for myself'
-                                  )}
+                                  Edit my details
                                 </button>
                               )}
-                              {entry.amount_cents > 0 &&
-                                entryPair &&
-                                pairPayment &&
-                                !teamFullyPaid &&
-                                !eitherPartnerPaid && (
-                                  <button
-                                    type="button"
-                                    disabled={paymentBusy}
-                                    onClick={() =>
-                                      void startTournamentPayment([
-                                        entryPair.player_one_id,
-                                        entryPair.player_two_id,
-                                      ])
-                                    }
-                                    className="h-9 rounded-md border border-primary px-3 text-sm disabled:opacity-50"
-                                  >
-                                    {paymentBusyKey ===
-                                    tournamentPaymentActionKey([
-                                      entryPair.player_one_id,
-                                      entryPair.player_two_id,
-                                    ]) ? (
-                                      <TennisLoader label="Opening payment" compact />
-                                    ) : (
-                                      'Pay for both partners'
-                                    )}
-                                  </button>
-                                )}
-                              {currentUserId &&
-                                interacEnabled &&
-                                !paid &&
-                                entry.amount_cents > 0 && (
-                                  <button
-                                    type="button"
-                                    disabled={paymentBusy}
-                                    onClick={() =>
-                                      void startTournamentPayment([entry.id], 'interac')
-                                    }
-                                    className="h-9 rounded-md border border-border px-3 text-sm disabled:opacity-50"
-                                  >
-                                    Pay by Interac
-                                  </button>
+                              {paymentOptions.length > 0 && (
+                                <PaymentOptionsButton
+                                  options={paymentOptions}
+                                  disabled={paymentBusy}
+                                  className="h-9 border border-primary px-3 text-sm"
+                                />
+                              )}
+                              {cutoffOpen &&
+                                entry.partner_confirmation_status === 'pending' &&
+                                !entry.partner_is_league_team && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      className="h-9 rounded-md border border-border px-3 text-sm"
+                                      onClick={() => {
+                                        setPartnerEditTarget(entry.id);
+                                        setPartnerEditName(entry.partner_name || '');
+                                        setPartnerEditEmail(entry.partner_email || '');
+                                        setPartnerEditPhone(entry.partner_phone || '');
+                                        setPartnerEditGender(entry.partner_gender || '');
+                                        setPartnerEditSkill(
+                                          entry.partner_skill_level?.toString() || '',
+                                        );
+                                      }}
+                                    >
+                                      Change partner
+                                    </button>
+                                    {format === 'doubles' &&
+                                      config?.registration_mode !== 'doubles' && (
+                                        <button
+                                          type="button"
+                                          disabled={partnerEditBusy}
+                                          onClick={() => void switchToSingle(entry.id)}
+                                          className="h-9 rounded-md border border-border px-3 text-sm"
+                                        >
+                                          Register as a single
+                                        </button>
+                                      )}
+                                  </>
                                 )}
                               {cutoffOpen && (
                                 <button
                                   type="button"
                                   disabled={paymentBusy || leagueWithdrawBusy}
                                   onClick={async () => {
-                                    if (leagueTournament) {
+                                    if (leagueTournament && entry.partner_is_league_team) {
                                       if (!entryPair) {
                                         setRegistrationError(
                                           'The League team pair could not be found. Contact the organizer before withdrawing.',
@@ -2726,31 +3269,8 @@ export function TournamentPublicView({
                                       setLeagueWithdrawError('');
                                       return;
                                     }
-                                    const cancelResponse = await fetch('/api/payments/cancel', {
-                                      method: 'POST',
-                                      headers: { 'Content-Type': 'application/json' },
-                                      body: JSON.stringify({ participantId: entry.id }),
-                                    });
-                                    const cancelResult = await cancelResponse
-                                      .json()
-                                      .catch(() => ({}));
-                                    if (!cancelResponse.ok) {
-                                      setRegistrationError(
-                                        cancelResult.error ||
-                                          'Could not safely cancel the pending payment.',
-                                      );
-                                      return;
-                                    }
-                                    const { error } = await db.rpc('withdraw_tournament_entry', {
-                                      p_participant_id: entry.id,
-                                    });
-                                    if (error) setRegistrationError(error.message);
-                                    else {
-                                      setRegistrationMessage(
-                                        `${categoryLabel(entry.category)} registration withdrawn.`,
-                                      );
-                                      setRegistrationRefresh((value) => value + 1);
-                                    }
+                                    setWithdrawError('');
+                                    setWithdrawTarget(entry.id);
                                   }}
                                   className="h-9 rounded-md border border-destructive/50 px-3 text-sm text-destructive"
                                 >
@@ -2758,6 +3278,155 @@ export function TournamentPublicView({
                                 </button>
                               )}
                             </div>
+                            {ownEditTarget === entry.id && (
+                              <form
+                                className="w-full grid gap-2 rounded-md bg-secondary/30 p-3 sm:grid-cols-2"
+                                onSubmit={(event) => {
+                                  event.preventDefault();
+                                  void saveOwnEventDetails(entry.id);
+                                }}
+                              >
+                                <label className="text-sm">
+                                  Your name
+                                  <Input
+                                    value={ownEditName}
+                                    onChange={(event) => setOwnEditName(event.target.value)}
+                                    required
+                                    maxLength={160}
+                                  />
+                                </label>
+                                <label className="text-sm">
+                                  Verified email
+                                  <Input
+                                    type="email"
+                                    value={entry.email || currentUserEmail || ''}
+                                    readOnly
+                                  />
+                                </label>
+                                <label className="text-sm">
+                                  Phone
+                                  <Input
+                                    value={ownEditPhone}
+                                    onChange={(event) => setOwnEditPhone(event.target.value)}
+                                    maxLength={40}
+                                  />
+                                </label>
+                                <label className="text-sm">
+                                  Tennis skill rating
+                                  <select
+                                    className="mt-1 block h-10 w-full rounded-md border border-input bg-background px-3"
+                                    value={ownEditSkill}
+                                    onChange={(event) => setOwnEditSkill(event.target.value)}
+                                  >
+                                    <option value="">Not specified</option>
+                                    {Array.from({ length: 10 }, (_, index) =>
+                                      (2.5 + index * 0.5).toFixed(1),
+                                    ).map((level) => (
+                                      <option key={level} value={level}>
+                                        {level}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label className="text-sm">
+                                  Gender
+                                  <select
+                                    className="mt-1 block h-10 w-full rounded-md border border-input bg-background px-3"
+                                    value={ownEditGender}
+                                    onChange={(event) => setOwnEditGender(event.target.value)}
+                                  >
+                                    <option value="">Not specified</option>
+                                    <option value="male">Male</option>
+                                    <option value="female">Female</option>
+                                  </select>
+                                </label>
+                                <p className="self-end text-xs text-muted-foreground">
+                                  Your gender affects eligibility for gender-specific categories.
+                                </p>
+                                <div className="flex gap-2 sm:col-span-2">
+                                  <button
+                                    type="submit"
+                                    disabled={ownEditBusy}
+                                    className="h-9 rounded-md bg-primary px-3 text-sm text-primary-foreground"
+                                  >
+                                    {ownEditBusy ? 'Saving…' : 'Save details'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setOwnEditTarget(null)}
+                                    className="h-9 rounded-md border border-border px-3 text-sm"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </form>
+                            )}
+                            {partnerEditTarget === entry.id && (
+                              <form
+                                className="w-full grid gap-2 rounded-md bg-secondary/30 p-3 sm:grid-cols-2"
+                                onSubmit={(event) => {
+                                  event.preventDefault();
+                                  void savePartnerChange(entry.id);
+                                }}
+                              >
+                                <label className="text-sm">
+                                  Partner name
+                                  <Input
+                                    value={partnerEditName}
+                                    onChange={(event) => setPartnerEditName(event.target.value)}
+                                    required
+                                  />
+                                </label>
+                                <label className="text-sm">
+                                  Partner email
+                                  <Input
+                                    type="email"
+                                    value={partnerEditEmail}
+                                    onChange={(event) => setPartnerEditEmail(event.target.value)}
+                                    required
+                                  />
+                                </label>
+                                <label className="text-sm">
+                                  Phone
+                                  <Input
+                                    value={partnerEditPhone}
+                                    onChange={(event) => setPartnerEditPhone(event.target.value)}
+                                  />
+                                </label>
+                                <PartnerSkillLevelSelect
+                                  value={partnerEditSkill}
+                                  onChange={setPartnerEditSkill}
+                                />
+                                <label className="text-sm">
+                                  Gender
+                                  <select
+                                    className="mt-1 block h-10 w-full rounded-md border border-input bg-background px-3"
+                                    value={partnerEditGender}
+                                    onChange={(event) => setPartnerEditGender(event.target.value)}
+                                  >
+                                    <option value="">Not specified</option>
+                                    <option value="male">Male</option>
+                                    <option value="female">Female</option>
+                                  </select>
+                                </label>
+                                <div className="flex gap-2 sm:col-span-2">
+                                  <button
+                                    type="submit"
+                                    disabled={partnerEditBusy}
+                                    className="h-9 rounded-md bg-primary px-3 text-sm text-primary-foreground"
+                                  >
+                                    Save and invite
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setPartnerEditTarget(null)}
+                                    className="h-9 rounded-md border border-border px-3 text-sm"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </form>
+                            )}
                           </div>
                         );
                       })}
@@ -2772,10 +3441,85 @@ export function TournamentPublicView({
                     <p className="mt-3 text-sm text-muted-foreground">
                       Registration is not currently open.
                     </p>
-                  ) : !currentUserId && (leagueTournament || !allowNonMemberRegistration) ? (
+                  ) : !currentUserId && !allowNonMemberRegistration ? (
                     <p className="mt-3 text-sm">
-                      Sign in with an approved member account to register.
+                      <Link
+                        className="font-medium text-primary underline"
+                        href={`/login?next=${encodeURIComponent(`/events/${eventSlug || eventId}`)}`}
+                      >
+                        Sign in
+                      </Link>{' '}
+                      with an approved member account to register.
                     </p>
+                  ) : !currentUserId ? (
+                    <div className="mt-4 space-y-3">
+                      {!guestAccessVisible ? (
+                        <button
+                          type="button"
+                          onClick={() => setGuestAccessVisible(true)}
+                          className="h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground"
+                        >
+                          Register
+                        </button>
+                      ) : (
+                        <form
+                          onSubmit={requestEventGuestAccess}
+                          className="max-w-lg space-y-3 rounded-lg border border-border p-4"
+                        >
+                          <p className="text-sm">
+                            Enter your email. We’ll send a one-time sign-in link; you can enter your
+                            registration details after verifying it.
+                          </p>
+                          <label className="block text-sm">
+                            Email
+                            <Input
+                              type="email"
+                              autoComplete="email"
+                              required
+                              value={guestAccessEmail}
+                              onChange={(event) => setGuestAccessEmail(event.target.value)}
+                            />
+                          </label>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="submit"
+                              disabled={guestAccessBusy}
+                              className="h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
+                            >
+                              {guestAccessBusy ? 'Sending link…' : 'Send sign-in link'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setGuestAccessVisible(false)}
+                              className="h-10 rounded-md border border-border px-4 text-sm"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                          {guestAccessMessage && (
+                            <p role="status" className="text-sm">
+                              {guestAccessMessage}
+                              {guestAccessMessage.includes('Please log in as a member') && (
+                                <>
+                                  {' '}
+                                  <Link
+                                    href={`/login?next=${encodeURIComponent(`/events/${eventSlug || eventId}`)}`}
+                                    className="font-medium text-primary underline"
+                                  >
+                                    Log in
+                                  </Link>
+                                </>
+                              )}
+                            </p>
+                          )}
+                          {guestAccessError && (
+                            <p role="alert" className="text-sm text-destructive">
+                              {guestAccessError}
+                            </p>
+                          )}
+                        </form>
+                      )}
+                    </div>
                   ) : leagueTournament && ownLeagueTeamId ? (
                     ownEntries.some((entry) => entry.category === leagueRegistrationCategory) ? (
                       <p className="mt-3 text-sm text-muted-foreground">
@@ -2786,7 +3530,7 @@ export function TournamentPublicView({
                         Your confirmed League partner will be registered with you.
                       </p>
                     )
-                  ) : leagueTournament ? (
+                  ) : leagueTournament && !isEventGuest ? (
                     <p className="mt-4 text-sm text-muted-foreground">
                       You can register as a single player. An organizer can pair you with a League
                       team.
@@ -2822,7 +3566,7 @@ export function TournamentPublicView({
                             </select>
                           </label>
                         )}
-                        {!leagueTournament &&
+                        {(!leagueTournament || isEventGuest) &&
                           format === 'doubles' &&
                           registrationModeConfig === 'both' && (
                             <label className="text-sm">
@@ -2843,7 +3587,7 @@ export function TournamentPublicView({
                             </label>
                           )}
                       </div>
-                      {!currentUserId && (
+                      {isEventGuest && (
                         <div className="grid gap-3 sm:grid-cols-2">
                           <label className="text-sm">
                             Your full name
@@ -2858,9 +3602,12 @@ export function TournamentPublicView({
                             <Input
                               type="email"
                               value={entrantEmail}
-                              onChange={(e) => setEntrantEmail(e.target.value)}
-                              required
+                              readOnly
+                              aria-describedby="verified-event-email"
                             />
+                            <span id="verified-event-email" className="sr-only">
+                              Verified sign-in email
+                            </span>
                           </label>
                           <label className="text-sm">
                             Phone (optional)
@@ -2904,11 +3651,12 @@ export function TournamentPublicView({
                         <div className="space-y-3 rounded-md bg-secondary/30 p-3">
                           {!currentUserId && (
                             <p className="text-sm text-muted-foreground">
-                              To play with a club member, ask that member to register both of you.
-                              To add another player, enter their information below.
+                              Enter your partner’s name and email. If the email belongs to a member,
+                              they’ll be notified to confirm; otherwise, they’ll receive a one-time
+                              sign-in link. Your team can pay after they confirm.
                             </p>
                           )}
-                          {currentUserId && (
+                          {currentUserId && !isEventGuest && (
                             <label className="block text-sm">
                               Partner
                               <SearchableMemberSelect
@@ -2955,7 +3703,7 @@ export function TournamentPublicView({
                               />
                             </label>
                           )}
-                          {(!currentUserId || partnerChoice === 'new') && (
+                          {(isEventGuest || !currentUserId || partnerChoice === 'new') && (
                             <div className="grid gap-3 sm:grid-cols-2">
                               <label className="text-sm">
                                 Partner name
@@ -3014,7 +3762,7 @@ export function TournamentPublicView({
                             )}
                         </div>
                       )}
-                      {!leagueTournament && (
+                      {(!leagueTournament || isEventGuest) && (
                         <button
                           type="submit"
                           disabled={registrationBusy}
@@ -3076,29 +3824,6 @@ export function TournamentPublicView({
                             )}
                           </button>
                         )}
-                    </div>
-                  )}
-                  {interacDetails && (
-                    <div className="mt-3 rounded-md border border-border p-3 text-sm">
-                      <p className="font-semibold">Interac e-Transfer instructions</p>
-                      <p className="mt-2">
-                        Amount:{' '}
-                        {new Intl.NumberFormat('en-CA', {
-                          style: 'currency',
-                          currency: 'CAD',
-                        }).format(interacDetails.amountMinor / 100)}
-                      </p>
-                      <p>
-                        Send to:{' '}
-                        <span className="font-medium">{interacDetails.recipientEmail}</span>
-                      </p>
-                      <p>
-                        Payment reference:{' '}
-                        <span className="font-mono text-xs">{interacDetails.paymentId}</span>
-                      </p>
-                      {interacDetails.instructions && (
-                        <p className="mt-2 whitespace-pre-wrap">{interacDetails.instructions}</p>
-                      )}
                     </div>
                   )}
                 </div>
@@ -3343,111 +4068,13 @@ export function TournamentPublicView({
             </div>
           ) : (
             <div className="space-y-6">
-              {leagueTournament &&
-                (() => {
-                  const standings =
-                    leagueStandingsMode === 'after' ? leagueStandingsAfter : leagueStandingsBefore;
-                  const beforePositions = new Map(
-                    leagueStandingsBefore.map((row) => [String(row.team_id), Number(row.position)]),
-                  );
-                  return (
-                    <section
-                      className="overflow-x-auto rounded-lg border border-border p-4"
-                      aria-label="League standings"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <h2 className="text-lg font-semibold">League standings</h2>
-                        <div
-                          className="inline-flex rounded-md border border-border p-1"
-                          role="group"
-                          aria-label="Standings period"
-                        >
-                          <button
-                            type="button"
-                            aria-pressed={leagueStandingsMode === 'before'}
-                            onClick={() => setLeagueStandingsMode('before')}
-                            className={`rounded px-3 py-1.5 text-sm ${leagueStandingsMode === 'before' ? 'bg-primary text-primary-foreground' : ''}`}
-                          >
-                            Before this event
-                          </button>
-                          <button
-                            type="button"
-                            aria-pressed={leagueStandingsMode === 'after'}
-                            onClick={() => setLeagueStandingsMode('after')}
-                            className={`rounded px-3 py-1.5 text-sm ${leagueStandingsMode === 'after' ? 'bg-primary text-primary-foreground' : ''}`}
-                          >
-                            After this event
-                          </button>
-                        </div>
-                      </div>
-                      {leagueStandingsMode === 'after' && !leagueHasResults ? (
-                        <p className="mt-4 text-sm text-muted-foreground">
-                          No results are available for this event yet.
-                        </p>
-                      ) : !standings.length ? (
-                        <p className="mt-4 text-sm text-muted-foreground">No records yet.</p>
-                      ) : (
-                        <table className="mt-3 w-full text-left text-sm">
-                          <thead>
-                            <tr>
-                              <th className="p-2">Rank</th>
-                              <th className="p-2">Team</th>
-                              <th className="p-2">Played</th>
-                              <th className="p-2">Wins</th>
-                              <th className="p-2">Points</th>
-                              <th className="p-2">Sets</th>
-                              <th className="p-2">Games</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {standings.map((row, index) => {
-                              const oldPosition = beforePositions.get(String(row.team_id));
-                              const delta =
-                                leagueStandingsMode === 'after' && oldPosition !== undefined
-                                  ? oldPosition - Number(row.position ?? index + 1)
-                                  : 0;
-                              return (
-                                <tr
-                                  key={String(row.team_id ?? index)}
-                                  className="border-t border-border"
-                                >
-                                  <td className="p-2">{String(row.position ?? index + 1)}</td>
-                                  <td className="p-2">
-                                    {String(row.team_name ?? '')}
-                                    {delta !== 0 && (
-                                      <span
-                                        aria-label={`${delta > 0 ? 'Moved up' : 'Moved down'} ${Math.abs(delta)} ${Math.abs(delta) === 1 ? 'place' : 'places'}`}
-                                        title={`${delta > 0 ? 'Moved up' : 'Moved down'} ${Math.abs(delta)} ${Math.abs(delta) === 1 ? 'place' : 'places'}`}
-                                        className={`ml-2 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-semibold ${delta > 0 ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100' : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100'}`}
-                                      >
-                                        <Triangle
-                                          aria-hidden="true"
-                                          size={11}
-                                          fill="currentColor"
-                                          className={delta < 0 ? 'rotate-180' : undefined}
-                                        />
-                                        {Math.abs(delta)}
-                                      </span>
-                                    )}
-                                  </td>
-                                  <td className="p-2">{String(row.matches_played ?? 0)}</td>
-                                  <td className="p-2">{String(row.wins ?? 0)}</td>
-                                  <td className="p-2">{String(row.points ?? 0)}</td>
-                                  <td className="p-2">
-                                    {String(row.sets_won ?? 0)}–{String(row.sets_lost ?? 0)}
-                                  </td>
-                                  <td className="p-2">
-                                    {String(row.games_won ?? 0)}–{String(row.games_lost ?? 0)}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      )}
-                    </section>
-                  );
-                })()}
+              {leagueTournament && (
+                <LeagueEventStandings
+                  before={leagueStandingsBefore}
+                  after={leagueStandingsAfter}
+                  hasResults={leagueHasResults}
+                />
+              )}
               {knockoutMatches.length > 0 && (
                 <details open className="space-y-3">
                   <summary className="cursor-pointer text-lg font-semibold">
@@ -4234,6 +4861,34 @@ export function TournamentPublicView({
           onConfirm={() => void confirmLeagueTeamWithdrawal()}
         />
       )}
+      {withdrawTarget && withdrawEntry && (
+        <ConfirmDialog
+          open
+          title="Withdraw this event registration?"
+          description={
+            <>
+              <p>
+                {withdrawPaidTeam
+                  ? 'Withdrawing this paid team registration will withdraw the whole team.'
+                  : 'This will withdraw your registration from the event.'}
+              </p>
+              {withdrawError && (
+                <p role="alert" className="mt-3 text-destructive">
+                  {withdrawError}
+                </p>
+              )}
+            </>
+          }
+          confirmLabel="Confirm withdrawal"
+          destructive
+          busy={withdrawBusy}
+          onCancel={() => {
+            setWithdrawTarget(null);
+            setWithdrawError('');
+          }}
+          onConfirm={() => void confirmTournamentWithdrawal()}
+        />
+      )}
       {leagueCourtConfirmation && (
         <ConfirmDialog
           open
@@ -4248,6 +4903,10 @@ export function TournamentPublicView({
           }}
         />
       )}
+      <InteracPaymentInstructionsDialog
+        notice={interacNotice}
+        onClose={() => setInteracNotice(null)}
+      />
     </section>
   );
 }

@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest';
 
 const read = (path: string) => readFileSync(join(process.cwd(), path), 'utf8');
 const publicView = read('components/tournament-public-view.tsx');
+const interacDialog = read('components/interac-payment-instructions-dialog.tsx');
+const paymentOptions = read('components/payment-options-button.tsx');
 const partnerSkillSelect = read('components/partner-skill-level-select.tsx');
 const memberMenu = read('components/member-menu.tsx');
 const checkout = read('app/api/payments/checkout/route.ts');
@@ -12,7 +14,7 @@ const status = read('app/api/payments/status/route.ts');
 const eventPage = read('app/events/[slug]/page.tsx');
 const webhook = read('app/api/webhooks/stripe/route.ts');
 const migration = read(
-  'supabase/migrations/0054_tournament_registration_payment_and_partner_flows.sql',
+  'supabase/migration_archive/0054_tournament_registration_payment_and_partner_flows.sql',
 );
 const management = read('components/tournament-management.tsx');
 
@@ -20,22 +22,19 @@ describe('requested tournament registration fixes', () => {
   it('offers Interac to authenticated tournament registrants and displays the instructions', () => {
     expect(publicView).toContain('startTournamentPayment(');
     expect(publicView).toContain("'interac'");
-    expect(publicView).toContain('Interac e-Transfer instructions');
+    expect(publicView).toContain('InteracPaymentInstructionsDialog');
+    expect(interacDialog).toContain('Interac e-Transfer instructions');
   });
 
   it('supports guest Stripe checkout and keeps guest registrations provisional until payment succeeds', () => {
-    expect(checkout).toContain(
-      "body.purpose !== 'tournament_registration' || body.provider === 'interac'",
-    );
-    expect(publicView).toContain(
-      'Provisional registration created. Complete card payment to confirm your entry.',
-    );
+    expect(checkout).toContain("purpose === 'tournament_registration'");
+    expect(checkout).toContain('event_guest');
+    expect(publicView).toContain('isEventGuest');
+    expect(publicView).toContain('guestAccessMessage');
     expect(migration).toContain("SET status='provisional'");
     expect(migration).toContain("NEW.payment_status='paid'");
-    expect(webhook).toContain(
-      'Could not remove provisional tournament entries after checkout expiry.',
-    );
-    expect(cancel).toContain("status === 'provisional'");
+    expect(cancel).toContain('provisionalRegistrationRemoved: false');
+    expect(cancel).toContain("payment.purpose !== 'tournament_registration'");
     expect(status).toContain("eq('purpose', 'tournament_registration')");
   });
 
@@ -74,9 +73,7 @@ describe('requested tournament registration fixes', () => {
 
   it('uses the approved member directory for member partners and explains the guest-to-member process', () => {
     expect(publicView).toContain("db.rpc('event_tournament_partner_directory'");
-    expect(publicView).toContain(
-      'To play with a club member, ask that member to register both of you.',
-    );
+    expect(publicView).toContain('they’ll be notified to confirm');
     expect(migration).toContain('event_tournament_partner_directory');
     expect(migration).toContain('(p.user_id IS NOT NULL) AS is_member');
   });
@@ -88,15 +85,16 @@ describe('requested tournament registration fixes', () => {
   });
 
   it('offers pay-for-self and pay-for-both actions while tracking partner payment independently', () => {
-    expect(publicView).toContain('Pay for myself');
-    expect(publicView).toContain('Pay for both partners');
+    expect(publicView).toContain('For myself by card');
+    expect(publicView).toContain('For both by card');
+    expect(paymentOptions).toContain('aria-haspopup');
     expect(migration).toContain('event_tournament_pair_payment_status');
     expect(publicView).toContain("teamFullyPaid ? 'Paid' : 'Pending'");
   });
 
   it('offers optional skill levels from 2.5 through 7.0 in half-point increments', () => {
     expect(publicView).toContain('Tennis skill level (optional)');
-    expect(publicView.match(/<PartnerSkillLevelSelect/g) ?? []).toHaveLength(2);
+    expect(publicView.match(/<PartnerSkillLevelSelect/g) ?? []).toHaveLength(3);
     expect(partnerSkillSelect).toContain('Partner tennis skill level (optional)');
     expect(partnerSkillSelect).toContain('Array.from({ length: 10 }');
     expect(partnerSkillSelect).toContain('(2.5 + index * 0.5).toFixed(1)');

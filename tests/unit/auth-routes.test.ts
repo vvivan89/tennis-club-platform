@@ -51,7 +51,9 @@ function callback(url: string) {
 describe('authentication routes', () => {
   it('uses the callback confirmation path when there is no code or exchange fails', async () => {
     const missing = await callbackGet(callback('https://club.example/auth/callback'));
-    expect(missing.headers.get('location')).toBe('https://club.example/login?error=confirmation');
+    expect(missing.headers.get('location')).toBe(
+      'https://club.example/auth/guest-callback?next=%2Fmember%2Fdashboard',
+    );
 
     mocks.exchangeError = { message: 'invalid code' };
     const failed = await callbackGet(callback('https://club.example/auth/callback?code=bad'));

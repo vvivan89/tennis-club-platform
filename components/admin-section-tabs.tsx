@@ -1,6 +1,7 @@
 'use client';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { usePendingMemberApplicationsCount } from '@/lib/use-pending-member-applications-count';
 import {
   Users,
   Tags,
@@ -37,6 +38,7 @@ export function AdminSectionTabs({
 }) {
   const pathname = usePathname();
   const [search, setSearch] = useState('');
+  const pendingApplicationCount = usePendingMemberApplicationsCount(section === 'membership');
   useEffect(() => {
     setSearch(window.location.search);
   }, [pathname]);
@@ -71,6 +73,16 @@ export function AdminSectionTabs({
           <>
             <Icon className="h-4 w-4" />
             <span>{tab.label}</span>
+            {section === 'membership' &&
+              tab.label === 'Applications' &&
+              pendingApplicationCount > 0 && (
+                <span
+                  aria-label={`${pendingApplicationCount} pending applications`}
+                  className="rounded-full bg-primary px-1.5 text-xs text-primary-foreground"
+                >
+                  {pendingApplicationCount > 99 ? '99+' : pendingApplicationCount}
+                </span>
+              )}
           </>
         );
         return (

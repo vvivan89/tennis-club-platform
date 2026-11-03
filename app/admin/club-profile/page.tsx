@@ -85,7 +85,12 @@ export default function ClubProfileAdminPage() {
           )
           .eq('id', 1)
           .maybeSingle(),
-        db.from('profiles').select('id,full_name,email').order('full_name'),
+        db
+          .from('profiles')
+          .select('id,full_name,email')
+          .eq('application_status', 'approved')
+          .eq('account_kind', 'member')
+          .order('full_name'),
         db
           .from('club_contacts')
           .select('id,profile_id,position,emails,phones,is_public,sort_order')

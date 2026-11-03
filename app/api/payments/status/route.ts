@@ -111,6 +111,7 @@ export async function GET(request: Request) {
       userId: user?.id,
     });
     if (limited) return limited;
+    if (!user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 });
     const params = new URL(request.url).searchParams;
     const sessionId = params.get('session_id');
     const paymentId = params.get('payment_id');

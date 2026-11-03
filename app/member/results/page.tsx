@@ -6,6 +6,9 @@ import { SiteFooter } from '@/components/site-footer';
 import { MemberNav } from '@/components/member-nav';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getRankingsData } from '@/lib/rankings-data';
+import { RankingsCompetitionSelector } from '@/components/rankings-competition-selector';
+import { buildRankingsCompetitionOptions } from '@/lib/rankings-competition-options';
+import type { TournamentConfig } from '@/lib/tournament-config';
 import {
   calculatePlayerStats,
   getSeasonYearChoices,
@@ -13,9 +16,14 @@ import {
   medal,
   rankPlayers,
 } from '@/lib/player-rankings';
-import { SeasonSelector } from '@/components/season-selector';
-
-type Props = { searchParams?: Promise<{ season?: string | string[] }> };
+type Props = {
+  searchParams?: Promise<{
+    season?: string | string[];
+    ladder?: string | string[];
+    league?: string | string[];
+    tournament?: string | string[];
+  }>;
+};
 function StatCard({
   title,
   subtitle,
@@ -93,18 +101,110 @@ export default async function MemberStatsPage({ searchParams: searchParamsPromis
   const data = await getRankingsData();
   if (profile.role !== 'admin' && !data.eligibleUserIds.has(user.id)) redirect('/member/dashboard');
   const { allSeasonYears, defaultYear } = getSeasonYearChoices(data.games, data.settings);
-  const requestedValue = searchParams?.season;
-  const requested = Array.isArray(requestedValue) ? requestedValue[0] : requestedValue;
+  const readParam = (value?: string | string[]) => (Array.isArray(value) ? value[0] : value);
+  const requested = readParam(searchParams?.season);
+  const { data: registrations } = await session
+    .from('registrations')
+    .select('event_id')
+    .eq('user_id', user.id)
+    .in('status', ['confirmed', 'waitlisted']);
+  const { data: tournamentParticipants } = await session
+    .from('tournament_participants')
+    .select('event_id')
+    .eq('user_id', user.id)
+    .eq('status', 'registered');
+  const participatedEventIds = new Set([
+    ...data.games.filter((game) => game.playerIds.includes(user.id)).map((game) => game.eventId),
+    ...(registrations ?? []).map((row) => row.event_id),
+    ...(tournamentParticipants ?? []).map((row) => row.event_id),
+  ]);
+  const participatedSeriesIds = new Set(
+    data.events
+      .filter((event) => participatedEventIds.has(event.id) && event.social_doubles_ladder_id)
+      .map((event) => event.social_doubles_ladder_id as string),
+  );
+  const { data: laddersRaw } = await session
+    .from('social_doubles_ladders')
+    .select('id,name,gender,competition_type')
+    .order('ends_at', { ascending: false, nullsFirst: false });
+  const ladders = (laddersRaw ?? []) as Array<{
+    id: string;
+    name: string;
+    gender: 'male' | 'female';
+    competition_type: string;
+  }>;
+  const leagues = ladders.filter(
+    (ladder) => ladder.competition_type === 'league' && participatedSeriesIds.has(ladder.id),
+  );
+  const regularLadders = ladders.filter(
+    (ladder) => ladder.competition_type !== 'league' && participatedSeriesIds.has(ladder.id),
+  );
+  const { data: tournamentEventsRaw } = participatedEventIds.size
+    ? await session
+        .from('events')
+        .select('id,title,tournament_config')
+        .eq('event_type', 'tournament')
+        .eq('tournament_format', 'doubles')
+        .is('social_doubles_ladder_id', null)
+        .in('status', ['published', 'cancelled'])
+        .in('id', [...participatedEventIds])
+    : { data: [] };
+  const tournamentEvents = (tournamentEventsRaw ?? []) as Array<{
+    id: string;
+    title: string;
+    tournament_config: TournamentConfig | null;
+  }>;
+  const { data: tournamentMatches } = tournamentEvents.length
+    ? await session
+        .from('tournament_matches')
+        .select('event_id,status,score_sets,winner_side')
+        .in(
+          'event_id',
+          tournamentEvents.map((event) => event.id),
+        )
+    : { data: [] };
+  const tournamentResults = new Set(
+    (tournamentMatches ?? [])
+      .filter(
+        (match) =>
+          match.status === 'completed' ||
+          (Array.isArray(match.score_sets) && match.score_sets.length > 0) ||
+          match.winner_side != null,
+      )
+      .map((match) => match.event_id),
+  );
+  const tournaments = tournamentEvents.filter((event) => tournamentResults.has(event.id));
+  const competitionOptions = buildRankingsCompetitionOptions(
+    [defaultYear, ...allSeasonYears],
+    regularLadders,
+    leagues,
+    tournaments,
+  );
+  const selectedLadder =
+    regularLadders.find((item) => item.id === readParam(searchParams?.ladder)) ?? null;
+  const selectedLeague =
+    leagues.find((item) => item.id === readParam(searchParams?.league)) ?? null;
+  const selectedTournament =
+    tournaments.find((item) => item.id === readParam(searchParams?.tournament)) ?? null;
   const season =
     requested === 'all'
       ? 'all'
       : requested && /^\d{4}$/.test(requested) && allSeasonYears.includes(Number(requested))
         ? Number(requested)
         : defaultYear;
-  const games =
-    season === 'all'
-      ? data.games
-      : data.games.filter((g) => isInSeason(new Date(g.playedAt), season, data.settings));
+  const selectedSeries = selectedLadder ?? selectedLeague;
+  const selectedSeriesEventIds = new Set(
+    data.events
+      .filter((event) => event.social_doubles_ladder_id === selectedSeries?.id)
+      .map((event) => event.id),
+  );
+  const games = selectedTournament
+    ? data.games.filter((game) => game.eventId === selectedTournament.id)
+    : selectedSeries
+      ? data.games.filter((game) => selectedSeriesEventIds.has(game.eventId))
+      : season === 'all'
+        ? data.games
+        : data.games.filter((g) => isInSeason(new Date(g.playedAt), season, data.settings));
   const players = calculatePlayerStats(data.players, games);
   const ranked = rankPlayers(players.filter((p) => p.gamesPlayed > 0));
   const rank = ranked.findIndex((p) => p.id === user.id) + 1;
@@ -146,7 +246,17 @@ export default async function MemberStatsPage({ searchParams: searchParamsPromis
     })
     .sort((a, b) => new Date(b.playedAt).getTime() - new Date(a.playedAt).getTime());
   const { clubName, shortName, socialLinks } = getClubDisplay(club);
-  const seasonLabel = season === 'all' ? 'All time' : `${season}`;
+  const seasonLabel =
+    selectedTournament?.title ??
+    selectedSeries?.name ??
+    (season === 'all' ? 'All time' : `${season}`);
+  const selectorValue = selectedTournament
+    ? `tournament:${selectedTournament.id}`
+    : selectedLeague
+      ? `league:${selectedLeague.id}`
+      : selectedLadder
+        ? `ladder:${selectedLadder.id}`
+        : String(season);
   return (
     <main className="flex min-h-screen flex-col bg-background text-foreground">
       <SiteHeader clubName={clubName} shortName={shortName} />
@@ -160,10 +270,10 @@ export default async function MemberStatsPage({ searchParams: searchParamsPromis
               Your recorded match performance and ranking.
             </p>
           </div>
-          <SeasonSelector
+          <RankingsCompetitionSelector
+            value={selectorValue}
+            options={competitionOptions}
             path="/member/results"
-            season={String(season)}
-            years={[...new Set([defaultYear, ...allSeasonYears])].sort((a, b) => b - a)}
           />
         </div>
         <section aria-label="Player rankings" className="mt-5 grid gap-3 sm:grid-cols-2">

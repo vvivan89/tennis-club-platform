@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
     email: 'member@example.com',
     full_name: '<script>alert(1)</script>',
     application_status: 'pending',
+    account_kind: 'member',
   } as null | Record<string, unknown>,
   updateError: null as null | { message: string },
   updates: [] as Array<Record<string, unknown>>,
@@ -78,6 +79,7 @@ beforeEach(() => {
     email: 'member@example.com',
     full_name: '<script>alert(1)</script>',
     application_status: 'pending',
+    account_kind: 'member',
   };
   mocks.updateError = null;
   mocks.updates = [];
@@ -113,7 +115,7 @@ describe('POST /api/admin/applications', () => {
   it('rejects applications that are missing or already processed', async () => {
     mocks.application = null;
     expect((await POST(request({ userId: 'member-1', action: 'dismiss' }))).status).toBe(404);
-    mocks.application = { id: 'member-1', application_status: 'approved' };
+    mocks.application = { id: 'member-1', application_status: 'approved', account_kind: 'member' };
     expect((await POST(request({ userId: 'member-1', action: 'dismiss' }))).status).toBe(409);
     expect(mocks.updates).toEqual([]);
   });
@@ -155,6 +157,33 @@ describe('POST /api/admin/applications', () => {
       emailError: expect.stringContaining('RESEND_API_KEY'),
     });
     expect(mocks.updates).toEqual([{ application_status: 'approved', role: 'member' }]);
+  });
+
+  it('reports missing recipient email and falls back to the alternate sender setting', async () => {
+    vi.stubEnv('RESEND_API_KEY', 'test-resend-key');
+    vi.stubEnv('RESEND_FROM_EMAIL', '');
+    vi.stubEnv('RESEND_FROM', 'alternate@example.com');
+    mocks.application = { ...mocks.application!, email: null, full_name: null };
+    const missingAddress = await POST(request({ userId: 'member-1', action: 'approve' }));
+    expect(await missingAddress.json()).toMatchObject({
+      success: true,
+      emailSent: false,
+      emailError: expect.stringContaining('no email address'),
+    });
+
+    mocks.application = {
+      id: 'member-1',
+      email: 'member@example.com',
+      full_name: null,
+      application_status: 'pending',
+      account_kind: 'member',
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 502 })));
+    const deliveryFailure = await POST(request({ userId: 'member-1', action: 'approve' }));
+    expect(await deliveryFailure.json()).toMatchObject({
+      emailSent: false,
+      emailError: expect.stringContaining('No error details returned by Resend'),
+    });
   });
 
   it('returns persistence errors instead of reporting a successful decision', async () => {

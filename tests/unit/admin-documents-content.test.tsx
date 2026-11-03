@@ -136,6 +136,27 @@ describe('AdminDocumentsContent', () => {
     expect(mocks.uploaded).toHaveLength(0);
   });
 
+  it('requires a document name and surfaces upload failures without inserting metadata', async () => {
+    const user = userEvent.setup();
+    render(<AdminDocumentsContent embedded />);
+    await screen.findByText('Club handbook');
+    const input = document.getElementById('document-pdf') as HTMLInputElement;
+    await user.upload(input, new File(['pdf'], 'rules.pdf', { type: 'application/pdf' }));
+    await user.clear(screen.getByLabelText('Document name'));
+    fireEvent.submit(input.closest('form') as HTMLFormElement);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Enter a document name.');
+    expect(mocks.uploaded).toHaveLength(0);
+
+    mocks.uploadError = { message: 'storage upload unavailable' };
+    await user.type(screen.getByLabelText('Document name'), 'Rules');
+    fireEvent.submit(input.closest('form') as HTMLFormElement);
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not upload PDF. Please try again.',
+    );
+    expect(mocks.uploaded).toHaveLength(1);
+    expect(mocks.inserted).toHaveLength(0);
+  });
+
   it('rolls back the uploaded PDF when document metadata insertion fails', async () => {
     mocks.insertError = { message: 'database unavailable' };
     const user = userEvent.setup();
@@ -165,6 +186,25 @@ describe('AdminDocumentsContent', () => {
     expect(mocks.deleted).toContain(mocks.uploaded[0].path);
   });
 
+  it('uploads a valid PDF with optional metadata omitted and deletes it after confirmation', async () => {
+    const user = userEvent.setup();
+    render(<AdminDocumentsContent embedded />);
+    await screen.findByText('Club handbook');
+    await user.upload(
+      document.getElementById('document-pdf') as HTMLInputElement,
+      new File(['pdf contents'], 'Rules.pdf', { type: 'application/pdf' }),
+    );
+    fireEvent.submit(document.getElementById('document-pdf')?.closest('form') as HTMLFormElement);
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('PDF uploaded.'));
+    expect(mocks.inserted[0]).toMatchObject({ title: 'Rules', description: null });
+
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
+    await user.click(
+      screen.getByRole('alertdialog').querySelector('button:last-child') as HTMLButtonElement,
+    );
+    await waitFor(() => expect(mocks.deleted).toContain('documents'));
+  });
+
   it('requires delete confirmation and preserves metadata when storage deletion fails', async () => {
     mocks.storageError = { message: 'storage unavailable' };
     const user = userEvent.setup();
@@ -179,6 +219,22 @@ describe('AdminDocumentsContent', () => {
       'Could not delete document. Please try again.',
     );
     expect(mocks.deleted).toEqual(['admin-1/handbook.pdf']);
+    expect(screen.getByText('Club handbook')).toBeInTheDocument();
+  });
+
+  it('keeps the document when its metadata cannot be deleted after storage removal', async () => {
+    mocks.deleteError = { message: 'database delete unavailable' };
+    const user = userEvent.setup();
+    render(<AdminDocumentsContent embedded />);
+    await user.click(await screen.findByRole('button', { name: 'Delete' }));
+    await user.click(
+      screen.getByRole('alertdialog').querySelector('button:last-child') as HTMLButtonElement,
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not delete document. Please try again.',
+    );
+    expect(mocks.deleted).toContain('admin-1/handbook.pdf');
+    expect(mocks.deleted).toContain('documents');
     expect(screen.getByText('Club handbook')).toBeInTheDocument();
   });
 });

@@ -77,6 +77,35 @@ describe('administrator workflow components', () => {
     expect(mocks.refresh).not.toHaveBeenCalled();
   });
 
+  it('renders empty and incomplete applications, and confirms dismissal', async () => {
+    const { rerender } = render(<AdminApplications applications={[]} />);
+    expect(screen.getByText('There are no pending applications.')).toBeInTheDocument();
+    rerender(
+      <AdminApplications
+        applications={[
+          { ...application, full_name: '', tennis_skill_level: null, application_comment: '' },
+          { ...application, id: 'application-2', full_name: 'Second Player' },
+        ]}
+      />,
+    );
+    expect(screen.getByText('Name not provided')).toBeInTheDocument();
+    expect(screen.getByText('No comment provided.')).toBeInTheDocument();
+
+    mocks.fetch.mockResolvedValue(
+      new Response(JSON.stringify({ success: true, emailSent: true }), { status: 200 }),
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getAllByRole('button', { name: 'Dismiss' })[0]);
+    expect(await screen.findByRole('status')).toHaveTextContent('Application dismissed.');
+    expect(mocks.fetch).toHaveBeenCalledWith(
+      '/api/admin/applications',
+      expect.objectContaining({
+        body: JSON.stringify({ userId: 'application-1', action: 'dismiss' }),
+      }),
+    );
+    expect(mocks.refresh).toHaveBeenCalledOnce();
+  });
+
   it('opens the invitation form, submits profile fields, and handles API failure', async () => {
     mocks.fetch.mockResolvedValueOnce(
       new Response(JSON.stringify({ success: true }), { status: 200 }),
@@ -84,10 +113,10 @@ describe('administrator workflow components', () => {
     const user = userEvent.setup();
     render(<InviteMemberForm />);
     await user.click(screen.getByRole('button', { name: 'Invite member' }));
-    await user.type(screen.getByLabelText('Full name'), 'Taylor Member');
-    await user.type(screen.getByLabelText('Email'), 'taylor@example.com');
-    await user.type(screen.getByLabelText('Phone'), '6045550100');
-    await user.selectOptions(screen.getByLabelText('Tennis skill rating'), '4.0');
+    await user.type(screen.getByLabelText(/Full name/), 'Taylor Member');
+    await user.type(screen.getByLabelText(/Email/), 'taylor@example.com');
+    await user.type(screen.getByLabelText(/Phone/), '6045550100');
+    await user.selectOptions(screen.getByLabelText(/Tennis skill rating/), '4.0');
     await user.click(screen.getByRole('button', { name: 'Send invitation email' }));
     expect(await screen.findByRole('status')).toHaveTextContent(
       'Invitation sent to taylor@example.com',
@@ -104,11 +133,11 @@ describe('administrator workflow components', () => {
     );
     await user.click(screen.getByRole('button', { name: 'Hide form' }));
     await user.click(screen.getByRole('button', { name: 'Invite member' }));
-    await user.type(screen.getByLabelText('Full name'), 'Another Member');
-    await user.type(screen.getByLabelText('Email'), 'another@example.com');
-    await user.type(screen.getByLabelText('Phone'), '6045550101');
+    await user.type(screen.getByLabelText(/Full name/), 'Another Member');
+    await user.type(screen.getByLabelText(/Email/), 'another@example.com');
+    await user.type(screen.getByLabelText(/Phone/), '6045550101');
     await user.click(screen.getByRole('button', { name: 'Send invitation email' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Could not send invitation');
+    expect(await screen.findByRole('alert')).toHaveTextContent('bad request');
   });
 
   it('serializes membership limits and calendar month boundaries when saving settings', async () => {
@@ -182,5 +211,81 @@ describe('administrator workflow components', () => {
     await waitFor(() => expect(screen.getByText('1 of 2 members')).toBeInTheDocument());
     await waitFor(() => expect(screen.queryByText('Jordan Organizer')).not.toBeInTheDocument());
     expect(screen.getByText('Alex Member')).toBeInTheDocument();
+  });
+
+  it('sorts member columns in both directions and filters membership types', async () => {
+    const user = userEvent.setup();
+    render(
+      <MembersTable
+        initialMembers={[
+          member({
+            id: 'm1',
+            full_name: 'Alex Member',
+            last_played: null,
+            payment_status: 'paid',
+            membership_type: 'single',
+            suspensions: [],
+          }),
+          member({
+            id: 'm2',
+            full_name: 'Jordan Organizer',
+            email: 'jordan@example.com',
+            phone: '',
+            role: 'organizer',
+            created_at: '2021-01-01',
+            last_played: '2025-01-01',
+            payment_status: 'unpaid',
+            membership_type: 'family',
+            family_members: ['Taylor Member'],
+            suspensions: [
+              {
+                id: 'future',
+                starts_on: '2999-01-01',
+                ends_on: '2999-01-07',
+                reason: 'Scheduled',
+                created_at: '2026-01-01',
+              },
+            ],
+          }),
+        ]}
+      />,
+    );
+    await user.selectOptions(screen.getByLabelText('Membership type'), 'family');
+    expect(screen.getByText('1 of 2 members')).toBeInTheDocument();
+    expect(screen.getByText('Scheduled: 2999-01-01 – 2999-01-07')).toBeInTheDocument();
+    expect(
+      screen.getAllByText('Family').find((element) => element.tagName === 'SPAN'),
+    ).toHaveAttribute('title', 'Family members: Taylor Member');
+    expect(screen.getByText('No phone')).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText('Membership type'), 'all');
+
+    for (const label of [
+      'Name',
+      'Contacts',
+      'Skill rating',
+      'Role',
+      'Type',
+      'Last played',
+      'Suspension',
+      'Joined',
+    ]) {
+      await user.click(screen.getByRole('button', { name: new RegExp(`^${label}`) }));
+      await user.click(screen.getByRole('button', { name: new RegExp(`^${label}`) }));
+    }
+    expect(screen.getByText('2 of 2 members')).toBeInTheDocument();
+  });
+
+  it('shows an empty member state and does not flag unassigned or paid membership as unpaid', () => {
+    const { rerender } = render(<MembersTable initialMembers={[]} />);
+    expect(screen.getByText('No matching members found.')).toBeInTheDocument();
+    rerender(
+      <MembersTable
+        initialMembers={[
+          member({ membership_type: 'none', payment_status: 'unpaid' }),
+          member({ id: 'member-2', membership_type: 'single', payment_status: 'paid' }),
+        ]}
+      />,
+    );
+    expect(screen.queryByLabelText('Membership is unpaid')).not.toBeInTheDocument();
   });
 });

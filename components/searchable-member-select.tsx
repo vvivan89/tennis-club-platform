@@ -1,5 +1,5 @@
 'use client';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Input } from '@/components/ui/input';
 export type MemberOption = {
   id: string;
@@ -29,7 +29,14 @@ export function SearchableMemberSelect({
 }) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
+  const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selected = options.find((x) => x.id === value);
+  useEffect(
+    () => () => {
+      if (blurTimer.current !== null) clearTimeout(blurTimer.current);
+    },
+    [],
+  );
   const filtered = useMemo(
     () =>
       options
@@ -61,6 +68,8 @@ export function SearchableMemberSelect({
         aria-expanded={open}
         aria-autocomplete="list"
         onFocus={() => {
+          if (blurTimer.current !== null) clearTimeout(blurTimer.current);
+          blurTimer.current = null;
           setQuery('');
           setOpen(true);
         }}
@@ -69,7 +78,13 @@ export function SearchableMemberSelect({
           setOpen(true);
           if (value) onChange('');
         }}
-        onBlur={() => window.setTimeout(() => setOpen(false), 150)}
+        onBlur={() => {
+          if (blurTimer.current !== null) clearTimeout(blurTimer.current);
+          blurTimer.current = setTimeout(() => {
+            blurTimer.current = null;
+            setOpen(false);
+          }, 150);
+        }}
       />
       {open && (
         <div

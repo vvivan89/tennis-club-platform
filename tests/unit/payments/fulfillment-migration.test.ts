@@ -2,7 +2,10 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const migrationPath = resolve(process.cwd(), 'supabase/migrations/0041_payment_fulfillment.sql');
+const migrationPath = resolve(
+  process.cwd(),
+  'supabase/migration_archive/0041_payment_fulfillment.sql',
+);
 const consolidatedPath = resolve(process.cwd(), 'supabase/consolidated_migrations.sql');
 
 describe('payment fulfillment migration', () => {

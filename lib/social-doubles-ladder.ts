@@ -16,6 +16,41 @@ export type LadderScore = {
   scoreOne: number;
   scoreTwo: number;
 };
+export type LadderScoreRow = {
+  player_one_registration_id: string | null;
+  player_two_registration_id: string | null;
+  player_three_registration_id: string | null;
+  player_four_registration_id: string | null;
+  player_one_score: number | string | null;
+  player_two_score: number | string | null;
+};
+
+/** Converts stored doubles score rows into the player IDs and scores used for ladder ranking. */
+export function normalizeLadderScores<T extends LadderScoreRow>(
+  rows: T[],
+  userByRegistration: ReadonlyMap<string, string>,
+): LadderScore[] {
+  return rows.flatMap((row) => {
+    const sideOne = [row.player_one_registration_id, row.player_two_registration_id]
+      .filter(Boolean)
+      .map((id) => userByRegistration.get(id!))
+      .filter(Boolean) as string[];
+    const sideTwo = [row.player_three_registration_id, row.player_four_registration_id]
+      .filter(Boolean)
+      .map((id) => userByRegistration.get(id!))
+      .filter(Boolean) as string[];
+    if (!sideOne.length || !sideTwo.length) return [];
+    return [
+      {
+        playerIds: [...sideOne, ...sideTwo],
+        sideOneIds: sideOne,
+        sideTwoIds: sideTwo,
+        scoreOne: Number(row.player_one_score),
+        scoreTwo: Number(row.player_two_score),
+      },
+    ];
+  });
+}
 export function ladderMetricValue(
   player: Pick<LadderPlayerResult, 'setsWon' | 'setsLost' | 'gamesWon' | 'gamesLost'>,
   metric: LadderMetric,

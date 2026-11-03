@@ -27,7 +27,7 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['app/**/*.{ts,tsx}', 'components/**/*.{ts,tsx}', 'lib/**/*.{ts,tsx}'],
-      exclude: ['**/*.d.ts'],
+      exclude: ['**/*.d.ts', 'components/event-form-types.ts'],
       reporter: ['text', 'html'],
     },
   },

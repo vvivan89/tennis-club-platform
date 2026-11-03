@@ -1,6 +1,6 @@
 'use client';
 import { TennisLoader } from '@/components/tennis-loader';
-import { FormFeedback } from '@/components/form-feedback';
+import { FloatingFeedback } from '@/components/floating-feedback';
 import { useState, type FormEvent } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -27,8 +27,12 @@ export function InviteMemberForm() {
       });
       const result = await response.json();
       if (!response.ok) {
-        console.error('[Member invitation] Email/API failure', { status: response.status, result });
-        throw new Error('invitation-failed');
+        const reason = typeof result.error === 'string' ? result.error : 'Invitation failed.';
+        console.error('[Member invitation] Email/API failure', {
+          status: response.status,
+          error: reason,
+        });
+        throw new Error(reason);
       }
       setMessage(
         `Invitation sent to ${String(payload.email)}. They must follow the email link to confirm and finish setting up their account.`,
@@ -36,7 +40,7 @@ export function InviteMemberForm() {
       form.reset();
     } catch (err) {
       console.error('[Member invitation] Request failed', err);
-      setError('Could not send invitation. Please try again.');
+      setError(err instanceof Error ? err.message : 'Could not send invitation. Please try again.');
     } finally {
       setBusy(false);
     }
@@ -58,15 +62,15 @@ export function InviteMemberForm() {
         <CardContent>
           <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2">
             <label className="space-y-1 text-sm">
-              Full name
+              Full name <span className="text-destructive">*</span>
               <Input name="full_name" required maxLength={200} />
             </label>
             <label className="space-y-1 text-sm">
-              Email
+              Email <span className="text-destructive">*</span>
               <Input name="email" type="email" required maxLength={320} />
             </label>
             <label className="space-y-1 text-sm">
-              Phone
+              Phone <span className="text-destructive">*</span>
               <Input
                 name="phone"
                 type="tel"
@@ -78,7 +82,23 @@ export function InviteMemberForm() {
               />
             </label>
             <label className="space-y-1 text-sm">
-              Tennis skill rating
+              Date of birth (optional)
+              <Input name="date_of_birth" type="date" max={new Date().toISOString().slice(0, 10)} />
+            </label>
+            <label className="space-y-1 text-sm">
+              Gender (optional)
+              <select
+                name="gender"
+                defaultValue=""
+                className="block h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="">Not specified</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+              </select>
+            </label>
+            <label className="space-y-1 text-sm">
+              Tennis skill rating <span className="text-destructive">*</span>
               <select
                 name="tennis_skill_level"
                 required
@@ -91,7 +111,6 @@ export function InviteMemberForm() {
               </select>
             </label>
             <div className="sm:col-span-2">
-              <FormFeedback error={error} message={message} className="mb-3" />
               <Button disabled={busy}>
                 {busy ? (
                   <TennisLoader compact label="Sending invitation" />
@@ -103,6 +122,7 @@ export function InviteMemberForm() {
           </form>
         </CardContent>
       )}
+      <FloatingFeedback error={error} message={message} />
     </Card>
   );
 }

@@ -40,6 +40,7 @@ const mocks = vi.hoisted(() => ({
     },
   ],
   competitions: [{ id: 'league-1', competition_type: 'league' }],
+  eventError: false,
 }));
 
 vi.mock('next/navigation', () => ({
@@ -74,7 +75,7 @@ vi.mock('@/lib/supabase-server', () => ({
               : table === 'social_doubles_ladders'
                 ? mocks.competitions
                 : [],
-          error: null,
+          error: table === 'events' && mocks.eventError ? { message: 'Events unavailable' } : null,
         }).then(resolve, reject);
       return query;
     },
@@ -103,5 +104,56 @@ describe('admin events page', () => {
     mocks.user = null;
     await expect(EventsAdminPage()).rejects.toThrow('redirect:/login?next=/admin/events');
     mocks.user = { id: 'admin-1' };
+  });
+
+  it('shows organizer-specific heading and an empty event table when there are no events', async () => {
+    mocks.role = 'organizer';
+    mocks.events = [];
+
+    const page = await EventsAdminPage();
+    render(page);
+
+    expect(screen.getByText('Organizer portal')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Your events' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Create Event' })).toHaveAttribute(
+      'href',
+      '/admin/events/create',
+    );
+    expect(
+      screen.getByText(/Each recurring occurrence is managed as an individual session/),
+    ).toBeInTheDocument();
+
+    mocks.role = 'admin';
+    mocks.events = [
+      {
+        id: 'event-1',
+        slug: 'doubles-open',
+        title: 'Doubles Open',
+        starts_at: '2027-06-01T18:00:00Z',
+        ends_at: '2027-06-01T20:00:00Z',
+        status: 'published',
+        capacity: 16,
+        price_cents: 1500,
+        series_id: null,
+        created_by: 'admin-1',
+        organizer_id: 'admin-1',
+        event_type: 'tournament',
+        tournament_format: 'doubles',
+        social_doubles_ladder_id: null,
+      },
+    ];
+  });
+
+  it('displays event query failures and redirects other roles away from event management', async () => {
+    mocks.role = 'member';
+    await expect(EventsAdminPage()).rejects.toThrow('redirect:/member/dashboard');
+
+    mocks.role = 'admin';
+    mocks.eventError = true;
+    const page = await EventsAdminPage();
+    render(page);
+    expect(screen.getByRole('alert')).toHaveTextContent('Events unavailable');
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    mocks.eventError = false;
   });
 });

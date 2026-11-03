@@ -4,7 +4,7 @@ import path from 'node:path';
 
 describe('Social Doubles Ladder migration', () => {
   const migration = readFileSync(
-    path.join(process.cwd(), 'supabase/migrations/0058_social_doubles_ladder.sql'),
+    path.join(process.cwd(), 'supabase/migration_archive/0058_social_doubles_ladder.sql'),
     'utf8',
   );
   it('keeps ladders gender-specific and stores configurable scoring', () => {

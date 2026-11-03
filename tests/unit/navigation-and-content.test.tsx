@@ -24,6 +24,8 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/lib/supabase-browser', () => ({
   createSupabaseBrowserClient: () => ({
     auth: { getUser: async () => ({ data: { user: { id: 'user-1' } } }) },
+    channel: () => ({ on: () => ({ subscribe: vi.fn() }) }),
+    removeChannel: vi.fn(),
     from: (table: string) => {
       const query = {
         select: () => query,
@@ -134,6 +136,8 @@ describe('navigation and content components', () => {
               { value: '2026', label: 'Full 2026 season' },
               { value: '2025', label: 'Full 2025 season' },
               { value: 'ladder:ladder-1', label: "Summer ladder (Women's ladder)" },
+              { value: 'league:league-1', label: 'Summer league' },
+              { value: 'tournament:tournament-1', label: 'Summer tournament' },
             ]}
           />
         }
@@ -149,6 +153,14 @@ describe('navigation and content components', () => {
     expect(
       screen.getByRole('option', { name: "Summer ladder (Women's ladder)" }),
     ).toBeInTheDocument();
+    await user.selectOptions(period, 'league:league-1');
+    expect(mocks.push).toHaveBeenLastCalledWith('/rankings?league=league-1', { scroll: false });
+    await user.selectOptions(period, 'tournament:tournament-1');
+    expect(mocks.push).toHaveBeenLastCalledWith('/rankings?tournament=tournament-1', {
+      scroll: false,
+    });
+    await user.selectOptions(period, '2025');
+    expect(mocks.push).toHaveBeenLastCalledWith('/rankings?season=2025', { scroll: false });
 
     const rankedTable = screen.getAllByRole('table')[0];
     const rankedRows = within(rankedTable).getAllByRole('row').slice(1);

@@ -1,7 +1,7 @@
 'use client';
 import { TennisLoader } from '@/components/tennis-loader';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { safeRedirectPath } from '@/lib/safe-redirect';
@@ -38,12 +38,25 @@ export function AuthForm({ mode }: { mode: Mode }) {
   const [fullName, setFullName] = useState('');
   const [tennisSkillLevel, setTennisSkillLevel] = useState('');
   const [phone, setPhone] = useState('');
+  const [gender, setGender] = useState('');
+  const [dateOfBirth, setDateOfBirth] = useState('');
   const [applicationComment, setApplicationComment] = useState('');
   const [password, setPassword] = useState('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const config = copy[mode];
+
+  useEffect(() => {
+    if (mode !== 'login') return;
+    const url = new URL(window.location.href);
+    const fragment = new URLSearchParams(url.hash.replace(/^#/, ''));
+    if (!fragment.get('access_token') || !fragment.get('refresh_token')) return;
+    const next = safeRedirectPath(searchParams.get('next'), '/events');
+    const callbackUrl = new URL('/auth/guest-callback', url.origin);
+    callbackUrl.searchParams.set('next', next);
+    window.location.replace(`${callbackUrl.pathname}${callbackUrl.search}${url.hash}`);
+  }, [mode, searchParams]);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -75,6 +88,8 @@ export function AuthForm({ mode }: { mode: Mode }) {
               phone: formatPhoneNumber(phone.trim()),
               tennis_skill_level: tennisSkillLevel,
               application_comment: applicationComment.trim(),
+              gender: gender || null,
+              date_of_birth: dateOfBirth || null,
             },
             emailRedirectTo: `${window.location.origin}/auth/callback?next=/member/dashboard`,
           },
@@ -140,6 +155,28 @@ export function AuthForm({ mode }: { mode: Mode }) {
                     required
                     maxLength={40}
                   />
+                </label>
+                <label className="block space-y-1.5 text-sm font-medium">
+                  Date of birth (optional)
+                  <Input
+                    type="date"
+                    autoComplete="bday"
+                    value={dateOfBirth}
+                    max={new Date().toISOString().slice(0, 10)}
+                    onChange={(e) => setDateOfBirth(e.target.value)}
+                  />
+                </label>
+                <label className="block space-y-1.5 text-sm font-medium">
+                  Gender (optional)
+                  <select
+                    value={gender}
+                    onChange={(e) => setGender(e.target.value)}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="">Not specified</option>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                  </select>
                 </label>
                 <label className="block space-y-1.5 text-sm font-medium">
                   Tennis skill rating <span className="text-destructive">*</span>

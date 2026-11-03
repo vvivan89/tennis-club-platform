@@ -14,6 +14,7 @@ type HeaderState = {
   isAdmin: boolean;
   isOrganizer: boolean;
   approved: boolean;
+  isEventGuest: boolean;
 };
 const initialState: HeaderState = {
   signedIn: false,
@@ -26,6 +27,7 @@ const initialState: HeaderState = {
   isAdmin: false,
   isOrganizer: false,
   approved: false,
+  isEventGuest: false,
 };
 const HeaderStateContext = createContext<HeaderState>(initialState);
 
@@ -47,7 +49,7 @@ export function SiteHeaderStateProvider({ children }: { children: React.ReactNod
       // Keep the previous profile/menu state visible while refreshing the session.
       const { data: profile } = await db
         .from('profiles')
-        .select('full_name,avatar_url,role,application_status')
+        .select('full_name,avatar_url,role,application_status,account_kind')
         .eq('id', user.id)
         .maybeSingle();
       let hasPaid = false;
@@ -82,6 +84,7 @@ export function SiteHeaderStateProvider({ children }: { children: React.ReactNod
           isAdmin: profile?.role === 'admin',
           isOrganizer: profile?.role === 'organizer',
           approved: profile?.application_status === 'approved',
+          isEventGuest: profile?.account_kind === 'event_guest',
           canSeeDocuments:
             profile?.application_status === 'approved' && (profile?.role === 'admin' || hasPaid),
           canSeeRankings:

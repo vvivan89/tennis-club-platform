@@ -23,7 +23,9 @@
     "quality": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm check:migrations && pnpm check:rls && pnpm test && pnpm build",
     "quality:full": "pnpm quality && pnpm test:e2e",
     "check:rls": "node scripts/check-rls.mjs",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "supabase:start": "sg docker -c 'cd /home/vvivan/code/tennis-club-platform && ./node_modules/.bin/supabase start'",
+    "supabase:status": "sg docker -c 'cd /home/vvivan/code/tennis-club-platform && ./node_modules/.bin/supabase status'"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.1.2",
@@ -58,6 +60,7 @@
     "jsdom": "^26.0.0",
     "postcss": "^8.5.32",
     "prettier": "^3.5.3",
+    "supabase": "3.0.0-next.27",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.3",
     "vitest": "^4.1.12"

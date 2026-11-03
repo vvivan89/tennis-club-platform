@@ -4,14 +4,7 @@ import { createServiceRoleClient } from '@/lib/supabase-service';
 import { escapeHtml as esc, sendResendEmail } from '@/lib/resend';
 import { getSiteOrigin } from '@/lib/site-url';
 import { enforceRateLimit } from '@/lib/rate-limit';
-type MembershipSettings = {
-  season_start_month: number;
-  season_start_day: number;
-  season_end_month: number;
-  season_end_day: number;
-  family_max_adults: number;
-  family_max_children: number;
-};
+import { DEFAULT_MEMBERSHIP_SEASON_SETTINGS, getMembershipSeason } from '@/lib/membership-season';
 type FamilyRecord = {
   id: string;
   season_year: number;
@@ -87,17 +80,9 @@ type PaymentRecord = {
   created_at: string;
   succeeded_at: string | null;
   refunded_amount_minor: number;
+  provider: string | null;
+  manual_review_status: string | null;
 };
-function cfgSeasonYear(settings: MembershipSettings | null, now: Date) {
-  if (!settings) return now.getFullYear();
-  const start = new Date(
-    now.getFullYear(),
-    settings.season_start_month - 1,
-    settings.season_start_day,
-  );
-  const end = new Date(now.getFullYear(), settings.season_end_month - 1, settings.season_end_day);
-  return now < start ? now.getFullYear() : now > end ? now.getFullYear() + 1 : now.getFullYear();
-}
 export async function GET() {
   try {
     const { user, response: authError } = await getSignedInUser();
@@ -105,7 +90,7 @@ export async function GET() {
     const db = createServiceRoleClient();
     const { data: me } = await db
       .from('profiles')
-      .select('id,full_name,email,date_of_birth,application_status')
+      .select('id,full_name,email,date_of_birth,application_status,account_kind')
       .eq('id', user.id)
       .maybeSingle();
     /* A missing profile should not render a dead-end error block. */ const { data: rows } =
@@ -158,7 +143,9 @@ export async function GET() {
       db.from('membership_plan_settings').select('*').eq('id', 1).maybeSingle(),
       db
         .from('memberships')
-        .select('id,user_id,membership_type,status,payment_status,starts_on,ends_on,created_at')
+        .select(
+          'id,user_id,membership_type,status,payment_status,starts_on,ends_on,created_at,waiver_version,waiver_accepted_at',
+        )
         .eq('user_id', user.id)
         .order('created_at', { ascending: false }),
       db
@@ -187,15 +174,19 @@ export async function GET() {
         }))
       : [];
     const membershipIds = (memberships ?? []).map((m) => m.id);
+    const paymentRecordIds = [
+      ...membershipIds.map(String),
+      ...familyIds.map((id) => `family:${id}`),
+    ];
     const [{ data: payments, error: paymentsError }, { data: currentWaiver }] = await Promise.all([
-      membershipIds.length
+      paymentRecordIds.length
         ? db
             .from('payments')
             .select(
-              'id,purpose,business_record_id,amount_minor,currency,status,created_at,succeeded_at,refunded_amount_minor',
+              'id,purpose,business_record_id,amount_minor,currency,status,created_at,succeeded_at,refunded_amount_minor,provider,manual_review_status',
             )
             .eq('purpose', 'membership')
-            .in('business_record_id', membershipIds.map(String))
+            .in('business_record_id', paymentRecordIds)
             .order('created_at', { ascending: false })
         : Promise.resolve({ data: [] as PaymentRecord[], error: null }),
       db
@@ -235,7 +226,7 @@ export async function POST(req: Request) {
     const db = createServiceRoleClient();
     const { data: me } = await db
       .from('profiles')
-      .select('id,full_name,email,application_status,date_of_birth')
+      .select('id,full_name,email,application_status,date_of_birth,account_kind')
       .eq('id', user.id)
       .maybeSingle();
     if (!me)
@@ -321,7 +312,7 @@ export async function POST(req: Request) {
         familyId = myConfirmed.family_id;
       } else {
         const nowDate = new Date();
-        const seasonYear = cfgSeasonYear(settings, nowDate);
+        const seasonYear = getMembershipSeason(settings, nowDate)?.year ?? nowDate.getFullYear();
         const { data: newFamily, error: familyErr } = await db
           .from('membership_families')
           .insert({ season_year: seasonYear })
@@ -374,20 +365,14 @@ export async function POST(req: Request) {
         if (!mail.ok)
           return NextResponse.json({
             success: true,
+            familyCreated: created,
             warning:
               'Invitation saved, but the email could not be sent. Ask the member to check their portal.',
           });
       }
-      return NextResponse.json({ success: true });
+      return NextResponse.json({ success: true, familyCreated: created });
     }
     if (action === 'confirm') {
-      if (b.waiverAccepted !== true)
-        return NextResponse.json(
-          { error: 'Accept the current membership waiver before joining a family membership.' },
-          { status: 400 },
-        );
-      const { waiver: currentWaiver, response: waiverError } = await loadCurrentWaiver();
-      if (waiverError) return waiverError;
       const id = String(b.invitationId || '');
       const { data: inv } = await db
         .from('membership_family_members')
@@ -428,19 +413,35 @@ export async function POST(req: Request) {
           },
           { status: 409 },
         );
-      const { error } = await db
-        .from('membership_family_members')
-        .update({
-          status: 'confirmed',
-          joined_at: new Date().toISOString(),
-          waiver_version: String(currentWaiver.version),
-          waiver_accepted_at: new Date().toISOString(),
-        })
-        .eq('id', id);
+      const { data: individualMembership, error: individualMembershipError } = await db
+        .from('memberships')
+        .select('waiver_version,waiver_accepted_at')
+        .eq('user_id', user.id)
+        .not('waiver_accepted_at', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (individualMembershipError) throw individualMembershipError;
+      const update: Record<string, string | null> = {
+        status: 'confirmed',
+        joined_at: new Date().toISOString(),
+      };
+      // Preserve the member's separately recorded acceptance when linking them to a family.
+      // Joining an invitation must not itself count as accepting the waiver.
+      if (individualMembership?.waiver_accepted_at) {
+        update.waiver_version = individualMembership.waiver_version;
+        update.waiver_accepted_at = individualMembership.waiver_accepted_at;
+      }
+      const { error } = await db.from('membership_family_members').update(update).eq('id', id);
       if (error) throw error;
       return NextResponse.json({ success: true });
     }
     if (action === 'accept_waiver') {
+      if (me.application_status !== 'approved' || me.account_kind === 'event_guest')
+        return NextResponse.json(
+          { error: 'An approved member account is required.' },
+          { status: 403 },
+        );
       if (b.waiverAccepted !== true)
         return NextResponse.json(
           { error: 'Confirm that you accept the current membership waiver.' },
@@ -449,25 +450,62 @@ export async function POST(req: Request) {
       const { waiver: currentWaiver, response: waiverError } = await loadCurrentWaiver();
       if (waiverError) return waiverError;
       const familyId = String(b.familyId || '');
-      if (!familyId) return NextResponse.json({ error: 'Family ID is required.' }, { status: 400 });
-      const { data: ownFamilyMember, error: ownFamilyMemberError } = await db
-        .from('membership_family_members')
-        .update({
-          waiver_version: String(currentWaiver.version),
-          waiver_accepted_at: new Date().toISOString(),
-        })
-        .eq('family_id', familyId)
-        .eq('user_id', user.id)
-        .eq('status', 'confirmed')
+      const acceptedAt = new Date().toISOString();
+      if (familyId) {
+        const { data: ownFamilyMember, error: ownFamilyMemberError } = await db
+          .from('membership_family_members')
+          .update({
+            waiver_version: String(currentWaiver.version),
+            waiver_accepted_at: acceptedAt,
+          })
+          .eq('family_id', familyId)
+          .eq('user_id', user.id)
+          .in('status', ['confirmed', 'pending', 'removed_next_season'])
+          .select('id')
+          .maybeSingle();
+        if (ownFamilyMemberError) throw ownFamilyMemberError;
+        if (!ownFamilyMember)
+          return NextResponse.json({ error: 'No family membership was found.' }, { status: 404 });
+        return NextResponse.json({ success: true, acceptedAt });
+      }
+
+      const { startsOn, endsOn } = getMembershipSeason(
+        settings ?? DEFAULT_MEMBERSHIP_SEASON_SETTINGS,
+      )!;
+      const { data: currentMembership, error: membershipReadError } = await db
+        .from('memberships')
         .select('id')
+        .eq('user_id', user.id)
+        .eq('starts_on', startsOn)
+        .eq('ends_on', endsOn)
+        .order('created_at', { ascending: false })
+        .limit(1)
         .maybeSingle();
-      if (ownFamilyMemberError) throw ownFamilyMemberError;
-      if (!ownFamilyMember)
-        return NextResponse.json(
-          { error: 'No active family membership was found.' },
-          { status: 404 },
-        );
-      return NextResponse.json({ success: true });
+      if (membershipReadError) throw membershipReadError;
+      if (currentMembership) {
+        const { error } = await db
+          .from('memberships')
+          .update({
+            waiver_version: String(currentWaiver.version),
+            waiver_accepted_at: acceptedAt,
+          })
+          .eq('id', currentMembership.id)
+          .eq('user_id', user.id);
+        if (error) throw error;
+      } else {
+        const { error } = await db.from('memberships').insert({
+          user_id: user.id,
+          membership_type: 'individual',
+          status: 'pending',
+          payment_status: 'unpaid',
+          starts_on: startsOn,
+          ends_on: endsOn,
+          waiver_version: String(currentWaiver.version),
+          waiver_accepted_at: acceptedAt,
+        });
+        if (error) throw error;
+      }
+      return NextResponse.json({ success: true, acceptedAt });
     }
     if (action === 'remove') {
       const familyId = String(b.familyId || '');

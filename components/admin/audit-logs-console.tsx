@@ -171,7 +171,9 @@ export function AuditLogsConsole() {
           const { data: profiles } = await db
             .from('profiles')
             .select('id,full_name,email')
-            .in('id', profileIds);
+            .in('id', profileIds)
+            .eq('application_status', 'approved')
+            .eq('account_kind', 'member');
           setActorNames(
             Object.fromEntries(
               (profiles ?? []).map((profile) => [

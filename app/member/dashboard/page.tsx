@@ -6,6 +6,7 @@ import { getClubDisplay } from '@/lib/club-display';
 import { Button } from '@/components/ui/button';
 import { SiteHeader } from '@/components/site-header';
 import { SiteFooter } from '@/components/site-footer';
+import { eventDisplayTitle, withEventSeriesNumbers } from '@/lib/event-format';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { MemberNav } from '@/components/member-nav';
 
@@ -27,7 +28,7 @@ export default async function DashboardPage() {
       db
         .from('registrations')
         .select(
-          'id,event_id,status,payment_status,amount_cents,created_at,event:events(id,slug,title,starts_at,ends_at)',
+          'id,event_id,status,payment_status,amount_cents,created_at,event:events(id,slug,title,starts_at,ends_at,series_id)',
         )
         .eq('user_id', user.id)
         .order('created_at', { ascending: false }),
@@ -173,10 +174,30 @@ export default async function DashboardPage() {
       </main>
     );
   }
+  const registrationEvents = (registrations ?? [])
+    .map((row) => (Array.isArray(row.event) ? row.event[0] : row.event))
+    .filter((event): event is NonNullable<typeof event> => Boolean(event));
+  const seriesIds = [
+    ...new Set(
+      registrationEvents.map((event) => event.series_id).filter((id): id is string => !!id),
+    ),
+  ];
+  const { data: seriesSessions } = seriesIds.length
+    ? await db.from('events').select('id,series_id,starts_at').in('series_id', seriesIds)
+    : { data: [] };
+  const numberedSeries = withEventSeriesNumbers(registrationEvents, seriesSessions ?? []);
+  const seriesNumberByEventId = new Map(
+    numberedSeries.map((event) => [event.id, event.series_number] as const),
+  );
   const today = new Date().toISOString().slice(0, 10);
   const activityRows = (registrations ?? []).map((r) => ({
     ...r,
-    event: Array.isArray(r.event) ? r.event[0] : r.event,
+    event: (() => {
+      const event = Array.isArray(r.event) ? r.event[0] : r.event;
+      return event
+        ? { ...event, series_number: seriesNumberByEventId.get(event.id) ?? null }
+        : event;
+    })(),
   }));
   const past = activityRows.filter(
     (r) =>
@@ -447,7 +468,7 @@ export default async function DashboardPage() {
                     >
                       <div>
                         <span className="font-medium hover:underline">
-                          {r.event?.title || 'Event'}
+                          {r.event ? eventDisplayTitle(r.event) : 'Event'}
                         </span>
                         <p className="mt-1 text-xs text-muted-foreground">
                           {r.event?.starts_at

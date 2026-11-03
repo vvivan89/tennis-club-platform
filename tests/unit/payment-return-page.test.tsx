@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 
 const mocks = vi.hoisted(() => ({ params: '' }));
 vi.mock('next/navigation', () => ({
@@ -39,10 +39,7 @@ describe('payment return page', () => {
     mocks.params = 'canceled=1&return_to=%2F%2Fevil.example&return_label=Return';
     render(<PaymentReturnPage />);
     expect(screen.getByRole('heading', { name: 'Checkout canceled' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Return' })).toHaveAttribute(
-      'href',
-      '/member/payments',
-    );
+    expect(screen.getByRole('button', { name: 'Return' })).toBeEnabled();
     expect(fetch).not.toHaveBeenCalled();
   });
 
@@ -79,5 +76,75 @@ describe('payment return page', () => {
     expect(
       await screen.findByRole('heading', { name: 'Payment confirmed — finalizing' }),
     ).toBeInTheDocument();
+  });
+
+  it.each([
+    ['canceled', 'Payment canceled'],
+    ['refunded', 'Payment refunded'],
+    ['partially_refunded', 'Payment refunded'],
+    ['processing', 'Payment processing'],
+  ])('renders the %s status state', async (status, heading) => {
+    mocks.params = 'payment_id=payment-1';
+    vi.mocked(fetch).mockResolvedValue(statusResponse(status));
+    render(<PaymentReturnPage />);
+    expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument();
+  });
+
+  it('describes a confirmed tournament payment and supports failed status requests', async () => {
+    mocks.params = 'session_id=cs_tournament';
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          payment: {
+            id: 'payment-2',
+            purpose: 'tournament_registration',
+            amount_minor: 1200,
+            currency: 'cad',
+            status: 'succeeded',
+          },
+          fulfilled: true,
+        }),
+        { status: 200 },
+      ),
+    );
+    render(<PaymentReturnPage />);
+    expect(await screen.findByText(/applied to your tournament registration/)).toBeInTheDocument();
+    cleanup();
+
+    vi.mocked(fetch).mockRejectedValueOnce('network unavailable');
+    render(<PaymentReturnPage />);
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Could not retrieve payment status.',
+    );
+  });
+
+  it('reports guest checkout cancellation and preserves the safe return destination', async () => {
+    mocks.params =
+      'canceled=1&payment_id=guest-payment&return_to=%2Fmy-events%3Fguest_payment_ids%3Da%252Cb';
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ provisionalRegistrationRemoved: true }), { status: 200 }),
+    );
+    render(<PaymentReturnPage />);
+    expect(
+      await screen.findByText(/provisional tournament registration was removed/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled();
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/payments/cancel',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ paymentId: 'guest-payment', explicitCancel: true }),
+      }),
+    );
+  });
+
+  it('keeps guest registration when cancellation cannot be verified', async () => {
+    mocks.params = 'canceled=1&payment_id=guest-payment';
+    vi.mocked(fetch).mockRejectedValueOnce(new Error('offline'));
+    render(<PaymentReturnPage />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled());
+    expect(screen.getAllByRole('status')[1]).toHaveTextContent(
+      'payment state could not be verified',
+    );
   });
 });

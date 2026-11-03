@@ -3,6 +3,28 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 
 const mocks = vi.hoisted(() => ({ pathname: '/admin/members' }));
 vi.mock('next/navigation', () => ({ usePathname: () => mocks.pathname }));
+vi.mock('@/lib/supabase-browser', () => ({
+  createSupabaseBrowserClient: () => ({
+    from: () => {
+      const query = {
+        select: () => query,
+        eq: () => query,
+        then: (resolve: (value: unknown) => unknown) =>
+          Promise.resolve({ count: 0, error: null }).then(resolve),
+      };
+      return query;
+    },
+    channel: () => ({
+      on: () => ({
+        subscribe: (callback?: (status: string) => void) => {
+          callback?.('SUBSCRIBED');
+          return {};
+        },
+      }),
+    }),
+    removeChannel: vi.fn(),
+  }),
+}));
 import { AdminSectionTabs } from '@/components/admin-section-tabs';
 
 afterEach(() => {

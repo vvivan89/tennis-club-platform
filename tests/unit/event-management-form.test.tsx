@@ -1,7 +1,14 @@
-import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { EventManagementForm } from '@/components/event-management-form';
+
+const eventFormMocks = vi.hoisted(() => ({
+  inserts: [] as Array<{ table: string; values: unknown }>,
+  updates: [] as Array<{ table: string; values: unknown }>,
+  readRows: {} as Record<string, unknown[]>,
+  errors: {} as Record<string, Error>,
+}));
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
@@ -9,16 +16,48 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/lib/supabase-browser', () => ({
   createSupabaseBrowserClient: () => ({
     auth: { getUser: async () => ({ data: { user: { id: 'admin-1' } } }) },
-    from: () => {
+    from: (table: string) => {
+      let operation = 'select';
+      let values: unknown;
       const query = {
         select: () => query,
         order: () => query,
-        then: (resolve: (value: { data: unknown[]; error: null }) => unknown) =>
-          Promise.resolve({ data: [], error: null }).then(resolve),
+        eq: () => query,
+        in: () => query,
+        insert: (nextValues: unknown) => {
+          operation = 'insert';
+          values = nextValues;
+          eventFormMocks.inserts.push({ table, values });
+          return query;
+        },
+        update: (nextValues: unknown) => {
+          operation = 'update';
+          values = nextValues;
+          eventFormMocks.updates.push({ table, values });
+          return query;
+        },
+        single: async () => ({
+          data: { id: `created-${table}` },
+          error: eventFormMocks.errors[`${table}.${operation}.single`] ?? null,
+        }),
+        then: (
+          resolve: (value: { data: unknown[]; error: Error | null }) => unknown,
+          reject: (reason: unknown) => unknown,
+        ) =>
+          Promise.resolve({
+            data:
+              table === 'events' && operation === 'insert' && Array.isArray(values)
+                ? values.map((_, index) => ({ id: `created-event-${index + 1}` }))
+                : (eventFormMocks.readRows[table] ?? []),
+            error: eventFormMocks.errors[`${table}.${operation}.then`] ?? null,
+          }).then(resolve, reject),
       };
       return query;
     },
   }),
+}));
+vi.mock('@/lib/event-notifications', () => ({
+  dispatchEventNotificationsInBackground: vi.fn(),
 }));
 vi.mock('@/components/rich-text-editor', () => ({
   RichTextEditor: ({ value }: { value: string }) => (
@@ -148,6 +187,29 @@ describe('tournament configuration controls', () => {
     await user.click(screen.getByRole('button', { name: 'Single event' }));
     expect(screen.getByLabelText('Event starts')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Create event' })).toBeInTheDocument();
+  });
+
+  it('keeps team points first in the group ranking criteria and exposes advancement only for knockout', async () => {
+    const user = userEvent.setup();
+    render(<EventManagementForm currentUserId="admin-1" />);
+    await user.selectOptions(screen.getByLabelText('Event type'), 'team_tournament');
+
+    const rankingList = screen.getByRole('list', { name: 'Group ranking priorities' });
+    expect(
+      Array.from(rankingList.querySelectorAll('li')).map((item) => item.dataset.rankingKey)[0],
+    ).toBe('points');
+    expect(screen.getByText('Teams promoted from each group')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Remove Points' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Move Games won up' }));
+    const reordered = Array.from(rankingList.querySelectorAll('li')).map(
+      (item) => item.dataset.rankingKey,
+    );
+    expect(reordered[0]).toBe('points');
+    expect(reordered.indexOf('games_won')).toBeLessThan(reordered.indexOf('sets_won'));
+
+    await user.click(screen.getByRole('checkbox', { name: 'Team knockout' }));
+    expect(screen.queryByText('Teams promoted from each group')).not.toBeInTheDocument();
   });
 
   it('allows all ranking criteria to be reordered and stores the resulting priority order', async () => {
@@ -302,9 +364,75 @@ describe('tournament configuration controls', () => {
     expect(generated).toContain('top 1 teams from each group advance');
     expect(generated).toContain('Dates:');
   });
+
+  it('generates safe defaults for an incomplete team tournament rules draft', async () => {
+    const user = userEvent.setup();
+    render(
+      <EventManagementForm
+        currentUserId="admin-1"
+        event={{
+          event_type: 'tournament',
+          tournament_format: 'team',
+          tournament_config: {
+            registration_mode: 'single',
+            scoring_template: 'unsupported-template',
+          },
+          allow_non_member_registration: false,
+        }}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Generate rules text' }));
+    const generated =
+      screen.getByTestId('tournament-rules-editor').getAttribute('data-value') || '';
+    expect(generated).toContain('Team tournament');
+    expect(generated).toContain(
+      'Players register individually and the organizer assigns partners.',
+    );
+    expect(generated).toContain('Registration is limited to eligible club members');
+    expect(generated).toContain('best of three sets');
+    expect(generated).not.toContain('Eligible categories:');
+    expect(generated).not.toContain('Competition phases:');
+  });
 });
 
 describe('event creation validation visibility', () => {
+  beforeEach(() => {
+    eventFormMocks.inserts = [];
+    eventFormMocks.updates = [];
+    eventFormMocks.readRows = {};
+    eventFormMocks.errors = {};
+  });
+  async function submitAndExpectError(expected: string) {
+    const form = screen
+      .getByRole('button', { name: /Create (event|events|tournament)/ })
+      .closest('form') as HTMLFormElement;
+    fireEvent.submit(form);
+    expect(await screen.findByRole('alert')).toHaveTextContent(expected);
+  }
+
+  function setValidEventWindow(tournament = false) {
+    const startsLabel = tournament ? 'Tournament starts' : 'Event starts';
+    const endsLabel = tournament ? 'Tournament ends' : 'Event ends';
+    const starts = screen.queryByLabelText(startsLabel) ?? screen.getByLabelText('Session starts');
+    const ends = screen.queryByLabelText(endsLabel) ?? screen.getByLabelText('Session ends');
+    fireEvent.change(starts, { target: { value: '2027-06-01T10:00' } });
+    fireEvent.change(ends, { target: { value: '2027-06-01T12:00' } });
+    fireEvent.change(screen.getByLabelText('Registration opens'), {
+      target: { value: '2027-05-01T10:00' },
+    });
+    fireEvent.change(screen.getByLabelText('Registration cutoff'), {
+      target: { value: '2027-05-31T10:00' },
+    });
+  }
+
+  function setValidSeriesWindow() {
+    fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2027-06-01' } });
+    fireEvent.change(screen.getByLabelText('Repeat until'), { target: { value: '2027-08-31' } });
+    fireEvent.change(screen.getByLabelText('Start time'), { target: { value: '10:00' } });
+    fireEvent.change(screen.getByLabelText('End time'), { target: { value: '12:00' } });
+  }
+
   it('shows registration cutoff validation in an alert near the top of the form', async () => {
     const user = userEvent.setup();
     render(<EventManagementForm currentUserId="admin-1" />);
@@ -327,6 +455,445 @@ describe('event creation validation visibility', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Registration cutoff must be on or before the event start.',
     );
+  });
+
+  it('creates a single social event with the configured registration window', async () => {
+    render(<EventManagementForm currentUserId="admin-1" />);
+    fireEvent.change(screen.getByLabelText('Event title'), { target: { value: 'Summer social' } });
+    setValidEventWindow();
+    const form = screen
+      .getByRole('button', { name: 'Create event' })
+      .closest('form') as HTMLFormElement;
+    fireEvent.submit(form);
+
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('1 event created.'));
+    const created = eventFormMocks.inserts.find((write) => write.table === 'events')?.values;
+    expect(created).toEqual([
+      expect.objectContaining({
+        title: 'Summer social',
+        starts_at: expect.any(String),
+        ends_at: expect.any(String),
+        registration_opens_at: expect.any(String),
+        registration_closes_at: expect.any(String),
+        series_id: null,
+      }),
+    ]);
+  });
+
+  it('updates shared recurring-event fields and individual dates when cancelling a series event', async () => {
+    const user = userEvent.setup();
+    render(
+      <EventManagementForm
+        currentUserId="admin-1"
+        event={{
+          id: 'event-edit',
+          series_id: 'series-edit',
+          event_type: 'social',
+          title: 'Original title',
+          starts_at: '2027-06-01T10:00:00.000Z',
+          ends_at: '2027-06-01T12:00:00.000Z',
+          registration_opens_at: '2027-05-01T10:00:00.000Z',
+          registration_closes_at: '2027-05-31T10:00:00.000Z',
+        }}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('Event title'), {
+      target: { value: 'Cancelled event' },
+    });
+    fireEvent.change(screen.getByLabelText('Publication'), { target: { value: 'cancelled' } });
+    setValidEventWindow();
+    await user.click(screen.getByLabelText(/Apply shared fields to all recurring events/));
+    const form = screen
+      .getByRole('button', { name: 'Save event changes' })
+      .closest('form') as HTMLFormElement;
+    fireEvent.submit(form);
+
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent(
+        'Shared fields updated across the recurring series.',
+      ),
+    );
+    const eventUpdates = eventFormMocks.updates.filter((write) => write.table === 'events');
+    expect(eventUpdates).toHaveLength(2);
+    expect(eventUpdates[0].values).toMatchObject({ title: 'Cancelled event', status: 'cancelled' });
+    expect(eventUpdates[1].values).toMatchObject({
+      starts_at: expect.any(String),
+      registration_closes_at: expect.any(String),
+    });
+  });
+
+  it('creates a recurring League series and links its events to the new League', async () => {
+    const user = userEvent.setup();
+    render(<EventManagementForm currentUserId="admin-1" />);
+    await user.selectOptions(screen.getByLabelText('Event type'), 'league_tournament');
+    fireEvent.change(screen.getByLabelText('Event title'), { target: { value: 'Summer League' } });
+    fireEvent.change(screen.getByLabelText('League name'), { target: { value: 'Summer League' } });
+    setValidSeriesWindow();
+    const form = screen
+      .getByRole('button', { name: 'Create events' })
+      .closest('form') as HTMLFormElement;
+    fireEvent.submit(form);
+
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent(/\d+ events created\./),
+    );
+    expect(eventFormMocks.inserts).toContainEqual(
+      expect.objectContaining({
+        table: 'event_series',
+        values: expect.objectContaining({
+          created_by: 'admin-1',
+          recurrence_rule: expect.objectContaining({ frequency: 'weekly' }),
+        }),
+      }),
+    );
+    expect(eventFormMocks.inserts).toContainEqual(
+      expect.objectContaining({
+        table: 'social_doubles_ladders',
+        values: expect.objectContaining({ competition_type: 'league', name: 'Summer League' }),
+      }),
+    );
+    expect(eventFormMocks.updates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ table: 'social_doubles_ladders' }),
+        expect.objectContaining({ table: 'events' }),
+      ]),
+    );
+  });
+
+  it.each([
+    ['weekly', 13],
+    ['biweekly', 7],
+    ['monthly', 3],
+  ])(
+    'creates the expected recurring social sessions for %s frequency',
+    async (frequency, count) => {
+      const user = userEvent.setup();
+      render(<EventManagementForm currentUserId="admin-1" />);
+      fireEvent.change(screen.getByLabelText('Event title'), {
+        target: { value: 'Summer social' },
+      });
+      await user.click(screen.getByRole('button', { name: 'Series of events' }));
+      setValidSeriesWindow();
+      await user.selectOptions(screen.getByLabelText('Repeat'), frequency);
+      fireEvent.submit(
+        screen.getByRole('button', { name: 'Create events' }).closest('form') as HTMLFormElement,
+      );
+
+      await waitFor(() =>
+        expect(screen.getByRole('status')).toHaveTextContent(`${count} events created.`),
+      );
+      const createdEvents = eventFormMocks.inserts.find(
+        (write) => write.table === 'events',
+      )?.values;
+      expect(createdEvents).toHaveLength(count);
+      expect(eventFormMocks.inserts).toContainEqual(
+        expect.objectContaining({
+          table: 'event_series',
+          values: expect.objectContaining({
+            recurrence_rule: expect.objectContaining({ frequency }),
+          }),
+        }),
+      );
+    },
+  );
+
+  it('rejects reversed and excessively long recurring social event ranges', async () => {
+    const user = userEvent.setup();
+    render(<EventManagementForm currentUserId="admin-1" />);
+    fireEvent.change(screen.getByLabelText('Event title'), {
+      target: { value: 'Long social series' },
+    });
+    await user.click(screen.getByRole('button', { name: 'Series of events' }));
+    setValidSeriesWindow();
+    fireEvent.change(screen.getByLabelText('Repeat until'), { target: { value: '2027-05-31' } });
+    await submitAndExpectError('Repeat-until date must be on or after the first event.');
+
+    fireEvent.change(screen.getByLabelText('Repeat until'), { target: { value: '2040-06-01' } });
+    await submitAndExpectError('The recurrence range is too long.');
+  });
+
+  it('reports a social event insert failure and clears the busy state', async () => {
+    eventFormMocks.errors['events.insert.then'] = new Error('Event storage failed.');
+    render(<EventManagementForm currentUserId="admin-1" />);
+    fireEvent.change(screen.getByLabelText('Event title'), { target: { value: 'Summer social' } });
+    setValidEventWindow();
+    fireEvent.submit(
+      screen.getByRole('button', { name: 'Create event' }).closest('form') as HTMLFormElement,
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Event storage failed.');
+    expect(screen.getByRole('button', { name: 'Create event' })).toBeEnabled();
+  });
+
+  it('creates a new ladder and associates created event rows with it', async () => {
+    const user = userEvent.setup();
+    render(<EventManagementForm currentUserId="admin-1" />);
+    await user.selectOptions(screen.getByLabelText('Event type'), 'social_doubles_ladder');
+    fireEvent.change(screen.getByLabelText('Event title'), { target: { value: 'Ladder night' } });
+    fireEvent.change(screen.getByLabelText('Ladder name'), { target: { value: 'Summer ladder' } });
+    setValidSeriesWindow();
+    const form = screen
+      .getByRole('button', { name: 'Create events' })
+      .closest('form') as HTMLFormElement;
+    fireEvent.submit(form);
+
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent(/\d+ events created\./),
+    );
+    expect(eventFormMocks.inserts).toContainEqual(
+      expect.objectContaining({
+        table: 'social_doubles_ladders',
+        values: expect.objectContaining({ name: 'Summer ladder', gender: 'male' }),
+      }),
+    );
+    expect(eventFormMocks.updates).toContainEqual(expect.objectContaining({ table: 'events' }));
+  });
+
+  it('carries prior ladder results forward into player seeds', async () => {
+    eventFormMocks.readRows.social_doubles_ladders = [
+      {
+        id: 'previous-ladder',
+        name: 'Previous ladder',
+        gender: 'male',
+        position_points: [2, 1, -1, -2],
+        ranking_priority: ['games_won', 'sets_won', 'games_difference'],
+        competition_type: 'social_doubles_ladder',
+      },
+    ];
+    eventFormMocks.readRows.events = [{ id: 'previous-event' }];
+    eventFormMocks.readRows.event_scores = [
+      {
+        event_id: 'previous-event',
+        player_one_registration_id: 'reg-a',
+        player_two_registration_id: 'reg-b',
+        player_three_registration_id: 'reg-c',
+        player_four_registration_id: 'reg-d',
+        player_one_score: 6,
+        player_two_score: 3,
+      },
+    ];
+    eventFormMocks.readRows.registrations = [
+      { id: 'reg-a', user_id: 'player-a' },
+      { id: 'reg-b', user_id: 'player-b' },
+      { id: 'reg-c', user_id: 'player-c' },
+      { id: 'reg-d', user_id: 'player-d' },
+    ];
+    const user = userEvent.setup();
+    render(<EventManagementForm currentUserId="admin-1" />);
+    await user.selectOptions(screen.getByLabelText('Event type'), 'social_doubles_ladder');
+    fireEvent.change(screen.getByLabelText('Event title'), {
+      target: { value: 'New ladder event' },
+    });
+    fireEvent.change(screen.getByLabelText('Ladder name'), { target: { value: 'New ladder' } });
+    setValidSeriesWindow();
+    await user.selectOptions(screen.getByLabelText('Previous ladder carryover'), 'full');
+    await user.selectOptions(screen.getByLabelText('Previous ladder'), 'previous-ladder');
+    const form = screen
+      .getByRole('button', { name: 'Create events' })
+      .closest('form') as HTMLFormElement;
+    fireEvent.submit(form);
+
+    await waitFor(() =>
+      expect(
+        eventFormMocks.inserts.some((write) => write.table === 'social_doubles_ladder_seeds'),
+      ).toBe(true),
+    );
+    const seeds = eventFormMocks.inserts.find(
+      (write) => write.table === 'social_doubles_ladder_seeds',
+    )?.values;
+    expect(seeds).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ ladder_id: 'created-social_doubles_ladders' }),
+      ]),
+    );
+  });
+
+  it('validates event timing and registration window boundaries', async () => {
+    render(<EventManagementForm currentUserId="admin-1" />);
+    const start = screen.getByLabelText('Event starts');
+    const end = screen.getByLabelText('Event ends');
+    const opens = screen.getByLabelText('Registration opens');
+    const closes = screen.getByLabelText('Registration cutoff');
+
+    fireEvent.change(start, { target: { value: '2027-06-01T10:00' } });
+    fireEvent.change(end, { target: { value: '2027-06-01T10:00' } });
+    await submitAndExpectError('The event end must be after the start time.');
+
+    fireEvent.change(end, { target: { value: '2027-06-01T12:00' } });
+    await submitAndExpectError('Set a registration cutoff date and time.');
+
+    fireEvent.change(opens, { target: { value: '2027-06-01T10:00' } });
+    fireEvent.change(closes, { target: { value: '2027-05-31T10:00' } });
+    await submitAndExpectError('Registration must open before the event starts.');
+
+    fireEvent.change(opens, { target: { value: '2027-05-31T11:00' } });
+    await submitAndExpectError('Registration cutoff must be after registration opens.');
+  });
+
+  it('rejects invalid tournament category and phase configurations', async () => {
+    const user = userEvent.setup();
+    render(<EventManagementForm currentUserId="admin-1" />);
+    await user.selectOptions(screen.getByLabelText('Event type'), 'doubles_tournament');
+    setValidEventWindow(true);
+    const categoryOptions = screen
+      .getByRole('group', { name: 'Enabled doubles categories and capacity' })
+      .querySelectorAll('input[type="checkbox"]');
+    for (const checkbox of categoryOptions) fireEvent.click(checkbox);
+    await submitAndExpectError('Enable at least one doubles category.');
+  });
+
+  it('validates knockout phases, per-category capacity, and ordinary event capacity', async () => {
+    const { unmount } = render(
+      <EventManagementForm
+        currentUserId="admin-1"
+        event={{
+          event_type: 'tournament',
+          tournament_format: 'doubles',
+          tournament_config: {
+            categories: ['mixed'],
+            phases: { round_robin: false, preliminary_knockout: true, final_knockout: true },
+          },
+        }}
+      />,
+    );
+    setValidEventWindow(true);
+    const phaseOptions = screen
+      .getByRole('group', { name: 'Competition phases and scoring templates' })
+      .querySelectorAll('input[type="checkbox"]');
+    await submitAndExpectError('Preliminary knockout requires round robin.');
+
+    fireEvent.click(phaseOptions[1]);
+    fireEvent.change(screen.getByLabelText('Mixed doubles', { selector: 'input[type="number"]' }), {
+      target: { value: '1.5' },
+    });
+    await submitAndExpectError('Capacity for mixed must be a positive whole number or left blank.');
+
+    unmount();
+    render(<EventManagementForm currentUserId="admin-1" />);
+    fireEvent.change(screen.getByLabelText('Maximum attendees'), { target: { value: '0' } });
+    setValidEventWindow();
+    await submitAndExpectError('Maximum attendees must be at least 1.');
+  });
+
+  it('validates ladder gender, name, ranking criteria, and previous-ladder carryover', async () => {
+    const user = userEvent.setup();
+    render(<EventManagementForm currentUserId="admin-1" />);
+    await user.selectOptions(screen.getByLabelText('Event type'), 'social_doubles_ladder');
+    setValidSeriesWindow();
+    fireEvent.change(screen.getByLabelText('Ladder gender'), { target: { value: '' } });
+    await submitAndExpectError("Choose men's or women's ladder.");
+
+    fireEvent.change(screen.getByLabelText('Ladder gender'), { target: { value: 'male' } });
+    fireEvent.change(screen.getByLabelText('Ladder name'), { target: { value: '   ' } });
+    await submitAndExpectError('Enter a name for this ladder.');
+
+    fireEvent.change(screen.getByLabelText('Ladder name'), { target: { value: 'Summer ladder' } });
+    const selected = screen.getByRole('list', { name: 'Ladder ranking priorities' });
+    for (const button of Array.from(selected.querySelectorAll('button[aria-label^="Remove"]')))
+      fireEvent.click(button);
+    await submitAndExpectError('Choose at least one ranking criterion.');
+
+    await user.click(screen.getByRole('button', { name: 'Add Sets won priority' }));
+    await user.selectOptions(screen.getByLabelText('Previous ladder carryover'), 'full');
+    await submitAndExpectError('Choose a previous ladder for carryover.');
+  });
+
+  it('rejects a duplicate ladder name without creating a second ladder', async () => {
+    eventFormMocks.readRows.social_doubles_ladders = [
+      {
+        id: 'existing-ladder',
+        name: 'Summer Ladder',
+        gender: 'male',
+        ends_at: null,
+        position_points: [2, 1, -1, -2],
+        ranking_priority: ['games_won'],
+      },
+    ];
+    const user = userEvent.setup();
+    render(<EventManagementForm currentUserId="admin-1" />);
+    await user.selectOptions(await screen.findByLabelText('Event type'), 'social_doubles_ladder');
+    await screen.findByRole('option', { name: 'Summer Ladder' });
+    setValidSeriesWindow();
+    fireEvent.change(screen.getByLabelText('Ladder name'), {
+      target: { value: ' summer ladder ' },
+    });
+
+    await submitAndExpectError(
+      'A ladder with this name already exists. Choose a unique ladder name.',
+    );
+    expect(eventFormMocks.inserts).toEqual([]);
+  });
+
+  it('requires a name when creating a League', async () => {
+    const user = userEvent.setup();
+    render(<EventManagementForm currentUserId="admin-1" />);
+    await user.selectOptions(screen.getByLabelText('Event type'), 'league_tournament');
+    setValidSeriesWindow();
+    fireEvent.change(screen.getByLabelText('League name'), { target: { value: '' } });
+    await submitAndExpectError('Enter a name for this league.');
+  });
+
+  it('reports a missing start date for a recurring ladder series', async () => {
+    const user = userEvent.setup();
+    render(<EventManagementForm currentUserId="admin-1" />);
+    await user.selectOptions(screen.getByLabelText('Event type'), 'social_doubles_ladder');
+    await submitAndExpectError('Choose a start date for the event series.');
+
+    setValidSeriesWindow();
+    await submitAndExpectError('Enter a name for this ladder.');
+  });
+
+  it('requires a gender when creating a League series', async () => {
+    const user = userEvent.setup();
+    render(<EventManagementForm currentUserId="admin-1" />);
+    await user.selectOptions(screen.getByLabelText('Event type'), 'league_tournament');
+    setValidSeriesWindow();
+    fireEvent.change(screen.getByLabelText('League gender'), { target: { value: '' } });
+    await submitAndExpectError('Choose a league gender.');
+  });
+
+  it('keeps the gender fixed when an existing ladder or League is selected', async () => {
+    eventFormMocks.readRows.social_doubles_ladders = [
+      {
+        id: 'men-ladder',
+        name: 'Men ladder',
+        gender: 'male',
+        competition_type: 'ladder',
+        ends_at: null,
+        position_points: [2, 1, -1, -2],
+        ranking_priority: ['games_won'],
+      },
+      {
+        id: 'men-league',
+        name: 'Men League',
+        gender: 'male',
+        competition_type: 'league',
+        ends_at: null,
+        position_points: [2, 1, -1, -2],
+        ranking_priority: ['points'],
+      },
+    ];
+    const user = userEvent.setup();
+    const { unmount } = render(<EventManagementForm currentUserId="admin-1" />);
+    await user.selectOptions(await screen.findByLabelText('Event type'), 'social_doubles_ladder');
+    await user.selectOptions(
+      screen.getByLabelText('Associate with existing ladder (optional)'),
+      'men-ladder',
+    );
+    fireEvent.change(screen.getByLabelText('Ladder gender'), { target: { value: 'female' } });
+    setValidSeriesWindow();
+    await submitAndExpectError('A ladder cannot mix gender categories.');
+
+    unmount();
+    render(<EventManagementForm currentUserId="admin-1" />);
+    await user.selectOptions(await screen.findByLabelText('Event type'), 'league_tournament');
+    await user.selectOptions(
+      screen.getByLabelText('Associate with existing league (optional)'),
+      'men-league',
+    );
+    fireEvent.change(screen.getByLabelText('League gender'), { target: { value: 'female' } });
+    expect(screen.getByLabelText('Associate with existing league (optional)')).toHaveValue('');
+    expect(screen.getByLabelText('League name')).toBeInTheDocument();
   });
 });
 

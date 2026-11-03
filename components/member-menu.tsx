@@ -9,7 +9,7 @@ import { useSiteHeaderState } from '@/components/site-header-state';
 import { Button } from '@/components/ui/button';
 
 export const MemberMenu = memo(function MemberMenu() {
-  const { signedIn, authReady, name, avatar, isAdmin, isOrganizer, approved } =
+  const { signedIn, authReady, name, avatar, isAdmin, isOrganizer, approved, isEventGuest } =
     useSiteHeaderState();
   const [open, setOpen] = useState(false);
   const router = useRouter();
@@ -81,6 +81,16 @@ export const MemberMenu = memo(function MemberMenu() {
             >
               <User className="h-4 w-4" />
               Member Portal
+            </Link>
+          )}
+          {isEventGuest && (
+            <Link
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+              href="/my-events"
+            >
+              <CalendarDays className="h-4 w-4" />
+              My events
             </Link>
           )}
           {approved && isAdmin && (

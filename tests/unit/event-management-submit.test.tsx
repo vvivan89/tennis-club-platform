@@ -25,6 +25,7 @@ vi.mock('@/lib/supabase-browser', () => ({
       const query = {
         select: () => query,
         eq: () => query,
+        in: () => query,
         order: () => query,
         insert: (payload: unknown) => {
           operation = 'insert';
@@ -114,6 +115,92 @@ describe('EventManagementForm persistence', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Capacity for mixed must be a positive whole number or left blank.',
     );
+    expect(mocks.calls).toEqual([]);
+  });
+
+  it('creates a new League series using its selected gender and shared League configuration', async () => {
+    const user = userEvent.setup();
+    render(<EventManagementForm currentUserId="admin-1" />);
+    await fillValidEvent(user);
+    await user.selectOptions(screen.getByLabelText('Event type'), 'league_tournament');
+    await user.type(screen.getByLabelText('Repeat until'), '2030-01-10');
+    await user.type(screen.getByLabelText('League name'), 'Summer League');
+    await user.selectOptions(screen.getByLabelText('League gender'), 'female');
+    fireEvent.submit(document.querySelector('form') as HTMLFormElement);
+
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith('/admin/events'));
+    expect(
+      mocks.calls.find((call) => call.table === 'social_doubles_ladders')?.values,
+    ).toMatchObject({
+      name: 'Summer League',
+      gender: 'female',
+      competition_type: 'league',
+    });
+    expect(mocks.calls.find((call) => call.table === 'events')?.values).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ gender_restriction: 'female', tournament_format: 'doubles' }),
+      ]),
+    );
+  });
+
+  it('creates a Social Doubles Ladder and links its event with the selected scoring configuration', async () => {
+    const user = userEvent.setup();
+    render(<EventManagementForm currentUserId="admin-1" />);
+    await fillValidEvent(user);
+    await user.selectOptions(screen.getByLabelText('Event type'), 'social_doubles_ladder');
+    await user.type(screen.getByLabelText('Repeat until'), '2030-01-10');
+    await user.selectOptions(
+      screen.getByLabelText('Associate with existing ladder (optional)'),
+      '',
+    );
+    await user.type(screen.getByLabelText('Ladder name'), 'Winter Doubles');
+    await user.selectOptions(screen.getByLabelText('Ladder gender'), 'female');
+    await user.click(screen.getByRole('button', { name: /Create (event|events|tournament)/ }));
+
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith('/admin/events'));
+    expect(mocks.calls).toContainEqual(
+      expect.objectContaining({
+        table: 'social_doubles_ladders',
+        operation: 'insert',
+        values: expect.objectContaining({
+          name: 'Winter Doubles',
+          gender: 'female',
+          ranking_priority: expect.arrayContaining(['games_won']),
+        }),
+      }),
+    );
+    expect(mocks.calls).toContainEqual(
+      expect.objectContaining({
+        table: 'events',
+        operation: 'update',
+        values: expect.objectContaining({
+          ladder_gender: 'female',
+          social_doubles_ladder_id: 'series-1',
+        }),
+      }),
+    );
+  });
+
+  it('requires a unique ladder name before saving a new ladder event', async () => {
+    const user = userEvent.setup();
+    const { container } = render(<EventManagementForm currentUserId="admin-1" />);
+    await fillValidEvent(user);
+    await user.selectOptions(screen.getByLabelText('Event type'), 'social_doubles_ladder');
+    await user.type(screen.getByLabelText('Repeat until'), '2030-01-10');
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Enter a name for this ladder.');
+    expect(mocks.calls).toEqual([]);
+  });
+
+  it('requires a League name after the recurring schedule has been supplied', async () => {
+    const user = userEvent.setup();
+    render(<EventManagementForm currentUserId="admin-1" />);
+    await fillValidEvent(user);
+    await user.selectOptions(screen.getByLabelText('Event type'), 'league_tournament');
+    await user.type(screen.getByLabelText('Repeat until'), '2030-01-10');
+    fireEvent.submit(document.querySelector('form') as HTMLFormElement);
+    expect(await screen.findByText('Enter a name for this league.')).toBeInTheDocument();
     expect(mocks.calls).toEqual([]);
   });
 
