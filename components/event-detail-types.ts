@@ -1,0 +1,20 @@
+export type EventInfo = {
+  id: string;
+  slug?: string | null;
+  title: string;
+  description: string | null;
+  gender_restriction?: string | null;
+  event_type: string;
+  starts_at: string;
+  ends_at: string | null;
+  registration_opens_at: string;
+  registration_closes_at: string | null;
+  capacity: number;
+  price_cents: number;
+  members_only: boolean;
+  status: string;
+  location: string;
+  notes: string;
+  waitlist_enabled: boolean;
+  court_count: number;
+};

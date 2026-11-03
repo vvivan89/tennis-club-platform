@@ -10,6 +10,24 @@ const managementConfirmations = readFileSync(
   join(process.cwd(), 'components/tournament-management-confirmations.tsx'),
   'utf8',
 );
+const participantManagement = readFileSync(
+  join(process.cwd(), 'components/tournament-participant-management-panel.tsx'),
+  'utf8',
+);
+const matchManagement = readFileSync(
+  join(process.cwd(), 'components/tournament-match-management-panel.tsx'),
+  'utf8',
+);
+const drawActions = [
+  'components/use-tournament-draw-actions.ts',
+  'components/use-tournament-score-actions.ts',
+]
+  .map((path) => readFileSync(join(process.cwd(), path), 'utf8'))
+  .join('\n');
+const overviewParticipants = readFileSync(
+  join(process.cwd(), 'components/tournament-overview-participants.tsx'),
+  'utf8',
+);
 const publicView = readFileSync(
   join(process.cwd(), 'components/tournament-public-view.tsx'),
   'utf8',
@@ -17,12 +35,12 @@ const publicView = readFileSync(
 
 describe('tournament regression fixes', () => {
   it('updates pair group assignment without referencing a nonexistent updated_at column', () => {
-    const start = management.indexOf('async function saveEntryGroup(');
-    const end = management.indexOf('async function randomizeGroups()', start);
-    const saveGroup = management.slice(start, end);
+    const start = drawActions.indexOf('async function saveEntryGroup(');
+    const end = drawActions.indexOf('async function randomizeGroups()', start);
+    const saveGroup = drawActions.slice(start, end);
     expect(saveGroup).toContain('group_number: groupNumber');
     expect(saveGroup).not.toContain('updated_at');
-    expect(management).toContain(
+    expect(participantManagement).toContain(
       'aria-label={`Group for ${p.player_one_name} and ${p.player_two_name}`}',
     );
   });
@@ -31,7 +49,7 @@ describe('tournament regression fixes', () => {
     expect(management).toContain(
       'querySelectorAll<HTMLDetailsElement>(\'details[data-tournament-menu="true"][open]\')',
     );
-    expect(management).toContain(
+    expect(matchManagement).toContain(
       '<details className="relative shrink-0" data-tournament-menu="true">',
     );
   });
@@ -41,33 +59,35 @@ describe('tournament regression fixes', () => {
       '{adminContent && <div className="mb-5">{adminContent}</div>}',
     );
     expect(publicView).toMatch(
-      /\['participants',\s*'matches',\s*'audit'\]\.includes\(tab\)\s*&&\s*adminContent\s*&&\s*\(!leagueTournament\s*\|\|\s*!\['matches',\s*'audit'\]\.includes\(tab\)\)/,
+      /\['participants',\s*'matches',\s*'audit'\]\.includes\(ui\.tab\)\s*&&\s*adminContent\s*&&\s*\(!leagueTournament\s*\|\|\s*!\['matches',\s*'audit'\]\.includes\(ui\.tab\)\)/,
     );
   });
 
   it('renders the participant roster only once in the tournament overview', () => {
     expect(
-      publicView.match(
+      overviewParticipants.match(
         /aria-label=\{leagueTournament \? 'Players and courts' : 'Registered Participants'\}/g,
       ) ?? [],
     ).toHaveLength(1);
-    expect(publicView).not.toContain('The organizer has not published participants yet.');
+    expect(overviewParticipants).not.toContain('The organizer has not published participants yet.');
   });
 
   it('does not retain the standalone Group assignments section', () => {
     expect(management).not.toContain('aria-label="Group assignments"');
     expect(management).not.toContain('function renderGroupAssignments()');
-    expect(management).toContain('Random group draw');
+    expect(participantManagement).toContain('Random group draw');
   });
   it('shows walkover awards prominently in the match editor', () => {
-    expect(management).toContain('bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-950');
-    expect(management).toContain('Walkover / retirement awarded to side one');
-    expect(management).toContain('Walkover / retirement awarded to side two');
-    expect(management).toContain('const isWalkoverNote =');
+    expect(matchManagement).toContain(
+      'bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-950',
+    );
+    expect(drawActions).toContain('Walkover / retirement awarded to side one');
+    expect(drawActions).toContain('Walkover / retirement awarded to side two');
+    expect(matchManagement).toContain('const isWalkoverNote =');
   });
 
   it('requires the app confirmation dialog before replacing a walkover with a score', () => {
-    expect(management).toContain('setPendingWalkoverScore({ match, raw })');
+    expect(drawActions).toContain('setPendingWalkoverScore({ match, raw })');
     expect(management).toContain('<TournamentManagementConfirmations');
     expect(management).toContain('onConfirmWalkover={() => {');
     expect(managementConfirmations).toContain('title="Replace walkover result?"');
@@ -76,7 +96,7 @@ describe('tournament regression fixes', () => {
   });
 
   it('clears the walkover notice only when the replacement score is saved', () => {
-    expect(management).toContain("...(isWalkoverResult ? { notes: '' } : {})");
-    expect(management).toContain('if (!scoreSaved) return;');
+    expect(drawActions).toContain("...(isWalkoverResult ? { notes: '' } : {})");
+    expect(drawActions).toContain('if (!scoreSaved) return;');
   });
 });

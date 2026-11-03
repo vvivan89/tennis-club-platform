@@ -10,10 +10,12 @@ const consolidated = readFileSync(
   join(process.cwd(), 'supabase/consolidated_migrations.sql'),
   'utf8',
 );
-const publicView = readFileSync(
-  join(process.cwd(), 'components/tournament-public-view.tsx'),
-  'utf8',
-);
+const publicView = [
+  'components/tournament-public-view.tsx',
+  'components/tournament-overview-participants.tsx',
+]
+  .map((path) => readFileSync(join(process.cwd(), path), 'utf8'))
+  .join('\n');
 
 describe('public tournament skill-level display migration', () => {
   it('exposes skill ratings without adding participant contact fields to public views', () => {

@@ -1,6 +1,5 @@
 'use client';
 import Image from 'next/image';
-import { TennisLoader } from '@/components/tennis-loader';
 import { dispatchEventNotificationsInBackground } from '@/lib/event-notifications';
 import { FormFeedback } from '@/components/form-feedback';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -9,108 +8,18 @@ import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import { Button } from '@/components/ui/button';
 import { SearchableMemberSelect } from '@/components/searchable-member-select';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import { AssignmentDropZone, DraggableItem } from '@/components/drag-drop';
-import {
-  calculateLadderSession,
-  normalizeLadderScores,
-  type LadderMetric,
-} from '@/lib/social-doubles-ladder';
+import { EventCourtAssignmentDialog } from '@/components/event-court-assignment-dialog';
 import { registrationErrorMessage } from '@/lib/registration-error-message';
-
-type Person = {
-  id: string;
-  full_name: string;
-  avatar_url: string | null;
-  email?: string | null;
-  phone?: string | null;
-  tennis_skill_level?: number | null;
-  suspended?: boolean;
-  gender?: string | null;
-};
-type Participant = {
-  registration_id: string;
-  user_id: string;
-  status: string;
-  queue_position: number | null;
-  full_name: string;
-  avatar_url: string | null;
-  tennis_skill_level: number | null;
-  email?: string | null;
-  phone?: string | null;
-};
-type Assignment = { registration_id: string; court_number: number; segment_order: number };
-type RecordLine = { wins: number; losses: number };
-type Warning = { kind: 'overfull' | 'count'; message: string };
-type Session = Record<number, string[]>;
-type Confirmation = {
-  title: string;
-  description: string;
-  confirmLabel?: string;
-  destructive?: boolean;
-  onConfirm: () => void;
-};
-function validateAssignments(participants: Participant[], assignments: Assignment[]): Warning[] {
-  const confirmed = participants.filter((p) => p.status === 'confirmed');
-  const confirmedIds = new Set(confirmed.map((p) => p.registration_id));
-  const valid = [
-    ...new Map(
-      assignments
-        .filter((a) => confirmedIds.has(a.registration_id))
-        .map((a) => [`${a.registration_id}:${a.segment_order}:${a.court_number}`, a]),
-    ).values(),
-  ];
-  const counts = confirmed.map((p) => ({
-    name: p.full_name || 'Member',
-    count: new Set(
-      valid.filter((a) => a.registration_id === p.registration_id).map((a) => a.segment_order),
-    ).size,
-  }));
-  const warnings: Warning[] = [];
-  if (counts.some((x) => x.count > 0) && new Set(counts.map((x) => x.count)).size > 1)
-    warnings.push({
-      kind: 'count',
-      message: 'The number of assigned sub-sessions differs between participants.',
-    });
-  const bySession = new Map<string, Set<string>>();
-  for (const a of valid) {
-    const key = `${a.segment_order}:${a.court_number}`;
-    if (!bySession.has(key)) bySession.set(key, new Set());
-    bySession.get(key)!.add(a.registration_id);
-  }
-  for (const [key, ids] of bySession)
-    if (ids.size > 4)
-      warnings.push({
-        kind: 'overfull',
-        message: `Sub-session ${key.split(':')[0]}, Court ${key.split(':')[1]} has ${ids.size} players (maximum 4).`,
-      });
-  return warnings;
-}
-function getEligibility(
-  p: { id: string; gender?: string | null },
-  {
-    genderRestriction,
-    membershipRequired,
-    paidMembershipUserIds,
-  }: {
-    genderRestriction?: string | null;
-    membershipRequired?: boolean;
-    paidMembershipUserIds: Set<string>;
-  },
-) {
-  const genderEligible = !genderRestriction || p.gender?.toLowerCase() === genderRestriction;
-  const genderStatus =
-    genderRestriction && !genderEligible ? `Gender ${p.gender || 'not specified'}` : undefined;
-  const membershipEligible = !membershipRequired || paidMembershipUserIds.has(p.id);
-  const membershipStatus =
-    membershipRequired && !membershipEligible
-      ? 'Cannot register: requires an active, paid membership.'
-      : undefined;
-  return {
-    genderEligible,
-    membershipEligible,
-    eligibilityReasons: [genderStatus, membershipStatus].filter(Boolean).join(' · '),
-  };
-}
+import { getEligibility, validateAssignments } from '@/components/event-edit-helpers';
+import { createAssignLadderCourts } from '@/components/event-edit-ladder-courts';
+import type {
+  Assignment,
+  Confirmation,
+  Participant,
+  Person,
+  RecordLine,
+  Session,
+} from '@/components/event-edit-types';
 
 export function EventEditManagement({
   eventId,
@@ -445,180 +354,16 @@ export function EventEditManagement({
       setBusy(false);
     }
   }
-  async function assignLadderCourts() {
-    if (!ladderConfig) return;
-    setBusy(true);
-    setError('');
-    try {
-      const { data: ladderEvents, error: eventError } = await db
-        .from('events')
-        .select('id')
-        .eq('social_doubles_ladder_id', ladderConfig.id)
-        .lte('starts_at', new Date().toISOString());
-      if (eventError) throw eventError;
-      const ids = (ladderEvents ?? []).map((e) => e.id);
-      const { data: scoreRows, error: scoreError } = ids.length
-        ? await db
-            .from('event_scores')
-            .select(
-              'event_id,player_one_registration_id,player_two_registration_id,player_three_registration_id,player_four_registration_id,player_one_score,player_two_score',
-            )
-            .in('event_id', ids)
-        : { data: [], error: null };
-      if (scoreError) throw scoreError;
-      const regIds = [
-        ...new Set(
-          (scoreRows ?? []).flatMap((row) =>
-            [
-              row.player_one_registration_id,
-              row.player_two_registration_id,
-              row.player_three_registration_id,
-              row.player_four_registration_id,
-            ].filter(Boolean),
-          ),
-        ),
-      ];
-      const { data: regs, error: regError } = regIds.length
-        ? await db.from('registrations').select('id,user_id').in('id', regIds)
-        : { data: [], error: null };
-      if (regError) throw regError;
-      const userByRegistration = new Map((regs ?? []).map((r) => [r.id, r.user_id]));
-      const names = Object.fromEntries(participants.map((p) => [p.user_id, p.full_name]));
-      const byCourtSession = new Map<string, typeof scoreRows>();
-      for (const row of scoreRows ?? []) {
-        const playerSet = [
-          row.player_one_registration_id,
-          row.player_two_registration_id,
-          row.player_three_registration_id,
-          row.player_four_registration_id,
-        ]
-          .filter(Boolean)
-          .sort()
-          .join(',');
-        const key = `${row.event_id}:${playerSet}`;
-        const list = byCourtSession.get(key) ?? [];
-        list.push(row);
-        byCourtSession.set(key, list);
-      }
-      const totalPoints = new Map<string, number>();
-      const currentPoints = new Map<string, number>();
-      const totals = new Map<
-        string,
-        { setsWon: number; setsLost: number; gamesWon: number; gamesLost: number }
-      >();
-      for (const rows of byCourtSession.values()) {
-        const normalized = normalizeLadderScores(rows ?? [], userByRegistration);
-        const result = calculateLadderSession(
-          normalized,
-          names,
-          ladderConfig.ranking_priority as LadderMetric[],
-          [
-            ladderConfig.position_points[0] ?? 2,
-            ladderConfig.position_points[1] ?? 1,
-            ladderConfig.position_points[2] ?? -1,
-            ladderConfig.position_points[3] ?? -2,
-          ],
-        );
-        for (const player of result) {
-          currentPoints.set(
-            player.playerId,
-            (currentPoints.get(player.playerId) ?? 0) + player.points,
-          );
-          const prior = totals.get(player.playerId) ?? {
-            setsWon: 0,
-            setsLost: 0,
-            gamesWon: 0,
-            gamesLost: 0,
-          };
-          prior.setsWon += player.setsWon;
-          prior.setsLost += player.setsLost;
-          prior.gamesWon += player.gamesWon;
-          prior.gamesLost += player.gamesLost;
-          totals.set(player.playerId, prior);
-        }
-      }
-      const [{ data: ladderMeta }, { data: seedRows }] = await Promise.all([
-        db
-          .from('social_doubles_ladders')
-          .select('carryover_mode')
-          .eq('id', ladderConfig.id)
-          .maybeSingle(),
-        db
-          .from('social_doubles_ladder_seeds')
-          .select('user_id,initial_position,initial_points')
-          .eq('ladder_id', ladderConfig.id),
-      ]);
-      const seedByUser = new Map((seedRows ?? []).map((seed) => [seed.user_id, seed]));
-      for (const [userId, points] of currentPoints) {
-        const seed = seedByUser.get(userId);
-        totalPoints.set(
-          userId,
-          points + (ladderMeta?.carryover_mode === 'full' ? (seed?.initial_points ?? 0) : 0),
-        );
-      }
-      if (ladderMeta?.carryover_mode === 'full')
-        for (const seed of seedRows ?? []) {
-          if (!totalPoints.has(seed.user_id)) totalPoints.set(seed.user_id, seed.initial_points);
-        }
-      const confirmed = participants.filter((p) => p.status === 'confirmed');
-      confirmed.sort((a, b) => {
-        const aRanked =
-            currentPoints.has(a.user_id) ||
-            (ladderMeta?.carryover_mode === 'full' && seedByUser.has(a.user_id)),
-          bRanked =
-            currentPoints.has(b.user_id) ||
-            (ladderMeta?.carryover_mode === 'full' && seedByUser.has(b.user_id));
-        if (aRanked !== bRanked) return aRanked ? -1 : 1;
-        if (!aRanked && !bRanked) {
-          const seedDelta =
-            (seedByUser.get(a.user_id)?.initial_position ?? Number.MAX_SAFE_INTEGER) -
-            (seedByUser.get(b.user_id)?.initial_position ?? Number.MAX_SAFE_INTEGER);
-          if (seedDelta) return seedDelta;
-        }
-        const pointsDelta = (totalPoints.get(b.user_id) ?? 0) - (totalPoints.get(a.user_id) ?? 0);
-        if (pointsDelta) return pointsDelta;
-        for (const metric of ladderConfig.ranking_priority as LadderMetric[]) {
-          const value = (id: string) => {
-            const t = totals.get(id) ?? { setsWon: 0, setsLost: 0, gamesWon: 0, gamesLost: 0 };
-            if (metric === 'sets_won') return t.setsWon;
-            if (metric === 'games_won') return t.gamesWon;
-            if (metric === 'games_difference') return t.gamesWon - t.gamesLost;
-            return t.setsWon - t.setsLost;
-          };
-          const delta = value(b.user_id) - value(a.user_id);
-          if (delta) return delta;
-        }
-        return a.full_name.localeCompare(b.full_name);
-      });
-      setLadderStandings(
-        confirmed.map((player) => ({
-          userId: player.user_id,
-          name: player.full_name,
-          points:
-            currentPoints.has(player.user_id) ||
-            (ladderMeta?.carryover_mode === 'full' && totalPoints.has(player.user_id))
-              ? totalPoints.get(player.user_id)!
-              : null,
-        })),
-      );
-      const courtCount = Math.max(1, Math.ceil(confirmed.length / 4));
-      if (courtCount > 4)
-        throw new Error(
-          'This event supports up to four courts for automatic ladder assignment. Assign additional courts manually.',
-        );
-      const groups: Session[] = [{ 1: [], 2: [], 3: [], 4: [] }];
-      confirmed.forEach((player, index) => {
-        const court = Math.floor(index / 4) + 1;
-        for (const group of groups) group[court as 1 | 2 | 3 | 4].push(player.registration_id);
-      });
-      setSessions(groups);
-      setMessage('Ladder courts assigned from current standings. Review and save to apply.');
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not calculate ladder court assignments.');
-    } finally {
-      setBusy(false);
-    }
-  }
+  const assignLadderCourts = createAssignLadderCourts({
+    db,
+    ladderConfig,
+    setBusy,
+    setError,
+    participants,
+    setLadderStandings,
+    setSessions,
+    setMessage,
+  });
   function openCourtModal() {
     const first: Session = { 1: [], 2: [], 3: [], 4: [] };
     for (const assignment of assignments.filter((item) => item.segment_order === 1))
@@ -1009,205 +754,23 @@ export function EventEditManagement({
             </div>
           </div>
         ))}
-      {modalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="assign-courts-title"
-        >
-          <div className="my-4 w-full max-w-6xl rounded-xl border border-border bg-background p-5 shadow-xl">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h2 id="assign-courts-title" className="text-xl font-semibold">
-                  Assign courts
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  Drag each player chip to a court. Every confirmed player must be assigned once in
-                  each sub-session.
-                </p>
-              </div>
-              {ladderConfig && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() => void assignLadderCourts()}
-                >
-                  Automatic ladder assignment
-                </Button>
-              )}
-              <Button variant="outline" onClick={() => setModalOpen(false)}>
-                Close
-              </Button>
-            </div>
-            {ladderConfig && ladderStandings.length > 0 && (
-              <section className="mt-5 rounded-lg border border-border p-3">
-                <h3 className="font-semibold">Current ladder ranking for registered players</h3>
-                <ol className="mt-2 space-y-1 text-sm">
-                  {ladderStandings.map((player, index) => (
-                    <li key={player.userId} className="flex justify-between gap-3">
-                      <span>
-                        {index + 1}. {player.name}
-                        {player.points === null ? ' · Unranked' : ''}
-                      </span>
-                      <span>{player.points === null ? '—' : `${player.points} pts`}</span>
-                    </li>
-                  ))}
-                </ol>
-              </section>
-            )}
-            <div className="mt-5 space-y-6">
-              {sessions.map((session, si) => (
-                <section key={si} className="rounded-lg border border-border p-3">
-                  <div className="mb-3 flex items-center justify-between">
-                    <h3 className="font-semibold">Sub-session {si + 1}</h3>
-                    {sessions.length > 1 && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setSessions((old) => old.filter((_, i) => i !== si))}
-                      >
-                        Remove sub-session
-                      </Button>
-                    )}
-                  </div>
-                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                    {[1, 2, 3, 4].map((court) => (
-                      <AssignmentDropZone
-                        variant="court"
-                        key={court}
-                        onDrop={() => {
-                          if (dragging) movePlayer(dragging, court, si);
-                        }}
-                      >
-                        <h4 className="mb-3 text-sm font-semibold">
-                          Court {court}{' '}
-                          <span className="font-normal text-muted-foreground">
-                            ({session[court].length}/4)
-                          </span>
-                        </h4>
-                        <div className="space-y-2">
-                          {session[court].map((id) => {
-                            const p = participants.find((x) => x.registration_id === id);
-                            if (!p) return null;
-                            return (
-                              <DraggableItem
-                                key={id}
-                                id={id}
-                                appearance="assignment"
-                                onDragStateChange={setDragging}
-                                className="shadow-sm"
-                              >
-                                {p.avatar_url ? (
-                                  <Image
-                                    src={p.avatar_url}
-                                    alt=""
-                                    width={40}
-                                    height={40}
-                                    unoptimized
-                                    className="h-10 w-10 rounded-full object-cover"
-                                  />
-                                ) : (
-                                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-secondary text-sm font-semibold">
-                                    {(p.full_name || '?')
-                                      .split(/\s+/)
-                                      .map((x) => x[0])
-                                      .slice(0, 2)
-                                      .join('')
-                                      .toUpperCase()}
-                                  </div>
-                                )}
-                                <div className="min-w-0">
-                                  <p className="truncate text-sm font-medium">{p.full_name}</p>
-                                  <p className="text-xs text-muted-foreground">
-                                    W:{records[p.user_id]?.wins ?? 0}, - L:
-                                    {records[p.user_id]?.losses ?? 0} ·{' '}
-                                    {p.tennis_skill_level ?? '—'}
-                                  </p>
-                                </div>
-                              </DraggableItem>
-                            );
-                          })}
-                        </div>
-                      </AssignmentDropZone>
-                    ))}
-                  </div>
-                  <AssignmentDropZone
-                    variant="unassigned"
-                    onDrop={(event) => {
-                      const id = dragging || event.dataTransfer.getData('text/plain');
-                      if (!id) return;
-                      setSessions((old) =>
-                        old.map((current, index) => {
-                          if (index !== si) return current;
-                          const next: Session = {
-                            1: [...current[1]],
-                            2: [...current[2]],
-                            3: [...current[3]],
-                            4: [...current[4]],
-                          };
-                          for (const court of [1, 2, 3, 4])
-                            next[court] = next[court].filter((playerId) => playerId !== id);
-                          return next;
-                        }),
-                      );
-                      setDragging(null);
-                    }}
-                  >
-                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Unassigned players
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {participants
-                        .filter(
-                          (p) =>
-                            p.status === 'confirmed' &&
-                            ![1, 2, 3, 4].some((c) => session[c].includes(p.registration_id)),
-                        )
-                        .map((p) => (
-                          <DraggableItem
-                            key={p.registration_id}
-                            id={p.registration_id}
-                            appearance="assignment"
-                            onDragStateChange={setDragging}
-                          >
-                            <div className="grid h-10 w-10 place-items-center rounded-full bg-secondary text-sm font-semibold">
-                              {(p.full_name || '?')
-                                .split(/\s+/)
-                                .map((x) => x[0])
-                                .slice(0, 2)
-                                .join('')
-                                .toUpperCase()}
-                            </div>
-                            <div>
-                              <p className="text-sm font-medium">{p.full_name}</p>
-                              <p className="text-xs text-muted-foreground">
-                                W:{records[p.user_id]?.wins ?? 0}, - L:
-                                {records[p.user_id]?.losses ?? 0} · {p.tennis_skill_level ?? '—'}
-                              </p>
-                            </div>
-                          </DraggableItem>
-                        ))}
-                    </div>
-                  </AssignmentDropZone>
-                </section>
-              ))}
-              <Button variant="outline" onClick={addSession}>
-                Add sub-session
-              </Button>
-            </div>
-            <div className="mt-5 flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setModalOpen(false)}>
-                Cancel
-              </Button>
-              <Button disabled={busy} onClick={() => void saveAllCourts()}>
-                {busy ? <TennisLoader compact label="Saving" /> : 'Save'}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <EventCourtAssignmentDialog
+        modalOpen={modalOpen}
+        busy={busy}
+        ladderConfig={!!ladderConfig}
+        ladderStandings={ladderStandings}
+        sessions={sessions}
+        setSessions={setSessions}
+        dragging={dragging}
+        setDragging={setDragging}
+        participants={participants}
+        records={records}
+        onClose={() => setModalOpen(false)}
+        onAssignLadder={() => void assignLadderCourts()}
+        onMovePlayer={movePlayer}
+        onAddSession={addSession}
+        onSave={() => void saveAllCourts()}
+      />
       {confirmation && (
         <ConfirmDialog
           open

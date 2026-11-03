@@ -27,7 +27,16 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['app/**/*.{ts,tsx}', 'components/**/*.{ts,tsx}', 'lib/**/*.{ts,tsx}'],
-      exclude: ['**/*.d.ts', 'components/event-form-types.ts'],
+      exclude: [
+        '**/*.d.ts',
+        // Type-only modules emit no runtime code and cannot be meaningfully tested.
+        'components/event-form-types.ts',
+        'components/event-detail-types.ts',
+        'components/event-edit-types.ts',
+        'components/tournament-management-types.ts',
+        'components/tournament-public-view-types.ts',
+        'app/member/membership-types.ts',
+      ],
       reporter: ['text', 'html'],
     },
   },

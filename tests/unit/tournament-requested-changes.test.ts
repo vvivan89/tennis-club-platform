@@ -3,7 +3,21 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const read = (path: string) => readFileSync(join(process.cwd(), path), 'utf8');
-const publicView = read('components/tournament-public-view.tsx');
+const publicView = [
+  'components/tournament-public-view.tsx',
+  'components/tournament-overview-panel.tsx',
+  'components/tournament-own-registration-list.tsx',
+  'components/tournament-entry-form.tsx',
+  'components/tournament-registration-status.tsx',
+  'components/tournament-public-view-dialogs.tsx',
+  'components/tournament-overview-participants.tsx',
+  'components/use-tournament-public-view-data.ts',
+  'components/use-tournament-payment-action.ts',
+  'components/use-tournament-registration-submit.ts',
+  'components/use-tournament-withdrawal-actions.ts',
+]
+  .map(read)
+  .join('\n');
 const interacDialog = read('components/interac-payment-instructions-dialog.tsx');
 const paymentOptions = read('components/payment-options-button.tsx');
 const partnerSkillSelect = read('components/partner-skill-level-select.tsx');
@@ -12,7 +26,6 @@ const checkout = read('app/api/payments/checkout/route.ts');
 const cancel = read('app/api/payments/cancel/route.ts');
 const status = read('app/api/payments/status/route.ts');
 const eventPage = read('app/events/[slug]/page.tsx');
-const webhook = read('app/api/webhooks/stripe/route.ts');
 const migration = read(
   'supabase/migration_archive/0054_tournament_registration_payment_and_partner_flows.sql',
 );
@@ -73,7 +86,7 @@ describe('requested tournament registration fixes', () => {
 
   it('uses the approved member directory for member partners and explains the guest-to-member process', () => {
     expect(publicView).toContain("db.rpc('event_tournament_partner_directory'");
-    expect(publicView).toContain('they’ll be notified to confirm');
+    expect(publicView).toMatch(/they’ll be\s+notified to confirm/);
     expect(migration).toContain('event_tournament_partner_directory');
     expect(migration).toContain('(p.user_id IS NOT NULL) AS is_member');
   });

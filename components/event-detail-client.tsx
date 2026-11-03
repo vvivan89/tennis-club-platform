@@ -6,7 +6,6 @@ import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
-import { registrationErrorMessage } from '@/lib/registration-error-message';
 import { dispatchEventNotificationsInBackground } from '@/lib/event-notifications';
 import { Button } from '@/components/ui/button';
 import { EventWeather } from '@/components/event-weather';
@@ -17,88 +16,17 @@ import {
   InteracPaymentInstructionsDialog,
   type InteracPaymentNotice,
 } from '@/components/interac-payment-instructions-dialog';
-import { Pencil, Trash2 } from 'lucide-react';
+import {
+  EventParticipantsPanel,
+  EventScoresPanel,
+  type EventCourtRow as Court,
+  type EventRosterRow as Roster,
+  type EventScoreRow as Score,
+} from '@/components/event-detail-panels';
 
-function RosterSelect({
-  label,
-  placeholder,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  placeholder: string;
-  value: string;
-  options: { registration_id: string; full_name: string | null }[];
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className="space-y-1 text-sm">
-      {label}
-      <select
-        required
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="block h-10 w-full rounded-md border border-input bg-background px-3"
-      >
-        <option value="">{placeholder}</option>
-        {options.map((p) => (
-          <option key={p.registration_id} value={p.registration_id}>
-            {p.full_name}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-type Roster = {
-  registration_id: string;
-  user_id: string;
-  status: string;
-  payment_status?: string | null;
-  queue_position: number | null;
-  full_name: string;
-  avatar_url: string | null;
-  tennis_skill_level: number | null;
-  email?: string | null;
-  phone?: string | null;
-};
-type Court = { registration_id: string; court_number: number; segment_order: number };
-type Score = {
-  id: string;
-  player_one_registration_id: string;
-  player_two_registration_id: string;
-  player_three_registration_id: string | null;
-  player_four_registration_id: string | null;
-  player_one_score: number;
-  player_two_score: number;
-  player_one_name: string;
-  player_two_name: string;
-  player_three_name: string | null;
-  player_four_name: string | null;
-  played_at: string;
-  entered_by?: string | null;
-};
-type EventInfo = {
-  id: string;
-  slug?: string | null;
-  title: string;
-  description: string | null;
-  gender_restriction?: string | null;
-  event_type: string;
-  starts_at: string;
-  ends_at: string | null;
-  registration_opens_at: string;
-  registration_closes_at: string | null;
-  capacity: number;
-  price_cents: number;
-  members_only: boolean;
-  status: string;
-  location: string;
-  notes: string;
-  waitlist_enabled: boolean;
-  court_count: number;
-};
+import type { EventInfo } from '@/components/event-detail-types';
+import { useEventRegistrationActions } from '@/components/use-event-registration-actions';
+
 export function EventDetailClient({
   event,
   roster,
@@ -407,212 +335,27 @@ export function EventDetailClient({
       void db.removeChannel(channel);
     };
   }, [event.id]);
-  async function startEventCheckout(
-    registrationId: string,
-    provider: 'stripe' | 'interac' = 'stripe',
-  ) {
-    setBusy(true);
-    setError('');
-    setMessage('');
-    try {
-      const response = await fetch('/api/payments/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          purpose: 'event_registration',
-          provider,
-          businessRecordId: registrationId,
-          idempotencyKey: crypto.randomUUID(),
-          returnTo: `/events/${event.slug || event.id}`,
-          returnLabel: `Back to ${event.title}`,
-        }),
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Could not start checkout.');
-      if (provider === 'interac') {
-        const notice = {
-          amount: (Number(result.amountMinor) / 100).toLocaleString('en-CA', {
-            style: 'currency',
-            currency: 'CAD',
-          }),
-          recipientEmail: result.recipientEmail,
-          paymentId: result.paymentId,
-          instructions: result.instructions || '',
-          message: result.message || '',
-        };
-        setInteracNotice(notice);
-        setPendingInteracNotice(notice);
-        setMessage(
-          'Interac payment request submitted. Your registration remains unpaid until the club confirms receipt.',
-        );
-        setLivePaymentStatus('pending');
-        router.refresh();
-        return;
-      }
-      if (!result.checkoutUrl) throw new Error('Could not start checkout.');
-      window.location.assign(result.checkoutUrl);
-    } catch (e) {
-      console.error('[Event detail] Checkout creation failed', {
-        message: e instanceof Error ? e.message : 'unknown',
-      });
-      setError(
-        e instanceof Error
-          ? e.message
-          : 'Registration is reserved, but payment could not be started. Please try again.',
-      );
-      setMessage('Your registration is reserved, but payment is still required.');
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function checkEventPaymentStatus(registrationId: string) {
-    setBusy(true);
-    setError('');
-    setMessage('');
-    try {
-      const response = await fetch(
-        `/api/payments/status?registration_id=${encodeURIComponent(registrationId)}`,
-        { cache: 'no-store' },
-      );
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Could not check payment status.');
-      if (!result.payment) {
-        await startEventCheckout(registrationId);
-        return;
-      }
-      const status = String(result.payment.status || 'pending');
-      if (status === 'succeeded' && result.fulfilled) {
-        setLivePaymentStatus('paid');
-        setMessage('Payment confirmed. Your registration is complete.');
-        await refreshRoster();
-        router.refresh();
-        return;
-      }
-      const registrationPaymentStatus =
-        status === 'succeeded' ? 'pending' : status === 'processing' ? 'pending' : status;
-      setLivePaymentStatus(registrationPaymentStatus);
-      if (status === 'failed' || status === 'canceled') setPendingCardPayment(false);
-      if (result.checkoutUrl && status === 'pending') {
-        window.location.assign(result.checkoutUrl);
-        return;
-      }
-      if (status === 'succeeded') {
-        setMessage('Payment confirmed. Your registration is being finalized. Check again shortly.');
-      } else if (status === 'failed' || status === 'canceled') {
-        setMessage('The previous payment was not completed. You can try paying the fee again.');
-      } else {
-        setMessage(
-          'Payment is still pending. If you just completed checkout, check again shortly.',
-        );
-      }
-      await refreshRoster();
-      router.refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not check payment status.');
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function register() {
-    setBusy(true);
-    setError('');
-    setMessage('');
-    try {
-      const operation = `register:${event.id}`;
-      const idempotencyKey = (operationKeys.current[operation] ??= crypto.randomUUID());
-      const { data, error } = await db.rpc('register_for_event', {
-        p_event_id: event.id,
-        p_idempotency_key: idempotencyKey,
-      });
-      if (error) throw error;
-      delete operationKeys.current[operation];
-      const result = data?.[0];
-      let registrationPaymentStatus: string | null = null;
-      if (result?.registration_id) {
-        const { data: createdRegistration, error: createdRegistrationError } = await db
-          .from('registrations')
-          .select('payment_status')
-          .eq('id', result.registration_id)
-          .eq('user_id', currentUserId ?? '')
-          .maybeSingle();
-        if (createdRegistrationError) throw createdRegistrationError;
-        registrationPaymentStatus = createdRegistration?.payment_status ?? null;
-        setLiveRegistrationId(result.registration_id);
-        setLiveStatus(result.registration_state);
-        setLivePaymentStatus(
-          registrationPaymentStatus ?? (event.price_cents > 0 ? 'pending' : 'not_required'),
-        );
-      }
-      if (
-        event.price_cents > 0 &&
-        result?.registration_state === 'confirmed' &&
-        result?.registration_id &&
-        registrationPaymentStatus !== 'paid'
-      ) {
-        await startEventCheckout(result.registration_id);
-        return;
-      }
-      await refreshRoster();
-      const label =
-        result?.registration_state === 'waitlisted'
-          ? `Added to the waitlist at position ${result?.position_in_waitlist ?? '—'}.`
-          : registrationPaymentStatus === 'paid'
-            ? 'Registration confirmed. Your previous tournament payment has been applied.'
-            : 'Registration confirmed.';
-      setMessage(label);
-      notifyInBackground();
-      router.refresh();
-    } catch (e) {
-      console.error('[Event detail] Database registration failed', e);
-      setError(registrationErrorMessage(e, event.gender_restriction));
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function withdraw() {
-    if (!liveRegistrationId) return;
-    setBusy(true);
-    setError('');
-    setMessage('');
-    try {
-      if (
-        event.price_cents > 0 &&
-        livePaymentStatus !== 'paid' &&
-        livePaymentStatus !== 'not_required'
-      ) {
-        const cancelResponse = await fetch('/api/payments/cancel', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ registrationId: liveRegistrationId }),
-        });
-        const cancelResult = await cancelResponse.json();
-        if (!cancelResponse.ok) {
-          setError(cancelResult.error || 'Could not cancel the pending payment.');
-          return;
-        }
-      }
-      const operation = `withdraw:${liveRegistrationId}`;
-      const idempotencyKey = (operationKeys.current[operation] ??= crypto.randomUUID());
-      const { error } = await db.rpc('withdraw_from_event', {
-        p_registration_id: liveRegistrationId,
-        p_idempotency_key: idempotencyKey,
-      });
-      if (error) throw error;
-      delete operationKeys.current[operation];
-      setLiveRegistrationId(null);
-      setLiveStatus('cancelled');
-      await refreshRoster();
-      const label = 'Registration withdrawn. The waitlist has been updated.';
-      setMessage(label);
-      notifyInBackground();
-      router.refresh();
-    } catch (e) {
-      console.error('[Event detail] Database withdrawal failed', e);
-      setError('Could not update registration. Please try again.');
-    } finally {
-      setBusy(false);
-    }
-  }
+  const { startEventCheckout, checkEventPaymentStatus, register, withdraw } =
+    useEventRegistrationActions({
+      db,
+      event,
+      currentUserId,
+      liveRegistrationId,
+      livePaymentStatus,
+      operationKeys,
+      setLiveRegistrationId,
+      setLiveStatus,
+      setLivePaymentStatus,
+      setBusy,
+      setError,
+      setMessage,
+      setPendingInteracNotice,
+      setInteracNotice,
+      setPendingCardPayment,
+      refreshRoster,
+      notifyInBackground,
+      refreshPage: () => router.refresh(),
+    });
   async function saveEditedScore(scoreId: string) {
     if (!editingScore) return;
     if (Date.now() - new Date(event.starts_at).getTime() > 2 * 24 * 60 * 60 * 1000) {
@@ -959,414 +702,58 @@ export function EventDetailClient({
       />
       {canViewParticipants && (
         <>
-          <section>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h2 className="text-xl font-semibold">Players and courts</h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Court assignments are shown for each time slot.
-                </p>
-              </div>
-              <div className="flex gap-1 rounded-lg border border-border p-1">
-                <Button
-                  size="sm"
-                  variant={view === 'courts' ? 'secondary' : 'ghost'}
-                  onClick={() => setView('courts')}
-                >
-                  Court view
-                </Button>
-                <Button
-                  size="sm"
-                  variant={view === 'list' ? 'secondary' : 'ghost'}
-                  onClick={() => setView('list')}
-                >
-                  List view
-                </Button>
-              </div>
-            </div>
-            {view === 'courts' ? (
-              <div className="mt-4 space-y-6">
-                {!subsessions.length && (
-                  <p className="text-sm text-muted-foreground">No court assignments yet.</p>
-                )}
-                {subsessions.map((session) => (
-                  <section key={session}>
-                    <h3 className="mb-3 text-lg font-semibold">Time slot {session}</h3>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      {(courtNumbers.length
-                        ? courtNumbers
-                        : Array.from({ length: event.court_count || 4 }, (_, i) => i + 1)
-                      ).map((court) => {
-                        const assigned = liveCourts.filter(
-                          (c) => c.court_number === court && c.segment_order === session,
-                        );
-                        const peopleOnCourt = assigned
-                          .map((a) =>
-                            confirmed.find((p) => p.registration_id === a.registration_id),
-                          )
-                          .filter((p): p is Roster => !!p)
-                          .sort((a, b) => a.full_name.localeCompare(b.full_name));
-                        if (!peopleOnCourt.length) return null;
-                        return (
-                          <div key={court} className="rounded-xl border border-border p-4">
-                            <div className="flex items-center justify-between">
-                              <h4 className="font-semibold">Court {court}</h4>
-                              <span className="text-xs text-muted-foreground">
-                                {peopleOnCourt.length} players
-                              </span>
-                            </div>
-                            <div className="mt-3 space-y-2">
-                              {peopleOnCourt.map((p) => (
-                                <div
-                                  key={p.registration_id}
-                                  className="rounded-md bg-muted/40 px-3 py-2 text-sm"
-                                >
-                                  <span className="mr-1 text-xs text-muted-foreground">
-                                    {confirmed.findIndex(
-                                      (x) => x.registration_id === p.registration_id,
-                                    ) + 1}
-                                    .
-                                  </span>
-                                  <span className="font-medium">{p.full_name || 'Member'}</span>
-                                  {p.tennis_skill_level != null && (
-                                    <span className="ml-2 text-xs text-muted-foreground">
-                                      {p.tennis_skill_level}
-                                    </span>
-                                  )}
-                                  {isManager && (p.email || p.phone) && (
-                                    <p className="mt-1 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
-                                      {p.email && (
-                                        <a href={`mailto:${p.email}`} className="hover:underline">
-                                          {p.email}
-                                        </a>
-                                      )}
-                                      {p.phone && (
-                                        <a href={`tel:${p.phone}`} className="hover:underline">
-                                          {p.phone}
-                                        </a>
-                                      )}
-                                    </p>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </section>
-                ))}
-              </div>
-            ) : (
-              <div className="mt-4 overflow-x-auto rounded-xl border border-border">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-muted">
-                    <tr>
-                      <th className="px-4 py-3">#</th>
-                      <th className="px-4 py-3">Player</th>
-                      <th className="px-4 py-3">Status</th>
-                      <th className="px-4 py-3">Court assignments</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {confirmed.map((p, index) => (
-                      <tr key={p.registration_id} className="border-t border-border">
-                        <td className="px-4 py-3">{index + 1}</td>
-                        <td className="px-4 py-3">
-                          <span>
-                            {p.full_name || 'Member'}
-                            {p.tennis_skill_level != null && (
-                              <span className="ml-2 text-xs text-muted-foreground">
-                                {p.tennis_skill_level}
-                              </span>
-                            )}
-                          </span>
-                          {isManager && (p.email || p.phone) && (
-                            <span className="mt-1 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
-                              {p.email && (
-                                <a href={`mailto:${p.email}`} className="hover:underline">
-                                  {p.email}
-                                </a>
-                              )}
-                              {p.phone && (
-                                <a href={`tel:${p.phone}`} className="hover:underline">
-                                  {p.phone}
-                                </a>
-                              )}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 capitalize">
-                          {event.price_cents > 0 &&
-                          p.payment_status !== 'paid' &&
-                          p.payment_status !== 'not_required'
-                            ? 'Pending'
-                            : 'Confirmed'}
-                        </td>
-                        <td className="px-4 py-3">
-                          {liveCourts
-                            .filter((c) => c.registration_id === p.registration_id)
-                            .sort((a, b) => a.segment_order - b.segment_order)
-                            .map((c) => `Court ${c.court_number}`)
-                            .join(' → ') || 'Not assigned'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            <div className="mt-5 rounded-xl border border-border p-4">
-              <h3 className="font-semibold">Waitlist</h3>
-              {waitlisted.length ? (
-                <ol className="mt-2 list-inside list-decimal space-y-1 text-sm">
-                  {waitlisted.map((p) => (
-                    <li key={p.registration_id}>
-                      {p.full_name || 'Member'}{' '}
-                      <span className="text-muted-foreground">(position {p.queue_position})</span>
-                      {isManager && (p.email || p.phone) && (
-                        <span className="ml-2 inline-flex flex-wrap gap-x-2 text-xs text-muted-foreground">
-                          {p.email && (
-                            <a href={`mailto:${p.email}`} className="hover:underline">
-                              {p.email}
-                            </a>
-                          )}
-                          {p.phone && (
-                            <a href={`tel:${p.phone}`} className="hover:underline">
-                              {p.phone}
-                            </a>
-                          )}
-                        </span>
-                      )}
-                    </li>
-                  ))}
-                </ol>
-              ) : (
-                <p className="mt-2 text-sm text-muted-foreground">No one is on the waitlist.</p>
-              )}
-            </div>
-          </section>
-          <section>
-            <h2 className="text-xl font-semibold">Scores</h2>
-            {scores.length ? (
-              <div className="mt-3 space-y-2">
-                {scores.map((s) => (
-                  <div
-                    key={s.id}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-3 text-sm"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <span>
-                        {s.player_three_name
-                          ? `${playerLabel(s.player_one_registration_id, s.player_one_name)} / ${playerLabel(s.player_two_registration_id, s.player_two_name)}`
-                          : playerLabel(s.player_one_registration_id, s.player_one_name)}{' '}
-                        <strong>
-                          {s.player_one_score} – {s.player_two_score}
-                        </strong>{' '}
-                        {s.player_three_name
-                          ? `${playerLabel(s.player_three_registration_id!, s.player_three_name)}${s.player_four_name ? ` / ${playerLabel(s.player_four_registration_id!, s.player_four_name)}` : ''}`
-                          : playerLabel(s.player_two_registration_id, s.player_two_name)}
-                      </span>
-                      {editingScore === s.id && (
-                        <div className="mt-3 flex flex-wrap items-end gap-2">
-                          <label className="text-xs">
-                            Your team score
-                            <input
-                              type="number"
-                              min="0"
-                              value={editScoreOne}
-                              onChange={(e) => setEditScoreOne(e.target.value)}
-                              className="mt-1 block h-9 w-24 rounded-md border border-input bg-background px-2 text-sm"
-                            />
-                          </label>
-                          <label className="text-xs">
-                            Opponents score
-                            <input
-                              type="number"
-                              min="0"
-                              value={editScoreTwo}
-                              onChange={(e) => setEditScoreTwo(e.target.value)}
-                              className="mt-1 block h-9 w-24 rounded-md border border-input bg-background px-2 text-sm"
-                            />
-                          </label>
-                          <Button
-                            size="sm"
-                            disabled={busy || editScoreOne === '' || editScoreTwo === ''}
-                            onClick={() => void saveEditedScore(s.id)}
-                          >
-                            Save
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={busy}
-                            onClick={() => setEditingScore(null)}
-                          >
-                            Cancel
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground">
-                        {new Date(s.played_at).toLocaleDateString('en-CA')}
-                      </span>
-                      {!scoreEditLocked &&
-                        (isAdmin || Boolean(currentUserId && s.entered_by === currentUserId)) && (
-                          <>
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="ghost"
-                              aria-label="Edit score"
-                              title="Edit score"
-                              disabled={busy}
-                              onClick={() => {
-                                setEditingScore(s.id);
-                                setEditScoreOne(String(s.player_one_score));
-                                setEditScoreTwo(String(s.player_two_score));
-                                setError('');
-                              }}
-                            >
-                              <Pencil className="h-4 w-4" aria-hidden="true" />
-                            </Button>
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="ghost"
-                              aria-label="Delete score"
-                              title="Delete score"
-                              disabled={busy}
-                              onClick={() => setDeletingScore(s)}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" aria-hidden="true" />
-                            </Button>
-                          </>
-                        )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="mt-2 text-sm text-muted-foreground">No scores have been entered.</p>
-            )}
-            {currentUserId &&
-              (isManager || (registered && liveStatus === 'confirmed')) &&
-              event.status === 'published' &&
-              !eventHasStarted && (
-                <p className="mt-5 rounded-xl border border-border p-4 text-sm text-muted-foreground">
-                  Score entry will be available when the event starts at{' '}
-                  {formatDateTime(event.starts_at)}.
-                </p>
-              )}
-            {currentUserId &&
-              (isManager || (registered && liveStatus === 'confirmed')) &&
-              event.status === 'published' &&
-              eventHasStarted &&
-              !scoreEditLocked && (
-                <form onSubmit={addScore} className="mt-5 rounded-xl border border-border p-4">
-                  <h3 className="font-semibold">Add a score</h3>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {event.event_type === 'social_doubles_ladder'
-                      ? 'Choose any partner for each score. The other players on the court are your opponents.'
-                      : isManager
-                        ? 'Choose any court and time slot. For a four-player court, select two players on one team; the remaining players are their opponents.'
-                        : 'Choose a court and time slot you are assigned to. On a four-player court, select your partner; the other two players become your opponents automatically.'}
-                  </p>
-                  <div
-                    className={`mt-3 grid gap-3 sm:grid-cols-2 ${isManager ? 'lg:grid-cols-5' : 'lg:grid-cols-4'}`}
-                  >
-                    <label className="space-y-1 text-sm">
-                      Court / sub-session
-                      <select
-                        required
-                        value={scoreCourt}
-                        onChange={(e) => {
-                          setScoreCourt(e.target.value);
-                          setScorePlayerOne('');
-                          setPartner('');
-                        }}
-                        className="block h-10 w-full rounded-md border border-input bg-background px-3"
-                      >
-                        <option value="">Select assignment</option>
-                        {scoreCourts.map((c) => (
-                          <option
-                            key={`${c.court_number}-${c.segment_order}`}
-                            value={`${c.court_number}:${c.segment_order}`}
-                          >
-                            Court {c.court_number} · Sub-session {c.segment_order}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    {isManager && scoreCourt && (
-                      <RosterSelect
-                        label="Team player"
-                        placeholder="Select player"
-                        value={scorePlayerOne}
-                        options={courtPlayers}
-                        onChange={(value) => {
-                          setScorePlayerOne(value);
-                          setPartner('');
-                        }}
-                      />
-                    )}
-                    {doublesCourt && (
-                      <RosterSelect
-                        label="Partner"
-                        placeholder="Select partner"
-                        value={partner}
-                        options={partnerOptions}
-                        onChange={setPartner}
-                      />
-                    )}
-                    <label className="space-y-1 text-sm">
-                      {isManager ? 'Team score' : 'Your team score'}
-                      <input
-                        required
-                        type="number"
-                        min="0"
-                        value={scoreOne}
-                        onChange={(e) => setScoreOne(e.target.value)}
-                        className="block h-10 w-full rounded-md border border-input bg-background px-3"
-                      />
-                    </label>
-                    <label className="space-y-1 text-sm">
-                      {isManager ? 'Opposing team score' : 'Opponents’ score'}
-                      <input
-                        required
-                        type="number"
-                        min="0"
-                        value={scoreTwo}
-                        onChange={(e) => setScoreTwo(e.target.value)}
-                        className="block h-10 w-full rounded-md border border-input bg-background px-3"
-                      />
-                    </label>
-                  </div>
-                  {scoreCourt && (
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      Opponents:{' '}
-                      {doublesCourt && !partner
-                        ? 'Select a partner to determine opponents.'
-                        : opponents.map((p) => p.full_name).join(' / ') || 'No opponents assigned.'}
-                    </p>
-                  )}
-                  <Button
-                    className="mt-3"
-                    disabled={
-                      busy || !scoreCourts.length || !scoreCourt || (isManager && !scorePlayerOne)
-                    }
-                  >
-                    {busy ? <TennisLoader compact label="Saving" /> : 'Save score'}
-                  </Button>
-                  {!scoreCourts.length && (
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      You need a court assignment before entering a score.
-                    </p>
-                  )}
-                </form>
-              )}
-          </section>
+          <EventParticipantsPanel
+            eventCourtCount={event.court_count}
+            eventPriceCents={event.price_cents}
+            view={view}
+            setView={setView}
+            subsessions={subsessions}
+            courtNumbers={courtNumbers}
+            liveCourts={liveCourts}
+            confirmed={confirmed}
+            isManager={isManager}
+            waitlisted={waitlisted}
+          />
+          <EventScoresPanel
+            scores={scores}
+            playerLabel={playerLabel}
+            editingScore={editingScore}
+            setEditingScore={setEditingScore}
+            editScoreOne={editScoreOne}
+            setEditScoreOne={setEditScoreOne}
+            editScoreTwo={editScoreTwo}
+            setEditScoreTwo={setEditScoreTwo}
+            saveEditedScore={saveEditedScore}
+            busy={busy}
+            scoreEditLocked={scoreEditLocked}
+            isAdmin={isAdmin}
+            currentUserId={currentUserId}
+            setDeletingScore={setDeletingScore}
+            clearError={() => setError('')}
+            currentUserCanAddScore={
+              !!currentUserId && (isManager || (registered && liveStatus === 'confirmed'))
+            }
+            event={event}
+            eventHasStarted={eventHasStarted}
+            formatDateTime={formatDateTime}
+            addScore={addScore}
+            isManager={isManager}
+            scoreCourt={scoreCourt}
+            setScoreCourt={setScoreCourt}
+            setScorePlayerOne={setScorePlayerOne}
+            setPartner={setPartner}
+            scoreCourts={scoreCourts}
+            courtPlayers={courtPlayers}
+            scorePlayerOne={scorePlayerOne}
+            partner={partner}
+            partnerOptions={partnerOptions}
+            doublesCourt={doublesCourt}
+            scoreOne={scoreOne}
+            setScoreOne={setScoreOne}
+            scoreTwo={scoreTwo}
+            setScoreTwo={setScoreTwo}
+            opponents={opponents}
+          />
         </>
       )}
       <ConfirmDialog

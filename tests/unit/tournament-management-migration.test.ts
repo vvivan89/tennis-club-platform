@@ -10,13 +10,47 @@ const consolidated = readFileSync(
   join(process.cwd(), 'supabase/consolidated_migrations.sql'),
   'utf8',
 );
-const form = readFileSync(join(process.cwd(), 'components/event-management-form.tsx'), 'utf8');
+const form = ['components/event-management-form.tsx', 'components/event-form-defaults.ts']
+  .map((path) => readFileSync(join(process.cwd(), path), 'utf8'))
+  .join('\n');
+const competitionFields = readFileSync(
+  join(process.cwd(), 'components/event-competition-fields.tsx'),
+  'utf8',
+);
 const management = readFileSync(
   join(process.cwd(), 'components/tournament-management.tsx'),
   'utf8',
 );
 const publicView = readFileSync(
   join(process.cwd(), 'components/tournament-public-view.tsx'),
+  'utf8',
+);
+const publicOverview = readFileSync(
+  join(process.cwd(), 'components/tournament-overview-panel.tsx'),
+  'utf8',
+);
+const participantManagement = readFileSync(
+  join(process.cwd(), 'components/tournament-participant-management-panel.tsx'),
+  'utf8',
+);
+const matchManagement = readFileSync(
+  join(process.cwd(), 'components/tournament-match-management-panel.tsx'),
+  'utf8',
+);
+const matchActions = readFileSync(
+  join(process.cwd(), 'components/use-tournament-match-actions.ts'),
+  'utf8',
+);
+const publicGroupStandings = readFileSync(
+  join(process.cwd(), 'components/tournament-public-group-standings-panel.tsx'),
+  'utf8',
+);
+const publicCompetitionResults = readFileSync(
+  join(process.cwd(), 'components/tournament-competition-results.tsx'),
+  'utf8',
+);
+const drawActions = readFileSync(
+  join(process.cwd(), 'components/use-tournament-draw-actions.ts'),
   'utf8',
 );
 const rankings = readFileSync(join(process.cwd(), 'lib/rankings-data.ts'), 'utf8');
@@ -65,60 +99,56 @@ describe('tournament management foundation', () => {
   it('supports tournament formats, scoring configuration, rules, group draws and public competition tabs', () => {
     expect(form).toContain('Doubles tournament');
     expect(form).toContain('Team tournament');
-    expect(form).toContain('RichTextEditor');
+    expect(competitionFields).toContain('RichTextEditor');
     expect(form).toContain('team_two_sets_bonus_third');
     expect(form).toContain('two_sets_then_third');
-    expect(management).toContain('Random group draw');
-    expect(management).toContain('Random draw');
-    expect(management).toContain('Suggest schedule');
-    expect(publicView).toContain('Group standings');
-    expect(publicView).toContain('Your next match');
+    expect(participantManagement).toContain('Random group draw');
+    expect(matchManagement).toContain('Create draw');
+    expect(matchManagement).toContain('Suggest schedule');
+    expect(publicGroupStandings).toContain('Group standings');
+    expect(publicOverview).toContain('Your next match');
     expect(rankings).toContain("from('tournament_ranked_sets')");
   });
 
   it('keeps category schedules isolated while checking shared player identities for schedule conflicts', () => {
-    expect(management).toContain('user:${participant.user_id}');
-    expect(management).toContain('email:${participant.email.trim().toLowerCase()}');
-    expect(management).toContain('playerConflict');
-    expect(management).toContain('Winner of ${knockoutStageLabel');
+    expect(matchActions).toContain('user:${participant.user_id}');
+    expect(matchActions).toContain('email:${participant.email.trim().toLowerCase()}');
+    expect(matchActions).toContain('playerConflict');
+    expect(matchManagement).toContain('Winner of ${knockoutStageLabel');
     expect(management).not.toContain('window.confirm(');
-    expect(publicView).toContain('Knockout bracket');
-    expect(publicView).toContain('Promoted');
+    expect(publicCompetitionResults).toContain('Knockout bracket');
+    expect(publicGroupStandings).toContain('Promoted');
   });
 
   it('schedules tournament phases after prerequisites and keeps bracket headings aligned independently of match tiles', () => {
-    const scheduleStart = management.indexOf('async function generateSchedule()');
-    const scheduleEnd = management.indexOf(
-      'async function syncUnplayedRoundRobinMatches()',
+    const scheduleStart = matchActions.indexOf('async function generateSchedule()');
+    const roundRobinPrerequisites = matchActions.indexOf(
+      "? ['preliminary_knockout']",
       scheduleStart,
     );
-    const roundRobinPrerequisites = management.indexOf("? ['preliminary_knockout']", scheduleStart);
     expect(scheduleStart).toBeGreaterThanOrEqual(0);
-    expect(scheduleEnd).toBeGreaterThan(scheduleStart);
     expect(roundRobinPrerequisites).toBeGreaterThan(scheduleStart);
-    expect(management.slice(scheduleStart, scheduleEnd)).toContain(
-      'phaseStartAfterPrerequisites({',
-    );
+    expect(matchActions.slice(scheduleStart)).toContain('phaseStartAfterPrerequisites({');
 
-    const drawStart = management.indexOf('async function randomizeKnockoutDraw()');
-    const prerequisiteSchedule = management.indexOf('phaseStartAfterPrerequisites({', drawStart);
-    const knockoutSchedule = management.indexOf(
+    const drawStart = drawActions.indexOf('async function randomizeKnockoutDraw()');
+    const prerequisiteSchedule = drawActions.indexOf('phaseStartAfterPrerequisites({', drawStart);
+    const knockoutSchedule = drawActions.indexOf(
       'const knockoutAssignments = buildKnockoutSchedule({',
       drawStart,
     );
     expect(drawStart).toBeGreaterThanOrEqual(0);
     expect(prerequisiteSchedule).toBeGreaterThan(drawStart);
     expect(knockoutSchedule).toBeGreaterThan(prerequisiteSchedule);
-    expect(management.slice(drawStart, knockoutSchedule)).toContain(
+    expect(drawActions.slice(drawStart, knockoutSchedule)).toContain(
       "'preliminary_knockout', 'round_robin'",
     );
-    expect(management.slice(knockoutSchedule, knockoutSchedule + 500)).toContain(
+    expect(drawActions.slice(knockoutSchedule, knockoutSchedule + 500)).toContain(
       'baseStart: phaseStart',
     );
-    expect(publicView).toContain(
+    expect(publicCompetitionResults).toContain(
       'absolute left-0 top-0 h-5 text-xs font-semibold uppercase leading-5 tracking-wide',
     );
-    expect(publicView).toContain(
+    expect(publicCompetitionResults).toContain(
       'style={{ width: `${bracketWidth}px`, height: `${bracketHeight}px` }}',
     );
   });
