@@ -3,6 +3,7 @@
 import { Input } from '@/components/ui/input';
 import { PaymentOptionsButton, type PaymentOption } from '@/components/payment-options-button';
 import { PartnerSkillLevelSelect } from '@/components/partner-skill-level-select';
+import { GenderSelect } from '@/components/gender-select';
 import type { InteracPaymentNotice } from '@/components/interac-payment-instructions-dialog';
 import type {
   PairPaymentStatus,
@@ -454,18 +455,7 @@ export function TournamentOwnRegistrationList({
                         ))}
                       </select>
                     </label>
-                    <label className="text-sm">
-                      Gender
-                      <select
-                        className="mt-1 block h-10 w-full rounded-md border border-input bg-background px-3"
-                        value={ownEditGender}
-                        onChange={(event) => setOwnEditGender(event.target.value)}
-                      >
-                        <option value="">Not specified</option>
-                        <option value="male">Male</option>
-                        <option value="female">Female</option>
-                      </select>
-                    </label>
+                    <GenderSelect value={ownEditGender} onChange={setOwnEditGender} />
                     <p className="self-end text-xs text-muted-foreground">
                       Your gender affects eligibility for gender-specific categories.
                     </p>
@@ -523,18 +513,7 @@ export function TournamentOwnRegistrationList({
                       value={partnerEditSkill}
                       onChange={setPartnerEditSkill}
                     />
-                    <label className="text-sm">
-                      Gender
-                      <select
-                        className="mt-1 block h-10 w-full rounded-md border border-input bg-background px-3"
-                        value={partnerEditGender}
-                        onChange={(event) => setPartnerEditGender(event.target.value)}
-                      >
-                        <option value="">Not specified</option>
-                        <option value="male">Male</option>
-                        <option value="female">Female</option>
-                      </select>
-                    </label>
+                    <GenderSelect value={partnerEditGender} onChange={setPartnerEditGender} />
                     <div className="flex gap-2 sm:col-span-2">
                       <button
                         type="submit"

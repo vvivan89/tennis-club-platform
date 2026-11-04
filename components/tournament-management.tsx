@@ -5,11 +5,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import { formatDateTime, formatTime } from '@/lib/time-format';
 import type { TournamentConfig } from '@/lib/tournament-config';
-import { Button } from '@/components/ui/button';
-import { TennisLoader } from '@/components/tennis-loader';
-import { SearchableMemberSelect, type MemberOption } from '@/components/searchable-member-select';
 import { FloatingFeedback } from '@/components/floating-feedback';
-import { TournamentAuditLog, type TournamentAuditRow } from '@/components/tournament-audit-log';
+import { type TournamentAuditRow } from '@/components/tournament-audit-log';
+import { TournamentAuditSection } from '@/components/tournament-audit-section';
+import { TournamentReplacePairDialog } from '@/components/tournament-replace-pair-dialog';
 import { TournamentManagementConfirmations } from '@/components/tournament-management-confirmations';
 import { TournamentParticipantManagementPanel } from '@/components/tournament-participant-management-panel';
 import { TournamentMatchManagementPanel } from '@/components/tournament-match-management-panel';
@@ -421,7 +420,7 @@ export function TournamentManagement({
     createPair,
     replacePairPlayer,
   } = participantActions;
-  const { matchSideValue, matchSideOptions, newMatchSideOptions } = useTournamentMatchSideOptions({
+  const matchSideOptionsState = useTournamentMatchSideOptions({
     isTeam,
     activeCategory,
     config,
@@ -433,6 +432,7 @@ export function TournamentManagement({
     matchCategory,
     matchPhase,
   });
+  const { matchSideValue } = matchSideOptionsState;
   const saveCaptainPairing = async (
     match: Match,
     teamId: string,
@@ -522,15 +522,7 @@ export function TournamentManagement({
       breakMinutes: Math.max(10, Number(config?.schedule?.break_minutes ?? 15)),
     },
   });
-  const {
-    saveTeamPairing,
-    createMatch,
-    insertMatchPlayers,
-    saveMatch,
-    confirmResolveScheduleConflicts,
-    changeMatchSide,
-    generateSchedule,
-  } = matchActions;
+  const { insertMatchPlayers, saveMatch, confirmResolveScheduleConflicts } = matchActions;
   const { phases, enabledPhases, scheduleTimings, groupOptions } =
     getTournamentManagementUiSettings(config);
   const drawActions = useTournamentDrawActions({
@@ -561,15 +553,7 @@ export function TournamentManagement({
     setPendingDeleteMatch,
     setPendingWalkoverScore,
   });
-  const {
-    saveEntryGroup,
-    randomizeGroups,
-    randomizeKnockoutDraw,
-    recordWalkover,
-    deleteMatch,
-    confirmDeleteMatch,
-    saveScore,
-  } = drawActions;
+  const { saveEntryGroup, randomizeGroups, confirmDeleteMatch, saveScore } = drawActions;
   const {
     unevenTeams,
     availableMatchPhases,
@@ -594,13 +578,7 @@ export function TournamentManagement({
     if (availableKeys.length && !availableKeys.includes(matchPhase))
       setMatchPhase(availableKeys[0]);
   }, [availablePhaseKey, matchPhase]);
-  const {
-    isRoundRobinPhase,
-    adminRoundByMatch,
-    adminMatchList,
-    courtScheduleConflicts,
-    matchCourtTileNames,
-  } = useTournamentAdminMatchView({
+  const adminMatchView = useTournamentAdminMatchView({
     matches,
     isTeam,
     activeCategory,
@@ -612,8 +590,9 @@ export function TournamentManagement({
     teams,
     pairs,
   });
+  const { adminMatchList } = adminMatchView;
 
-  const { moveMatchToCourt, confirmCourtMove } = useTournamentCourtActions({
+  const courtActions = useTournamentCourtActions({
     db,
     config,
     matches,
@@ -621,6 +600,7 @@ export function TournamentManagement({
     setPendingCourtMove,
     runAction,
   });
+  const { confirmCourtMove } = courtActions;
 
   const visibleAuditRows = getVisibleTournamentAuditRows(
     auditRows,
@@ -692,6 +672,11 @@ export function TournamentManagement({
       )}
       {externalTab !== 'competition' && adminTab === 'matches' && (
         <TournamentMatchManagementPanel
+          {...matchSideOptionsState}
+          {...matchActions}
+          {...drawActions}
+          {...adminMatchView}
+          {...courtActions}
           isTeam={isTeam}
           captainMode={captainMode}
           captainTeamId={captainTeamId}
@@ -709,68 +694,42 @@ export function TournamentManagement({
                   .sort((a, b) => (a.scheduled_at ?? '').localeCompare(b.scheduled_at ?? ''))
               : adminMatchList
           }
-          adminRoundByMatch={adminRoundByMatch}
           availableMatchPhases={availableMatchPhases}
           bracketNeedsRedraw={bracketNeedsRedraw}
           knockoutBracketHasResults={knockoutBracketHasResults}
-          isRoundRobinPhase={isRoundRobinPhase}
           matchCategory={matchCategory}
           matchPhase={matchPhase}
           matchGrouping={matchGrouping}
+          setMatchGrouping={setMatchGrouping}
           matchOne={matchOne}
           matchTwo={matchTwo}
+          setMatchOne={setMatchOne}
+          setMatchTwo={setMatchTwo}
+          setMatchPhase={setMatchPhase}
           matchTime={matchTime}
+          setMatchTime={setMatchTime}
           matchCourt={matchCourt}
+          setMatchCourt={setMatchCourt}
           teamPairSelection={teamPairSelection}
+          setTeamPairSelection={setTeamPairSelection}
           matchPlayers={matchPlayers}
           matches={matches}
           pairs={pairs}
           teams={teams}
-          courtScheduleConflicts={courtScheduleConflicts}
           formatDateTime={formatDateTime}
           formatTime={formatTime}
           localDateTime={localDateTime}
-          matchCourtTileNames={matchCourtTileNames}
-          matchSideOptions={matchSideOptions}
-          matchSideValue={matchSideValue}
-          newMatchSideOptions={newMatchSideOptions}
-          createMatch={createMatch}
-          changeMatchSide={changeMatchSide}
-          deleteMatch={deleteMatch}
-          moveMatchToCourt={moveMatchToCourt}
-          generateSchedule={generateSchedule}
-          randomizeKnockoutDraw={randomizeKnockoutDraw}
-          recordWalkover={recordWalkover}
-          saveScore={saveScore}
-          saveMatch={saveMatch}
-          saveTeamPairing={saveTeamPairing}
           saveCaptainPairing={saveCaptainPairing}
-          setMatchCourt={setMatchCourt}
-          setMatchGrouping={setMatchGrouping}
-          setMatchOne={setMatchOne}
-          setMatchPhase={setMatchPhase}
-          setMatchTime={setMatchTime}
-          setMatchTwo={setMatchTwo}
-          setTeamPairSelection={setTeamPairSelection}
         />
       )}
       {externalTab !== 'competition' && adminTab === 'audit' && (
-        <TournamentAuditLog
+        <TournamentAuditSection
           rows={visibleAuditRows}
-          participants={participants.map((item) => ({ id: item.id, name: item.display_name }))}
-          teams={teams.map((item) => ({ id: item.id, name: item.name }))}
-          pairs={pairs.map((item) => ({
-            id: item.id,
-            player_one_name: item.player_one_name ?? '',
-            player_two_name: item.player_two_name ?? '',
-          }))}
-          matches={matches.map((item) => ({
-            id: item.id,
-            category: item.category,
-            phase: item.phase,
-            match_number: item.match_number,
-          }))}
-          members={members.map((item) => ({ id: item.id, name: item.full_name }))}
+          participants={participants}
+          teams={teams}
+          pairs={pairs}
+          matches={matches}
+          members={members}
         />
       )}
       <TournamentManagementConfirmations
@@ -799,87 +758,28 @@ export function TournamentManagement({
         onCancelDelete={() => setPendingDeleteMatch(null)}
         onConfirmDelete={() => void confirmDeleteMatch()}
       />
-      {replaceTarget && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="replace-pair-title"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-        >
-          <div className="w-full max-w-md space-y-4 rounded-xl border border-border bg-background p-5">
-            <h3 id="replace-pair-title" className="text-lg font-semibold">
-              Replace{' '}
-              {replaceTarget.side === 1
-                ? replaceTarget.pair.player_one_name
-                : replaceTarget.pair.player_two_name}
-            </h3>
-            <p className="text-sm text-muted-foreground">
-              Completed matches retain the players who actually played. Future matches use the
-              replacement.
-            </p>
-            <label className="block text-sm">
-              Replacement player
-              <SearchableMemberSelect
-                value={replacementParticipantId}
-                onChange={setReplacementParticipantId}
-                placeholder="Choose replacement"
-                options={[...activeParticipants]
-                  .sort(
-                    (a, b) =>
-                      Number(!!replacementRestriction(a, replaceTarget)) -
-                        Number(!!replacementRestriction(b, replaceTarget)) ||
-                      Number(hasOpposingGenderProfile(a.gender, replaceTarget.pair.category)) -
-                        Number(hasOpposingGenderProfile(b.gender, replaceTarget.pair.category)) ||
-                      a.display_name.localeCompare(b.display_name),
-                  )
-                  .map((participant): MemberOption => {
-                    const reason = replacementRestriction(participant, replaceTarget);
-                    const genderLabel = profileGenderLabel(
-                      participant.gender,
-                      replaceTarget.pair.category,
-                    );
-                    const statusText =
-                      [genderLabel, reason].filter(Boolean).join(' · ') || undefined;
-                    return {
-                      id: participant.id,
-                      full_name: participant.display_name,
-                      statusText,
-                      sortPriority: genderLabel ? 1 : 0,
-                      available: !reason,
-                      unavailableReason: reason || undefined,
-                    };
-                  })}
-              />
-            </label>
-            <div className="flex justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setReplaceTarget(null);
-                  setReplacementParticipantId('');
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                disabled={busy}
-                onClick={() => {
-                  void replacePairPlayer(replaceTarget.pair, replaceTarget.side).then((saved) => {
-                    if (saved) {
-                      setReplaceTarget(null);
-                      setReplacementParticipantId('');
-                    }
-                  });
-                }}
-              >
-                {busy ? <TennisLoader label="Replacing player" compact /> : 'Replace player'}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <TournamentReplacePairDialog
+        target={replaceTarget}
+        participants={activeParticipants}
+        selectedParticipantId={replacementParticipantId}
+        setSelectedParticipantId={setReplacementParticipantId}
+        busy={busy}
+        profileGenderLabel={profileGenderLabel}
+        hasOpposingGenderProfile={hasOpposingGenderProfile}
+        replacementRestriction={replacementRestriction}
+        onCancel={() => {
+          setReplaceTarget(null);
+          setReplacementParticipantId('');
+        }}
+        onReplace={async (target) => {
+          const saved = await replacePairPlayer(target.pair, target.side);
+          if (saved) {
+            setReplaceTarget(null);
+            setReplacementParticipantId('');
+          }
+          return saved;
+        }}
+      />
     </section>
   );
 }

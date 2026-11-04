@@ -200,5 +200,17 @@ export function useTournamentGroupOverrideActions({
     openGroupOverrideEditor,
     moveOverrideRow,
     saveGroupOverridesFromEditor,
+    dialogProps: {
+      editor: overrideEditor,
+      setEditor: setOverrideEditor,
+      reason: overrideReason,
+      setReason: setOverrideReason,
+      saving: overrideSaving,
+      error: overrideError,
+      draggedEntryId,
+      setDraggedEntryId,
+      moveRow: moveOverrideRow,
+      onSave: () => void saveGroupOverridesFromEditor(),
+    },
   };
 }

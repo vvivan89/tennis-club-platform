@@ -11,7 +11,7 @@ import { TournamentCompetitionResults } from '@/components/tournament-competitio
 import { getTournamentRankingColumns } from '@/components/tournament-ranking-columns';
 import { createTournamentBracketLabels } from '@/components/tournament-bracket-labels';
 import { hasSingleTournamentGroup } from '@/lib/tournament-groups';
-import { getTournamentRegistrationOptions } from '@/components/tournament-registration-options';
+import { getTournamentPublicRegistrationState } from '@/components/tournament-public-registration-state';
 import { useTournamentPublicViewData } from '@/components/use-tournament-public-view-data';
 import { useTournamentCaptainActions } from '@/components/use-tournament-captain-actions';
 import { useLeagueEventScoreActions } from '@/components/use-league-event-score-actions';
@@ -31,11 +31,11 @@ import { tournamentPaymentActionKey } from '@/components/tournament-public-view-
 import { TournamentOverviewPanel } from '@/components/tournament-overview-panel';
 import { TournamentEventSummary } from '@/components/tournament-event-summary';
 import { buildTournamentGroupStandings } from '@/components/tournament-public-group-standings';
-import { buildTournamentWinnerSummaries } from '@/components/tournament-winner-summaries';
 import { useTournamentGroupOverrideActions } from '@/components/use-tournament-group-override-actions';
 import { useTournamentPublicViewUiState } from '@/components/use-tournament-public-view-ui-state';
-import { useTimedFeedback } from '@/hooks/use-timed-feedback';
-import { haveAllScheduledTournamentMatchesBeenPlayed } from '@/lib/tournament-winner-announcement';
+import { useTournamentWinnerAnnouncement } from '@/components/use-tournament-winner-announcement';
+import { getTournamentWithdrawalPaymentState } from '@/components/tournament-withdrawal-payment-state';
+import { getTournamentLeagueOverviewData } from '@/components/tournament-league-overview-data';
 const EMPTY_WINNER_SUMMARIES: Array<{ category: string; winners: string[] }> = [];
 export function TournamentPublicView({
   adminContent = null,
@@ -83,14 +83,7 @@ export function TournamentPublicView({
   useEffect(() => {
     if (eventTitle) document.title = `PCTC | ${eventTitle}`;
   }, [eventTitle]);
-  useEffect(() => {
-    setWinnersAnnounced(initialWinnersAnnounced);
-    setAnnouncedWinners(initialAnnouncedWinners);
-  }, [initialWinnersAnnounced, initialAnnouncedWinners]);
   const hasRules = Boolean(rulesHtml?.trim()) && !leagueTournament;
-  const [winnersAnnounced, setWinnersAnnounced] = useState(initialWinnersAnnounced);
-  const [announcedWinners, setAnnouncedWinners] = useState(initialAnnouncedWinners);
-  const announcementFeedback = useTimedFeedback();
   const isEventGuest = !!currentUserId && currentUserAccountKind === 'event_guest';
   const canManageLeagueScores = leagueTournament && Boolean(adminContent);
   const [captainRequestBusy, setCaptainRequestBusy] = useState(false);
@@ -405,44 +398,38 @@ export function TournamentPublicView({
       pairs,
       singleGroup: hasSingleTournamentGroup(config),
     });
-  const canViewCompetition =
-    detailsPublic ||
-    currentUserIsApprovedMember ||
-    (!!currentUserId && ownParticipantIds.length > 0);
-  const isTeamCaptain =
-    format === 'team' &&
-    !leagueTournament &&
-    !!currentUserId &&
-    teams.some((team) => team.captain_user_id === currentUserId);
-  const captainOnlyView = isTeamCaptain && !isManager;
-  const leagueRegistrationCategory = leagueGender === 'male' ? 'men' : 'women';
-  const registrationGender = isEventGuest
-    ? ui.entrantGender || null
-    : currentUserId
-      ? profileGender
-      : ui.entrantGender || null;
-  const { hasGenderEligibleCategory: _hasGenderEligibleCategory, availableCategories } =
-    getTournamentRegistrationOptions({
-      config,
-      format,
-      leagueTournament,
-      leagueRegistrationCategory,
-      ownCategories,
-      registrationGender,
-      currentUserId,
-    });
-  const hasGenderEligibleCategory = _hasGenderEligibleCategory;
-  const registrationOpen =
-    eventStatus === 'published' &&
-    Date.now() >= new Date(registrationOpensAt).getTime() &&
-    Date.now() < new Date(registrationClosesAt || startsAt).getTime();
-  const registrationModeConfig = config?.registration_mode ?? 'both';
-  const effectiveRegistrationMode =
-    registrationModeConfig === 'single'
-      ? 'individual'
-      : registrationModeConfig === 'doubles'
-        ? 'pair'
-        : ui.registrationMode;
+  const {
+    canViewCompetition,
+    isTeamCaptain,
+    captainOnlyView,
+    leagueRegistrationCategory,
+    registrationGender,
+    hasGenderEligibleCategory,
+    availableCategories,
+    registrationOpen,
+    registrationModeConfig,
+    effectiveRegistrationMode,
+  } = getTournamentPublicRegistrationState({
+    detailsPublic,
+    currentUserIsApprovedMember,
+    currentUserId,
+    ownParticipantCount: ownParticipantIds.length,
+    format,
+    leagueTournament,
+    teams,
+    isManager,
+    leagueGender,
+    isEventGuest,
+    entrantGender: ui.entrantGender,
+    profileGender,
+    config,
+    ownCategories,
+    eventStatus,
+    registrationOpensAt,
+    registrationClosesAt,
+    startsAt,
+    registrationMode: ui.registrationMode,
+  });
   const { submitRegistration } = useTournamentRegistrationSubmit({
     db,
     eventId,
@@ -506,19 +493,7 @@ export function TournamentPublicView({
       }),
     [visibleMatches, teams, pairs, config, format, groupOverrides],
   );
-  const {
-    overrideEditor,
-    setOverrideEditor,
-    overrideReason,
-    setOverrideReason,
-    overrideSaving,
-    overrideError,
-    draggedEntryId,
-    setDraggedEntryId,
-    openGroupOverrideEditor,
-    moveOverrideRow,
-    saveGroupOverridesFromEditor,
-  } = useTournamentGroupOverrideActions({
+  const groupOverrideActions = useTournamentGroupOverrideActions({
     db,
     eventId,
     format,
@@ -528,71 +503,36 @@ export function TournamentPublicView({
     setGroupOverrides,
     groupStandings,
   });
+  const { openGroupOverrideEditor } = groupOverrideActions;
 
-  const winnerSummaries = useMemo(
-    () => buildTournamentWinnerSummaries({ matches, teams, pairs, config, format, groupStandings }),
-    [matches, teams, pairs, config, format, groupStandings],
-  );
-  const allScheduledMatchesPlayed = haveAllScheduledTournamentMatchesBeenPlayed(matches);
-  const visibleWinnerSummaries = winnersAnnounced
-    ? announcedWinners.length
-      ? announcedWinners
-      : winnerSummaries
-    : [];
-  async function toggleWinnerAnnouncement() {
-    if (!isManager || announcementFeedback.busy) return;
-    const nextAnnounced = !winnersAnnounced;
-    announcementFeedback.setBusy(true);
-    announcementFeedback.setError('');
-    announcementFeedback.setMessage('');
-    try {
-      const { error } = await db
-        .from('events')
-        .update({
-          tournament_winners_announced: nextAnnounced,
-          tournament_winners: nextAnnounced ? winnerSummaries : [],
-        })
-        .eq('id', eventId);
-      if (error) {
-        announcementFeedback.setError(
-          error.message || 'Could not update the winners announcement.',
-        );
-        return;
-      }
-      setWinnersAnnounced(nextAnnounced);
-      setAnnouncedWinners(nextAnnounced ? winnerSummaries : []);
-      announcementFeedback.setMessage(
-        nextAnnounced ? 'Tournament winners announced.' : 'Winners announcement removed.',
-      );
-    } catch (error) {
-      announcementFeedback.setError(
-        error instanceof Error ? error.message : 'Could not update the winners announcement.',
-      );
-    } finally {
-      announcementFeedback.setBusy(false);
-    }
-  }
-  const { rankingColumns, rankingColumnLabel } = getTournamentRankingColumns(config, format);
-  const activeLeaguePairs = pairs.filter(
-    (pair) => pair.category === ui.activeCategory && pair.status !== 'withdrawn',
-  );
-  const unpairedLeagueParticipants = participants.filter(
-    (participant) =>
-      participant.category === ui.activeCategory &&
-      participant.status === 'registered' &&
-      !activeLeaguePairs.some(
-        (pair) => pair.player_one_id === participant.id || pair.player_two_id === participant.id,
-      ),
-  );
-  const leagueScheduledMatches = matches.filter((match) => match.court_number);
-  const leagueTimeSlots = Array.from(
-    new Set(leagueScheduledMatches.map((match) => match.scheduled_at || 'unscheduled')),
-  ).sort((a, b) => {
-    if (a === 'unscheduled') return 1;
-    if (b === 'unscheduled') return -1;
-    return a.localeCompare(b);
+  const {
+    winnerSummaries,
+    visibleWinnerSummaries,
+    winnersAnnounced,
+    allScheduledMatchesPlayed,
+    announcementFeedback,
+    toggleWinnerAnnouncement,
+  } = useTournamentWinnerAnnouncement({
+    db,
+    eventId,
+    isManager,
+    initialWinnersAnnounced,
+    initialAnnouncedWinners,
+    matches,
+    teams,
+    pairs,
+    config,
+    format,
+    groupStandings,
   });
-  const leaguePairs = pairs.filter((pair) => pair.status !== 'withdrawn');
+  const { rankingColumns, rankingColumnLabel } = getTournamentRankingColumns(config, format);
+  const {
+    activeLeaguePairs,
+    unpairedLeagueParticipants,
+    leagueScheduledMatches,
+    leagueTimeSlots,
+    leaguePairs,
+  } = getTournamentLeagueOverviewData(pairs, participants, matches, ui.activeCategory);
   const {
     leagueCourtModalOpen,
     setLeagueCourtModalOpen,
@@ -620,30 +560,11 @@ export function TournamentPublicView({
     setRegistrationRefresh: ui.setRegistrationRefresh,
     refreshPage: () => router.refresh(),
   });
-  const withdrawEntry = ownEntries.find((entry) => entry.id === ui.withdrawTarget);
-  const withdrawPair = withdrawEntry
-    ? pairs.find(
-        (pair) =>
-          pair.status !== 'withdrawn' &&
-          pair.category === withdrawEntry.category &&
-          (pair.player_one_id === withdrawEntry.id || pair.player_two_id === withdrawEntry.id),
-      )
-    : undefined;
-  const withdrawPairPayment = withdrawPair
-    ? pairPaymentStatuses.find((status) => status.pair_id === withdrawPair.id)
-    : undefined;
-  const withdrawEitherPartnerPaid =
-    !!withdrawPairPayment &&
-    ['paid', 'not_required'].some((status) =>
-      [
-        withdrawPairPayment.player_one_payment_status,
-        withdrawPairPayment.player_two_payment_status,
-      ].includes(status),
-    );
-  const withdrawPaidTeam = Boolean(
-    withdrawEntry?.confirmation_status === 'confirmed' &&
-    withdrawEntry.partner_confirmation_status === 'confirmed' &&
-    withdrawEitherPartnerPaid,
+  const { withdrawEntry, withdrawPaidTeam } = getTournamentWithdrawalPaymentState(
+    ui.withdrawTarget,
+    ownEntries,
+    pairs,
+    pairPaymentStatuses,
   );
   return (
     <section className={leagueTournament ? 'space-y-8' : 'space-y-5'}>
@@ -689,18 +610,7 @@ export function TournamentPublicView({
             config={config}
             onAssignCourts={openLeagueCourtModal}
           />
-          <TournamentGroupOverrideDialog
-            editor={overrideEditor}
-            setEditor={setOverrideEditor}
-            reason={overrideReason}
-            setReason={setOverrideReason}
-            saving={overrideSaving}
-            error={overrideError}
-            draggedEntryId={draggedEntryId}
-            setDraggedEntryId={setDraggedEntryId}
-            moveRow={moveOverrideRow}
-            onSave={() => void saveGroupOverridesFromEditor()}
-          />
+          <TournamentGroupOverrideDialog {...groupOverrideActions.dialogProps} />
           {['participants', 'matches', 'audit'].includes(ui.tab) &&
           adminContent &&
           (!leagueTournament || !['matches', 'audit'].includes(ui.tab)) ? (

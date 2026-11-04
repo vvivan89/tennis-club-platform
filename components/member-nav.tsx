@@ -1,9 +1,10 @@
 'use client';
-import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import { DEFAULT_MEMBERSHIP_SEASON_SETTINGS, getMembershipSeason } from '@/lib/membership-season';
+import { NavCountBadge } from '@/components/nav-count-badge';
+import { PortalNavLink } from '@/components/portal-nav-link';
 import {
   LayoutDashboard,
   BarChart3,
@@ -282,14 +283,14 @@ export function MemberNav() {
                 : pathname === item.href || pathname.startsWith(item.href + '/');
             const Icon = item.Icon;
             return (
-              <Link
+              <PortalNavLink
                 key={item.href}
                 href={item.href}
-                aria-current={current ? 'page' : undefined}
-                className={`inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm transition-colors ${current ? 'bg-secondary font-medium text-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
+                current={current}
+                label={item.label}
+                icon={<Icon className="h-4 w-4" />}
+                horizontalPadding="px-4"
               >
-                <Icon className="h-4 w-4" />
-                <span>{item.label}</span>
                 {item.href === '/member/membership' && membershipUnpaid && (
                   <span
                     aria-label="Membership payment is unpaid for the current season"
@@ -299,15 +300,10 @@ export function MemberNav() {
                     <AlertTriangle className="h-4 w-4 fill-amber-100 dark:fill-amber-950" />
                   </span>
                 )}
-                {item.href === '/member/chat' && unreadCount > 0 && pathname !== '/member/chat' && (
-                  <span
-                    aria-label={`${unreadCount} unread messages`}
-                    className="rounded-full bg-primary px-1.5 text-xs text-primary-foreground"
-                  >
-                    {unreadCount > 99 ? '99+' : unreadCount}
-                  </span>
+                {item.href === '/member/chat' && pathname !== '/member/chat' && (
+                  <NavCountBadge count={unreadCount} label={`${unreadCount} unread messages`} />
                 )}
-              </Link>
+              </PortalNavLink>
             );
           })}
         </div>

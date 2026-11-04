@@ -1,11 +1,12 @@
 'use client';
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { SiteHeader } from '@/components/site-header';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import { usePendingMemberApplicationsCount } from '@/lib/use-pending-member-applications-count';
 import { usePendingInteracPaymentsCount } from '@/lib/use-pending-interac-payments-count';
+import { NavCountBadge } from '@/components/nav-count-badge';
+import { PortalNavLink } from '@/components/portal-nav-link';
 import {
   LayoutDashboard,
   Building2,
@@ -93,31 +94,26 @@ export function AdminNav() {
                         : pathname === item.href || pathname.startsWith(item.href + '/');
               const Icon = item.Icon;
               return (
-                <Link
+                <PortalNavLink
                   key={item.href}
                   href={item.href}
-                  aria-current={current ? 'page' : undefined}
-                  className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors ${current ? 'bg-secondary font-medium text-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
+                  current={current}
+                  label={item.label}
+                  icon={<Icon className="h-4 w-4" />}
                 >
-                  <Icon className="h-4 w-4" />
-                  <span>{item.label}</span>
-                  {item.href === '/admin/members' && pendingApplicationCount > 0 && (
-                    <span
-                      aria-label={`${pendingApplicationCount} pending applications`}
-                      className="rounded-full bg-primary px-1.5 text-xs text-primary-foreground"
-                    >
-                      {pendingApplicationCount > 99 ? '99+' : pendingApplicationCount}
-                    </span>
+                  {item.href === '/admin/members' && (
+                    <NavCountBadge
+                      count={pendingApplicationCount}
+                      label={`${pendingApplicationCount} pending applications`}
+                    />
                   )}
-                  {item.href === '/admin/payments' && pendingInteracPaymentCount > 0 && (
-                    <span
-                      aria-label={`${pendingInteracPaymentCount} unreviewed Interac payments`}
-                      className="rounded-full bg-primary px-1.5 text-xs text-primary-foreground"
-                    >
-                      {pendingInteracPaymentCount > 99 ? '99+' : pendingInteracPaymentCount}
-                    </span>
+                  {item.href === '/admin/payments' && (
+                    <NavCountBadge
+                      count={pendingInteracPaymentCount}
+                      label={`${pendingInteracPaymentCount} unreviewed Interac payments`}
+                    />
                   )}
-                </Link>
+                </PortalNavLink>
               );
             })}
           </div>

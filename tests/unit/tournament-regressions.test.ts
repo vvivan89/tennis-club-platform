@@ -10,8 +10,12 @@ const managementConfirmations = readFileSync(
   join(process.cwd(), 'components/tournament-management-confirmations.tsx'),
   'utf8',
 );
-const participantManagement = readFileSync(
-  join(process.cwd(), 'components/tournament-participant-management-panel.tsx'),
+const participantGrouping = readFileSync(
+  join(process.cwd(), 'components/tournament-entry-grouping-panel.tsx'),
+  'utf8',
+);
+const groupAssignmentSelect = readFileSync(
+  join(process.cwd(), 'components/group-assignment-select.tsx'),
   'utf8',
 );
 const matchManagement = readFileSync(
@@ -40,9 +44,10 @@ describe('tournament regression fixes', () => {
     const saveGroup = drawActions.slice(start, end);
     expect(saveGroup).toContain('group_number: groupNumber');
     expect(saveGroup).not.toContain('updated_at');
-    expect(participantManagement).toContain(
-      'aria-label={`Group for ${p.player_one_name} and ${p.player_two_name}`}',
+    expect(participantGrouping).toContain(
+      'ariaLabel={`Group for ${p.player_one_name} and ${p.player_two_name}`}',
     );
+    expect(groupAssignmentSelect).toContain('aria-label={ariaLabel}');
   });
 
   it('keeps match action menus registered with the outside-click closer', () => {
@@ -75,7 +80,7 @@ describe('tournament regression fixes', () => {
   it('does not retain the standalone Group assignments section', () => {
     expect(management).not.toContain('aria-label="Group assignments"');
     expect(management).not.toContain('function renderGroupAssignments()');
-    expect(participantManagement).toContain('Random group draw');
+    expect(participantGrouping).toContain('Random group draw');
   });
   it('shows walkover awards prominently in the match editor', () => {
     expect(matchManagement).toContain(
