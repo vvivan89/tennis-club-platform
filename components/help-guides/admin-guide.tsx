@@ -4,6 +4,7 @@ import { AdminAuditGuide } from '@/components/help-guides/admin/audit-guide';
 import { AdminClubProfileGuide } from '@/components/help-guides/admin/club-profile-guide';
 import { AdminDashboardGuide } from '@/components/help-guides/admin/dashboard-guide';
 import { AdminDocumentsGuide } from '@/components/help-guides/admin/documents-guide';
+import { AdminEmailsGuide } from '@/components/help-guides/admin/emails-guide';
 import { AdminEventsGuide } from '@/components/help-guides/admin/events-guide';
 import { AdminMembershipGuide } from '@/components/help-guides/admin/membership-guide';
 import { AdminPaymentsGuide } from '@/components/help-guides/admin/payments-guide';
@@ -22,6 +23,7 @@ const tabs = [
   ['tournaments', 'Tournaments'],
   ['publications', 'Publications'],
   ['documents', 'Documents'],
+  ['emails', 'Emails'],
   ['audit-logs', 'Audit Logs'],
 ] as const;
 
@@ -44,6 +46,7 @@ const topics = [
   ['publications', 'admin-publication-gallery', 'Photo gallery'],
   ['documents', 'admin-legal-documents', 'Legal documents'],
   ['documents', 'admin-uploaded-documents', 'Member documents'],
+  ['emails', 'admin-emails', 'Emails'],
   ['audit-logs', 'admin-audit-logs', 'Audit logs'],
 ] as const;
 
@@ -71,6 +74,8 @@ function tabContent(tab: AdminGuideTab) {
       return <AdminPublicationsGuide />;
     case 'documents':
       return <AdminDocumentsGuide />;
+    case 'emails':
+      return <AdminEmailsGuide />;
     case 'audit-logs':
       return <AdminAuditGuide />;
   }

@@ -17,8 +17,6 @@ const topics = [
   ...sharedEventTournamentTopics,
 ] as const;
 
-type OrganizerGuideTab = (typeof tabs)[number][0];
-
 export function OrganizerHelpTopicNav() {
   return (
     <SectionNav ariaLabel="Organizer help topics" collapsible links={helpTopicLinks(topics)} />

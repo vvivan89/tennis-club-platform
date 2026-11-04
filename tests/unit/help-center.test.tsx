@@ -52,6 +52,24 @@ describe('Help Center role access', () => {
     ).toBeInTheDocument();
   });
 
+  it('lists email preference subjects and distinguishes emails those preferences do not control', async () => {
+    const user = userEvent.setup();
+    render(<HelpCenter guide="member" />);
+    await user.click(screen.getByRole('tab', { name: 'Profile' }));
+
+    expect(
+      screen.getByRole('heading', { name: 'Emails managed by these preferences' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Registration is open: \{event title\}/)).toBeInTheDocument();
+    expect(screen.getByText(/Your place in a PCTC event is confirmed/)).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Other emails are not controlled by these preferences' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/PCTC Interac payment instructions/)).toBeInTheDocument();
+    expect(screen.getByText(/account invitations, passwordless sign-in links/)).toBeInTheDocument();
+    expect(screen.getByText(/broad audiences.*ignore profile preferences/i)).toBeInTheDocument();
+  });
+
   it('shows detailed membership, family, and payment workflows on their portal tab', async () => {
     const user = userEvent.setup();
     render(<HelpCenter guide="member" />);
@@ -226,6 +244,10 @@ describe('Help Center role access', () => {
     expect(screen.getByRole('link', { name: 'Assign event courts' })).toHaveAttribute(
       'href',
       '?tab=events#admin-event-courts',
+    );
+    expect(screen.getByRole('link', { name: 'Emails' })).toHaveAttribute(
+      'href',
+      '?tab=emails#admin-emails',
     );
   });
 });

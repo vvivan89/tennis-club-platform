@@ -23,6 +23,7 @@ describe('AdminHelpGuide', () => {
       'Tournaments',
       'Publications',
       'Documents',
+      'Emails',
       'Audit Logs',
     ]);
     expect(
@@ -142,6 +143,27 @@ describe('AdminHelpGuide', () => {
     expect(
       screen.getByText(/share club bylaws, meeting minutes, and other documents with members/i),
     ).toBeInTheDocument();
+  });
+
+  it('lists automated email cases and their templates from the email inventory', async () => {
+    const user = userEvent.setup();
+    render(<AdminHelpGuide />);
+    await user.click(screen.getByRole('tab', { name: 'Emails' }));
+
+    expect(
+      screen.getByRole('heading', { name: 'Event registration and event updates' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Pending event payment reminders' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Interac instructions and review outcomes' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('PCTC family membership invitation')).toBeInTheDocument();
+    expect(screen.getByText(/PCTC Interac payment requires attention/)).toBeInTheDocument();
+    expect(screen.getByText(/receives a Supabase Auth sign-in link/)).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: 'View event details' }).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/<p>/)).not.toBeInTheDocument();
   });
 
   it('loads a guide tab directly from the URL query parameter', async () => {

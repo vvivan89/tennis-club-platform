@@ -143,6 +143,68 @@ function ProfileTopic() {
           },
         ]}
       />
+      <div className="space-y-3">
+        <h4 className="font-semibold">Emails managed by these preferences</h4>
+        <ul className="list-disc space-y-2 pl-5">
+          <li>
+            <strong>Registration and withdrawal confirmations:</strong>{' '}
+            {'“Registration confirmed: {event title}”'}; {"“You're on the waitlist: {event title}”"}
+            ; “Your PCTC event registration”; “Your PCTC event registration was cancelled”; and
+            League {'“Registration confirmed: {event title}”'}.
+          </li>
+          <li>
+            <strong>Waitlist promotion confirmations:</strong> “Your place in a PCTC event is
+            confirmed”.
+          </li>
+          <li>
+            <strong>Event cancellation notifications:</strong> “PCTC event cancelled”.
+          </li>
+          <li>
+            <strong>Registration reminders:</strong> {'“Registration is open: {event title}”'};{' '}
+            {'“Payment required to keep your place: {event title}”'}; and{' '}
+            {'“Final reminder: event payment due soon — {event title}”'}.
+          </li>
+          <li>
+            <strong>New event announcements:</strong> “New PCTC event announced”.
+          </li>
+          <li>
+            <strong>Newsletter and club news:</strong> custom-subject announcements sent to the
+            Newsletter subscribers audience.
+          </li>
+        </ul>
+      </div>
+      <div className="space-y-3">
+        <h4 className="font-semibold">Other emails are not controlled by these preferences</h4>
+        <ul className="list-disc space-y-2 pl-5">
+          <li>
+            <strong>Supabase Auth:</strong> account invitations, passwordless sign-in links, and
+            event-guest sign-in links are sent directly by Supabase Auth.
+          </li>
+          <li>
+            <strong>Tournament partner invitation:</strong> “Confirm your place with
+            {' {inviting player’s name}'}”.
+          </li>
+          <li>
+            <strong>Family membership invitation:</strong> “PCTC family membership invitation”.
+          </li>
+          <li>
+            <strong>Membership renewal:</strong> “PCTC membership renewal is coming up” and “PCTC
+            membership fee reminder”.
+          </li>
+          <li>
+            <strong>Interac payment messages:</strong> “PCTC Interac payment instructions”, “PCTC
+            Interac payment confirmed”, and “PCTC Interac payment requires attention”.
+          </li>
+          <li>
+            <strong>Application approval:</strong> “Your PCTC application has been approved”.
+          </li>
+          <li>
+            <strong>Administrator announcements:</strong> important emails to broad audiences (All
+            approved members, Active members, Administrators, or Organizers) ignore profile
+            preferences. The Newsletter subscribers audience does respect the newsletter preference.
+          </li>
+        </ul>
+      </div>
       <p>
         <LinkButton href="/member/profile">Edit my profile</LinkButton>
       </p>
