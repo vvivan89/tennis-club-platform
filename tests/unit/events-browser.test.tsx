@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const mocks = vi.hoisted(() => ({
@@ -70,7 +70,7 @@ afterEach(() => {
 });
 
 describe('EventsBrowser', () => {
-  it('groups current-week events, displays spots and links, and includes past events', async () => {
+  it('shows the closest events first and keeps every upcoming event in the full list', async () => {
     const today = new Date();
     const thisWeek = event('this-week', 'Wednesday Social', new Date(today.getTime() + 60000));
     const later = event(
@@ -88,23 +88,73 @@ describe('EventsBrowser', () => {
         defaultLocation="Club courts"
       />,
     );
+    const upcomingSection = document.querySelectorAll('details')[0] as HTMLElement;
+    const allUpcomingSection = document.querySelectorAll('details')[1] as HTMLElement;
     await waitFor(() =>
-      expect(screen.getByRole('link', { name: /Wednesday Social/ })).toBeInTheDocument(),
+      expect(
+        within(upcomingSection).getByRole('link', { name: /Wednesday Social/ }),
+      ).toBeInTheDocument(),
     );
-    expect(screen.getByText('This week')).toBeInTheDocument();
-    expect(screen.getByText(/1\s+spots remaining/)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Wednesday Social/ })).toHaveAttribute(
+    expect(screen.getByText('Upcoming')).toBeInTheDocument();
+    expect(screen.getByText('All upcoming events')).toBeInTheDocument();
+    expect(within(upcomingSection).getByText(/1\s+spots remaining/)).toBeInTheDocument();
+    expect(within(upcomingSection).getByRole('link', { name: /Wednesday Social/ })).toHaveAttribute(
       'href',
       '/events/this-week',
     );
-    expect(screen.getByText('$12.50')).toBeInTheDocument();
+    expect(within(allUpcomingSection).getByText('$12.50')).toBeInTheDocument();
     expect(screen.getByTestId('past-events')).toHaveTextContent('1');
   });
 
-  it('shows the next week group when current week is empty and has an empty card fallback', async () => {
+  it('shows both upcoming accordions with empty card fallbacks when there are no events', async () => {
     render(<EventsBrowser events={[]} counts={[]} defaultLocation="" />);
-    expect(await screen.findByText('Next week')).toBeInTheDocument();
+    expect(await screen.findByText('Upcoming')).toBeInTheDocument();
+    expect(screen.getByText('All upcoming events')).toBeInTheDocument();
     expect(screen.getAllByText('There are no events in this period.')).toHaveLength(2);
+  });
+
+  it('includes ongoing, very close closed-registration, and any open-registration events in Upcoming', () => {
+    const now = Date.now();
+    const ongoing = event('ongoing', 'Ongoing event', new Date(now - 60 * 60_000), {
+      ends_at: new Date(now + 60 * 60_000).toISOString(),
+      registration_opens_at: new Date(now - 2 * 86400_000).toISOString(),
+      registration_closes_at: new Date(now - 60_000).toISOString(),
+    });
+    const closeAndClosed = event('close', 'Close and closed', new Date(now + 3 * 86400_000), {
+      registration_opens_at: new Date(now - 2 * 86400_000).toISOString(),
+      registration_closes_at: new Date(now - 60_000).toISOString(),
+    });
+    const farAndOpen = event('open', 'Far and open', new Date(now + 45 * 86400_000), {
+      registration_opens_at: new Date(now - 60_000).toISOString(),
+      registration_closes_at: new Date(now + 86400_000).toISOString(),
+    });
+    const farAndClosed = event('far', 'Far and closed', new Date(now + 60 * 86400_000), {
+      registration_opens_at: new Date(now - 2 * 86400_000).toISOString(),
+      registration_closes_at: new Date(now - 60_000).toISOString(),
+    });
+    render(
+      <EventsBrowser
+        events={[farAndClosed, farAndOpen, closeAndClosed, ongoing]}
+        counts={[]}
+        defaultLocation=""
+      />,
+    );
+
+    const accordions = document.querySelectorAll('details');
+    expect(accordions).toHaveLength(2);
+    expect(accordions[0]).toHaveAttribute('open');
+    expect(accordions[1]).not.toHaveAttribute('open');
+    const featuredLinks = within(accordions[0] as HTMLElement)
+      .getAllByRole('link')
+      .filter((link) => link.getAttribute('href')?.startsWith('/events/'));
+    const featuredHrefs = featuredLinks.map((link) => link.getAttribute('href'));
+    expect(featuredHrefs).toEqual(['/events/ongoing', '/events/close', '/events/open']);
+    expect(featuredHrefs).not.toContain('/events/far');
+    const allLinks = within(accordions[1] as HTMLElement)
+      .getAllByRole('link', { hidden: true })
+      .filter((link) => link.getAttribute('href')?.startsWith('/events/'));
+    expect(allLinks).toHaveLength(4);
+    expect(allLinks[0]).toHaveAttribute('href', '/events/ongoing');
   });
 
   it('switches calendar period and navigates between months and weeks', async () => {
@@ -185,7 +235,11 @@ describe('EventsBrowser', () => {
       />,
     );
 
-    expect(await screen.findByRole('link', { name: /Public Event/ })).toBeInTheDocument();
+    expect(
+      await within(document.querySelectorAll('details')[0] as HTMLElement).findByRole('link', {
+        name: /Public Event/,
+      }),
+    ).toBeInTheDocument();
     expect(mocks.fromCalls).toEqual([]);
   });
 });

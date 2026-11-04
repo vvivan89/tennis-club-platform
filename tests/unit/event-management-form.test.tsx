@@ -133,6 +133,22 @@ describe('Social Doubles Ladder ranking criteria controls', () => {
   });
 });
 
+describe('Party event configuration', () => {
+  it('offers +1 configuration without membership, gender, waitlist, or series controls', async () => {
+    const user = userEvent.setup();
+    render(<EventManagementForm currentUserId="admin-1" />);
+    await user.selectOptions(screen.getByLabelText('Event type'), 'party');
+
+    expect(screen.getByLabelText('Cost per member (CAD)')).toBeInTheDocument();
+    expect(screen.getByLabelText('Allow guests')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Courts available')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Participant gender restriction (optional)')).toBeNull();
+    expect(screen.queryByLabelText('Active paid membership required')).toBeNull();
+    expect(screen.queryByLabelText('Enable waitlist when full')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Series of events' })).toBeNull();
+  });
+});
+
 describe('tournament configuration controls', () => {
   it('configures League as one gender and a single round-robin group while keeping group standings priorities', async () => {
     const user = userEvent.setup();

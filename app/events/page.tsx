@@ -25,7 +25,7 @@ export default async function EventsPage() {
     db
       .from('events')
       .select(
-        'id,slug,title,description,starts_at,ends_at,registration_opens_at,registration_closes_at,capacity,price_cents,members_only,status,event_type,location,series_id',
+        'id,slug,title,description,starts_at,ends_at,registration_opens_at,registration_closes_at,capacity,price_cents,members_only,status,event_type,location,series_id,allow_plus_one,guest_price_cents',
       )
       .in('status', ['published', 'cancelled'])
       .order('starts_at'),

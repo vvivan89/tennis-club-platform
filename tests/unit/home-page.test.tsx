@@ -20,6 +20,7 @@ vi.mock('@/lib/supabase-browser', () => ({
           filters.push([column, value]);
           return query;
         },
+        or: () => query,
         in: (column: string, value: unknown) => {
           filters.push([column, value]);
           return query;

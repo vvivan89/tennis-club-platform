@@ -118,7 +118,7 @@ describe('SiteFooter', () => {
       />,
     );
     expect(screen.getByText('Supplied Club')).toBeInTheDocument();
-    expect(screen.getByText('SC')).toBeInTheDocument();
+    expect(screen.getByRole('contentinfo')).toHaveTextContent('Supplied Club (SC)');
     expect(screen.getAllByRole('link', { name: /Social media link/ })).toHaveLength(7);
   });
 
@@ -130,7 +130,7 @@ describe('SiteFooter', () => {
     };
     render(<SiteFooter clubName="Partial Club" />);
     await waitFor(() => expect(screen.getByText('Port Coquitlam Tennis Club')).toBeInTheDocument());
-    expect(screen.getByText('PCTC')).toBeInTheDocument();
+    expect(screen.getByRole('contentinfo')).toHaveTextContent('Port Coquitlam Tennis Club (PCTC)');
     expect(screen.queryByRole('link', { name: /Social media link/ })).not.toBeInTheDocument();
   });
 });

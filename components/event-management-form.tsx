@@ -63,7 +63,10 @@ export function EventManagementForm({
       initial.ladder_points) as [number, number, number, number],
     ladder_ranking_priority: event?.ladder_ranking_priority ?? initial.ladder_ranking_priority,
     organizer_id: event?.organizer_id ?? event?.created_by ?? currentUserId,
-    members_only: event?.event_type === 'tournament' ? false : (event?.members_only ?? true),
+    members_only:
+      event?.event_type === 'tournament' || event?.event_type === 'party'
+        ? false
+        : (event?.members_only ?? true),
     description: event?.description ?? '',
     gender_restriction: event?.gender_restriction ?? null,
     location: event?.location ?? initial.location,
@@ -73,6 +76,8 @@ export function EventManagementForm({
     registration_opens_at: localValue(event?.registration_opens_at),
     registration_closes_at: localValue(event?.registration_closes_at),
     price_cents: event?.price_cents ?? 0,
+    allow_plus_one: event?.allow_plus_one ?? false,
+    guest_price_cents: event?.guest_price_cents ?? 0,
     capacity: event?.capacity ?? 16,
     court_count: event?.court_count ?? 4,
     tournament_format: event?.tournament_format ?? 'doubles',
@@ -253,7 +258,7 @@ export function EventManagementForm({
       const common = {
         title: v.title.trim(),
         description: v.description.trim(),
-        gender_restriction: v.gender_restriction || null,
+        gender_restriction: v.event_type === 'party' ? null : v.gender_restriction || null,
         capacity:
           v.event_type === 'tournament'
             ? Number(v.capacity) > 0
@@ -261,14 +266,18 @@ export function EventManagementForm({
               : 1000000
             : Number(v.capacity),
         price_cents: Math.round(Number(v.price_cents)),
-        members_only: v.event_type === 'tournament' ? false : v.members_only,
+        allow_plus_one: v.event_type === 'party' && v.allow_plus_one,
+        guest_price_cents:
+          v.event_type === 'party' && v.allow_plus_one
+            ? Math.round(Number(v.guest_price_cents))
+            : 0,
+        members_only: ['tournament', 'party'].includes(v.event_type) ? false : v.members_only,
         status: v.status,
         location: v.location.trim(),
         notes: v.notes.trim(),
-        waitlist_enabled: v.waitlist_enabled,
+        waitlist_enabled: v.event_type === 'party' ? false : v.waitlist_enabled,
         court_count: Number(v.court_count),
-        event_type:
-          v.event_type === 'social_doubles_ladder' ? 'social_doubles_ladder' : v.event_type,
+        event_type: v.event_type,
         ladder_gender: v.event_type === 'social_doubles_ladder' ? v.ladder_gender : null,
         ladder_position_points: v.event_type === 'social_doubles_ladder' ? v.ladder_points : null,
         ladder_ranking_priority:
@@ -299,7 +308,11 @@ export function EventManagementForm({
           v.event_type === 'tournament' ? v.allow_non_member_registration : false,
         tournament_details_public:
           v.event_type === 'tournament' ? v.tournament_details_public : false,
-        social_doubles_ladder_id: v.is_league_tournament ? v.league_existing_id || null : undefined,
+        social_doubles_ladder_id: v.is_league_tournament
+          ? v.league_existing_id || null
+          : v.event_type === 'party'
+            ? null
+            : undefined,
         organizer_id: showOrganizerField
           ? v.organizer_id || currentUserId
           : v.organizer_id || event?.created_by || currentUserId,
@@ -315,7 +328,7 @@ export function EventManagementForm({
             : null,
         };
         let notifyIds = [v.id];
-        if (applyToSeries && v.series_id) {
+        if (applyToSeries && v.series_id && v.event_type !== 'party') {
           const { error: seriesError } = await db
             .from('events')
             .update(common)
@@ -330,7 +343,11 @@ export function EventManagementForm({
         } else {
           const { error } = await db
             .from('events')
-            .update({ ...common, ...datesOnly })
+            .update({
+              ...common,
+              ...datesOnly,
+              ...(v.event_type === 'party' ? { series_id: null } : {}),
+            })
             .eq('id', v.id);
           if (error) throw error;
         }

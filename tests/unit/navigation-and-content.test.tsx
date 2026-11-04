@@ -284,7 +284,7 @@ describe('navigation and content components', () => {
       />,
     );
     expect(screen.getByText('Northside Tennis')).toBeInTheDocument();
-    expect(screen.getByText('NTC', { selector: 'span' })).toBeInTheDocument();
+    expect(screen.getByRole('contentinfo')).toHaveTextContent('Northside Tennis (NTC)');
     expect(screen.queryByRole('link', { name: 'Contacts' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Social media link 1' })).toHaveAttribute(
       'href',

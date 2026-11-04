@@ -238,7 +238,7 @@ export async function resolveCheckoutTarget(args: {
     const { data: registration } = await db
       .from('registrations')
       .select(
-        'id,event_id,user_id,status,payment_status,amount_cents,created_at,event:events(id,title,price_cents,status,starts_at,registration_opens_at,registration_closes_at,members_only)',
+        'id,event_id,user_id,status,payment_status,amount_cents,guest_count,created_at,event:events(id,title,event_type,price_cents,guest_price_cents,status,starts_at,registration_opens_at,registration_closes_at,members_only)',
       )
       .eq('id', businessRecordId)
       .eq('user_id', user!.id)
@@ -284,8 +284,19 @@ export async function resolveCheckoutTarget(args: {
         { status: 409 },
       );
     }
-    amountMinor = Number(event.price_cents);
-    if (amountMinor <= 0 || registration.amount_cents !== amountMinor)
+    amountMinor = Number(registration.amount_cents);
+    const configuredAmount =
+      Number(event.price_cents) +
+      (event.event_type === 'party'
+        ? Number(event.guest_price_cents ?? 0) * Number(registration.guest_count ?? 0)
+        : 0);
+    if (
+      amountMinor <= 0 ||
+      registration.amount_cents !== amountMinor ||
+      (event.event_type === 'party'
+        ? amountMinor !== configuredAmount
+        : amountMinor !== Number(event.price_cents))
+    )
       return NextResponse.json(
         { error: 'Event price does not match the registration. Refresh and try again.' },
         { status: 409 },

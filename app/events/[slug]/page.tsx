@@ -51,6 +51,11 @@ export default async function EventDetailsPage({
   if (!resolvedEvent) resolvedEvent = await findEventBySlugAlias(db, params.slug);
   const event = resolvedEvent;
   if (!event) notFound();
+  const { data: viewerProfile } =
+    event.event_type === 'party' && user
+      ? await db.from('profiles').select('application_status').eq('id', user.id).maybeSingle()
+      : { data: null };
+  if (event.event_type === 'party' && viewerProfile?.application_status !== 'approved') notFound();
   const { data: seriesSessions } = event.series_id
     ? await db.from('events').select('id,series_id,starts_at').eq('series_id', event.series_id)
     : { data: [] };
@@ -101,7 +106,7 @@ export default async function EventDetailsPage({
     user
       ? db
           .from('registrations')
-          .select('id,status,queue_position,created_at,payment_status')
+          .select('id,status,queue_position,created_at,payment_status,guest_count')
           .eq('event_id', event.id)
           .eq('user_id', user.id)
           .neq('status', 'cancelled')
@@ -156,13 +161,18 @@ export default async function EventDetailsPage({
     .maybeSingle();
   const interacEnabled = paymentMethodSettings?.interac_enabled === true;
   const registered = !!registration && registration.status !== 'cancelled';
-  const canViewParticipants = isManager || (hasPaidMembership && registered);
+  const canViewParticipants =
+    isManager ||
+    (registered &&
+      (event.event_type === 'party'
+        ? viewerProfile?.application_status === 'approved'
+        : hasPaidMembership));
   const [{ data: roster }, { data: courts }, { data: scores }] = await Promise.all([
     canViewParticipants
       ? db
           .from('event_roster')
           .select(
-            'registration_id,user_id,status,payment_status,queue_position,full_name,avatar_url,tennis_skill_level,birthday_emoji_visible',
+            'registration_id,user_id,status,payment_status,guest_count,queue_position,full_name,avatar_url,tennis_skill_level,birthday_emoji_visible',
           )
           .eq('event_id', event.id)
       : Promise.resolve({ data: [] }),
@@ -352,7 +362,7 @@ export default async function EventDetailsPage({
           </>
         ) : (
           <>
-            {isManager && (
+            {isManager && event.event_type !== 'party' && (
               <EventEditManagement eventId={event.id} startsAt={event.starts_at} assignmentOnly />
             )}
             <EventDetailClient
@@ -362,6 +372,7 @@ export default async function EventDetailsPage({
               scores={scores ?? []}
               currentUserId={user?.id ?? null}
               currentRegistrationId={registration?.id ?? null}
+              currentGuestCount={Number(registration?.guest_count ?? 0)}
               currentStatus={registration?.status ?? null}
               currentPaymentStatus={registration?.payment_status ?? null}
               locationQuery={club?.location_query || event.location || ''}

@@ -1,5 +1,6 @@
 'use client';
 import { formatDateTime } from '@/lib/time-format';
+import { formatCadPrice } from '@/lib/event-format';
 import { useTimedFeedback } from '@/hooks/use-timed-feedback';
 import { TennisLoader } from '@/components/tennis-loader';
 import Link from 'next/link';
@@ -24,6 +25,12 @@ import {
   type EventScoreRow as Score,
 } from '@/components/event-detail-panels';
 import { UserIdentity } from '@/components/user-identity';
+import {
+  EventActionFeedback,
+  EventPaymentPendingNotices,
+  PartyGuestFee,
+  PartyRegistrationButtons,
+} from '@/components/party-registration-controls';
 
 import type { EventInfo } from '@/components/event-detail-types';
 import { useEventRegistrationActions } from '@/components/use-event-registration-actions';
@@ -35,6 +42,7 @@ export function EventDetailClient({
   scores,
   currentUserId,
   currentRegistrationId,
+  currentGuestCount = 0,
   currentStatus,
   currentPaymentStatus,
   locationQuery,
@@ -50,6 +58,7 @@ export function EventDetailClient({
   scores: Score[];
   currentUserId: string | null;
   currentRegistrationId: string | null;
+  currentGuestCount?: number;
   currentStatus: string | null;
   currentPaymentStatus: string | null;
   locationQuery: string;
@@ -70,6 +79,7 @@ export function EventDetailClient({
   const [liveRegistrationId, setLiveRegistrationId] = useState<string | null>(
     currentRegistrationId,
   );
+  const [liveGuestCount, setLiveGuestCount] = useState(currentGuestCount);
   const [liveStatus, setLiveStatus] = useState<string | null>(currentStatus);
   const [livePaymentStatus, setLivePaymentStatus] = useState<string | null>(currentPaymentStatus);
   const [liveRemainingSpots, setLiveRemainingSpots] = useState<number>(remainingSpots);
@@ -102,7 +112,8 @@ export function EventDetailClient({
   }, [currentStatus]);
   useEffect(() => {
     setLiveRegistrationId(currentRegistrationId);
-  }, [currentRegistrationId]);
+    setLiveGuestCount(currentGuestCount);
+  }, [currentRegistrationId, currentGuestCount]);
   useEffect(() => {
     let active = true;
     setPendingInteracNotice(null);
@@ -255,7 +266,14 @@ export function EventDetailClient({
     setLiveStatus(currentStatus);
     setLivePaymentStatus(currentPaymentStatus);
     setLiveRemainingSpots(remainingSpots);
-  }, [roster, currentRegistrationId, currentStatus, currentPaymentStatus, remainingSpots]);
+  }, [
+    roster,
+    currentRegistrationId,
+    currentGuestCount,
+    currentStatus,
+    currentPaymentStatus,
+    remainingSpots,
+  ]);
 
   function notifyInBackground() {
     dispatchEventNotificationsInBackground(event.id, 'Event detail');
@@ -266,13 +284,13 @@ export function EventDetailClient({
         db
           .from('event_roster')
           .select(
-            'registration_id,user_id,status,payment_status,queue_position,full_name,avatar_url,tennis_skill_level,birthday_emoji_visible',
+            'registration_id,user_id,status,payment_status,guest_count,queue_position,full_name,avatar_url,tennis_skill_level,birthday_emoji_visible',
           )
           .eq('event_id', event.id),
         currentUserId
           ? db
               .from('registrations')
-              .select('id,status,queue_position,created_at,payment_status')
+              .select('id,status,queue_position,created_at,payment_status,guest_count')
               .eq('event_id', event.id)
               .eq('user_id', currentUserId)
               .neq('status', 'cancelled')
@@ -285,6 +303,7 @@ export function EventDetailClient({
                 queue_position: number | null;
                 created_at: string;
                 payment_status: string;
+                guest_count: number;
               }[],
               error: null,
             }),
@@ -292,7 +311,13 @@ export function EventDetailClient({
     if (!rosterError && nextRoster) {
       setLiveRoster(nextRoster as Roster[]);
       setLiveRemainingSpots(
-        Math.max(0, event.capacity - nextRoster.filter((r) => r.status === 'confirmed').length),
+        Math.max(
+          0,
+          event.capacity -
+            nextRoster
+              .filter((r) => r.status === 'confirmed')
+              .reduce((total, row) => total + 1 + Number(row.guest_count ?? 0), 0),
+        ),
       );
     }
     if (!regError) {
@@ -300,6 +325,7 @@ export function EventDetailClient({
       setLiveRegistrationId(ownReg?.id ?? null);
       setLiveStatus(ownReg?.status ?? null);
       setLivePaymentStatus(ownReg?.payment_status ?? null);
+      setLiveGuestCount(Number(ownReg?.guest_count ?? 0));
     }
   }
   useEffect(() => {
@@ -342,9 +368,11 @@ export function EventDetailClient({
       event,
       currentUserId,
       liveRegistrationId,
+      liveGuestCount,
       livePaymentStatus,
       operationKeys,
       setLiveRegistrationId,
+      setLiveGuestCount,
       setLiveStatus,
       setLivePaymentStatus,
       setBusy,
@@ -483,14 +511,16 @@ export function EventDetailClient({
   }
   const scoreEditLocked =
     Date.now() - new Date(event.starts_at).getTime() > 2 * 24 * 60 * 60 * 1000;
+  const registrationAmount =
+    event.price_cents +
+    (event.event_type === 'party' ? (event.guest_price_cents ?? 0) * liveGuestCount : 0);
   const money =
-    event.price_cents === 0
+    registrationAmount === 0
       ? event.members_only
         ? 'Free for members'
         : 'Free'
-      : new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(
-          event.price_cents / 100,
-        );
+      : formatCadPrice(registrationAmount);
+  const memberPrice = event.price_cents === 0 ? 'Free' : formatCadPrice(event.price_cents);
   const eventPaymentOptions: PaymentOption[] = [];
   if (liveRegistrationId) {
     const checkingCardPayment =
@@ -522,33 +552,15 @@ export function EventDetailClient({
   }
   return (
     <div className="space-y-8">
-      {(error || message) && (
-        <div
-          className="pointer-events-none fixed right-4 top-4 z-[100] w-[min(24rem,calc(100vw-2rem))]"
-          aria-live="polite"
-        >
-          {error && (
-            <p
-              role="alert"
-              className="pointer-events-auto rounded-md border border-destructive/30 bg-background p-3 text-sm text-destructive shadow-lg"
-            >
-              {error}
-            </p>
-          )}
-          {message && (
-            <p
-              role="status"
-              className="pointer-events-auto mt-2 rounded-md border border-emerald-600/30 bg-background p-3 text-sm shadow-lg"
-            >
-              {message}
-            </p>
-          )}
-        </div>
-      )}
+      <EventActionFeedback error={error} message={message} />
       <div className="flex flex-wrap items-center gap-3">
         <span className="text-sm text-muted-foreground">
-          {money}
-          {event.price_cents > 0 ? ' per person' : ''}
+          {event.event_type === 'party' ? memberPrice : money}
+          {event.event_type === 'party'
+            ? ' per member'
+            : event.price_cents > 0
+              ? ' per person'
+              : ''}
         </span>
         {Date.now() >= new Date(event.starts_at).getTime() &&
           Date.now() <= new Date(event.ends_at || event.starts_at).getTime() && (
@@ -562,6 +574,9 @@ export function EventDetailClient({
               ? 'Male participants only'
               : 'Female participants only'}
           </span>
+        )}
+        {event.event_type === 'party' && event.allow_plus_one && (
+          <PartyGuestFee priceCents={event.guest_price_cents ?? 0} />
         )}
       </div>
       {event.description?.trim() && (
@@ -588,9 +603,11 @@ export function EventDetailClient({
               : 'Not set'}
           </p>
           <p className="mt-2 text-sm text-muted-foreground">
-            {event.members_only
-              ? 'Active, paid membership required'
-              : 'Open to all registered users'}
+            {event.event_type === 'party'
+              ? 'Approved club membership required'
+              : event.members_only
+                ? 'Active, paid membership required'
+                : 'Open to all registered users'}
           </p>
         </div>
       </div>
@@ -625,7 +642,7 @@ export function EventDetailClient({
               <>
                 <span className="self-center text-sm font-medium capitalize">
                   {liveStatus === 'confirmed' &&
-                  event.price_cents > 0 &&
+                  registrationAmount > 0 &&
                   livePaymentStatus !== 'paid' &&
                   livePaymentStatus !== 'not_required'
                     ? 'Pending'
@@ -634,33 +651,25 @@ export function EventDetailClient({
                     ? ` · position ${waitlisted.find((r) => r.registration_id === liveRegistrationId)?.queue_position ?? '—'}`
                     : ''}
                 </span>
-                {event.price_cents > 0 &&
+                {registrationAmount > 0 &&
                   liveStatus === 'confirmed' &&
                   livePaymentStatus !== 'paid' &&
                   livePaymentStatus !== 'not_required' && (
                     <PaymentOptionsButton options={eventPaymentOptions} disabled={busy} />
                   )}
-                {pendingInteracNotice && liveStatus === 'confirmed' && (
-                  <p
-                    role="status"
-                    className="basis-full rounded-md border border-amber-500/50 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
-                  >
-                    Interac payment requested: {pendingInteracNotice.amount}. Awaiting club
-                    confirmation.
-                  </p>
-                )}
-                {event.price_cents > 0 &&
-                  liveStatus === 'confirmed' &&
-                  livePaymentStatus !== 'paid' &&
-                  livePaymentStatus !== 'not_required' && (
-                    <p
-                      role="status"
-                      className="basis-full rounded-md border border-amber-500/50 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
-                    >
-                      Your place is reserved while payment is pending. If payment is not completed,
-                      you may be removed from the participant list.
-                    </p>
-                  )}
+                <EventPaymentPendingNotices
+                  interacAmount={
+                    pendingInteracNotice && liveStatus === 'confirmed'
+                      ? pendingInteracNotice.amount
+                      : null
+                  }
+                  paymentPending={
+                    registrationAmount > 0 &&
+                    liveStatus === 'confirmed' &&
+                    livePaymentStatus !== 'paid' &&
+                    livePaymentStatus !== 'not_required'
+                  }
+                />
                 {canWithdraw && (
                   <Button
                     variant="outline"
@@ -672,6 +681,11 @@ export function EventDetailClient({
                   </Button>
                 )}
               </>
+            ) : event.event_type === 'party' && event.allow_plus_one && open ? (
+              <PartyRegistrationButtons
+                busy={busy}
+                onRegister={(withGuest) => void register(withGuest)}
+              />
             ) : (
               <Button
                 disabled={busy || !open || event.status !== 'published'}
@@ -712,6 +726,7 @@ export function EventDetailClient({
       {canViewParticipants && (
         <>
           <EventParticipantsPanel
+            party={event.event_type === 'party'}
             eventCourtCount={event.court_count}
             eventPriceCents={event.price_cents}
             view={view}

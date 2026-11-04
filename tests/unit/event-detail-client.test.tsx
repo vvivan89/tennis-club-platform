@@ -139,6 +139,59 @@ describe('EventDetailClient registration workflow', () => {
     expect(mocks.routerRefresh).toHaveBeenCalledOnce();
   });
 
+  it('offers Party registration with or without +1 through the Party RPC', async () => {
+    const user = userEvent.setup();
+    mocks.rows.registrations = [
+      { payment_status: 'not_required', amount_cents: 0, guest_count: 1 },
+    ];
+    renderClient({
+      event: {
+        ...event,
+        event_type: 'party',
+        allow_plus_one: true,
+        guest_price_cents: 0,
+      },
+    });
+    expect(screen.queryByText('Participant gender restriction')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Register with +1' }));
+    expect(mocks.rpc).toHaveBeenCalledWith(
+      'register_for_party_event',
+      expect.objectContaining({ p_event_id: 'event-1', p_with_guest: true }),
+    );
+  });
+
+  it('shows Party participants as identity tiles without court, waitlist, or score sections', () => {
+    renderClient({
+      event: { ...event, event_type: 'party' },
+      canViewParticipants: true,
+      roster: [
+        {
+          registration_id: 'registration-party',
+          user_id: 'member-1',
+          status: 'confirmed',
+          payment_status: 'paid',
+          queue_position: null,
+          full_name: 'Taylor Player',
+          avatar_url: '/avatar.png',
+          tennis_skill_level: 3.5,
+          birthday_emoji_visible: true,
+          guest_count: 1,
+        },
+      ],
+    });
+
+    expect(screen.getByRole('heading', { name: 'Participants' })).toBeInTheDocument();
+    expect(screen.getByText('Taylor Player')).toBeInTheDocument();
+    expect(screen.getByText('+1 guest')).toBeInTheDocument();
+    expect(screen.queryByText('3.5')).not.toBeInTheDocument();
+    expect(document.querySelector('img[src="/avatar.png"]')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Court view' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'List view' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Waitlist' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Scores' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Court assignments are shown for each time slot/)).toBeNull();
+  });
+
   it('requires confirmation before withdrawing and refreshes after the database result', async () => {
     mocks.rpc.mockResolvedValue({ data: null, error: null });
     const user = userEvent.setup();
@@ -416,7 +469,7 @@ describe('EventDetailClient registration workflow', () => {
       data: [{ registration_id: 'registration-new', registration_state: 'confirmed' }],
       error: null,
     });
-    mocks.rows.registrations = [{ payment_status: 'pending' }];
+    mocks.rows.registrations = [{ payment_status: 'pending', amount_cents: 2500, guest_count: 0 }];
     mocks.fetch.mockResolvedValue({
       ok: false,
       json: async () => ({ error: 'Checkout unavailable.' }),
@@ -446,6 +499,7 @@ describe('EventDetailClient registration workflow', () => {
       data: [{ registration_id: 'registration-new', registration_state: 'confirmed' }],
       error: null,
     });
+    mocks.rows.registrations = [{ payment_status: 'pending', amount_cents: 2500, guest_count: 0 }];
     mocks.fetch.mockRejectedValue('network unavailable');
     const user = userEvent.setup();
     renderClient({ event: { ...event, slug: null, price_cents: 2500 } });

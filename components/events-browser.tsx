@@ -13,7 +13,8 @@ import { eventPath } from '@/lib/event-slug';
 import {
   eventDisplayTitle,
   eventDateLabel as dateLabel,
-  eventPriceLabel as money,
+  eventDateRangeLabel,
+  eventCardPriceLabel,
   type EventRow,
 } from '@/lib/event-format';
 
@@ -64,32 +65,20 @@ export function EventsBrowser({
     };
   }, []);
   const now = Date.now();
-  const thisWeekStart = weekStart(new Date());
-  const nextWeekStart = new Date(thisWeekStart);
-  nextWeekStart.setDate(nextWeekStart.getDate() + 7);
-  const weekAfterNext = new Date(nextWeekStart);
-  weekAfterNext.setDate(weekAfterNext.getDate() + 7);
-  const thisWeekEvents = events
-    .filter((e) => {
-      const start = new Date(e.starts_at).getTime();
-      const end = new Date(e.ends_at || e.starts_at).getTime();
-      const ongoing = start <= now && end >= now;
-      return ongoing || (start >= thisWeekStart.getTime() && start < nextWeekStart.getTime());
-    })
-    .sort((a, b) => a.starts_at.localeCompare(b.starts_at));
-  const showNextWeek = thisWeekEvents.length === 0;
-  const featuredTitle = showNextWeek ? 'Next week' : 'This week';
-  const featuredEvents = showNextWeek
-    ? events
-        .filter(
-          (e) => new Date(e.starts_at) >= nextWeekStart && new Date(e.starts_at) < weekAfterNext,
-        )
-        .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
-    : thisWeekEvents;
-  const featuredIds = new Set(featuredEvents.map((e) => e.id));
-  const otherEvents = events
-    .filter((e) => !featuredIds.has(e.id))
-    .sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+  const allUpcomingEvents = [...events].sort(
+    (a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime(),
+  );
+  const upcomingEvents = allUpcomingEvents.filter((event) => {
+    const startsAt = new Date(event.starts_at).getTime();
+    const endsAt = new Date(event.ends_at || event.starts_at).getTime();
+    const inProgress = startsAt <= now && endsAt >= now;
+    const veryClose = startsAt > now && startsAt <= now + 7 * 24 * 60 * 60 * 1000;
+    const registrationOpen =
+      event.status === 'published' &&
+      now >= new Date(event.registration_opens_at).getTime() &&
+      (!event.registration_closes_at || now < new Date(event.registration_closes_at).getTime());
+    return inProgress || veryClose || registrationOpen;
+  });
   const countFor = (id: string) => counts.find((c) => c.event_id === id)?.confirmed_count ?? 0;
   const monthFirstDay = new Date(calendarDate.getFullYear(), calendarDate.getMonth(), 1);
   const monthOffset = (monthFirstDay.getDay() + 6) % 7;
@@ -144,11 +133,11 @@ export function EventsBrowser({
           return (
             <Card
               key={event.id}
-              className="group overflow-hidden rounded-xl border-border/80 transition-all duration-200 hover:-translate-y-1 hover:shadow-soft"
+              className="group flex h-full flex-col overflow-hidden rounded-xl border-border/80 transition-all duration-200 hover:-translate-y-1 hover:shadow-soft"
             >
               <Link
                 href={eventPath(event)}
-                className="block rounded-t-xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex flex-1 flex-col rounded-t-xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <EventCardWeather
                   startsAt={event.starts_at}
@@ -160,7 +149,7 @@ export function EventsBrowser({
                 <CardHeader className="pb-2">
                   <p className="flex items-center gap-2 text-xs font-medium text-brand-court">
                     <CalendarDays className="h-3.5 w-3.5" />
-                    {dateLabel(event.starts_at)}
+                    {eventDateRangeLabel(event.starts_at, event.ends_at)}
                   </p>
                   <h2 className="pt-1 text-2xl font-medium group-hover:text-primary">
                     {eventDisplayTitle(event)}
@@ -193,10 +182,8 @@ export function EventsBrowser({
                   </p>
                 </CardContent>
               </Link>
-              <CardContent className="flex items-center justify-between gap-3 border-t border-border pt-4">
-                <span className="text-sm font-semibold">
-                  {money(event.price_cents, event.members_only)}
-                </span>
+              <CardContent className="mt-auto flex items-center justify-between gap-3 border-t border-border pt-4">
+                <span className="text-sm font-semibold">{eventCardPriceLabel(event)}</span>
                 {event.status === 'published' && <EventCardActions eventId={event.id} />}
               </CardContent>
             </Card>
@@ -260,9 +247,9 @@ export function EventsBrowser({
             <details open className="group rounded-xl border border-border">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-lg font-semibold marker:hidden">
                 <span>
-                  {featuredTitle}
+                  Upcoming
                   <span className="ml-2 text-sm font-normal text-muted-foreground">
-                    ({featuredEvents.length})
+                    ({upcomingEvents.length})
                   </span>
                 </span>
                 <span
@@ -272,14 +259,14 @@ export function EventsBrowser({
                   ⌄
                 </span>
               </summary>
-              <div className="border-t border-border p-4 sm:p-5">{renderCards(featuredEvents)}</div>
+              <div className="border-t border-border p-4 sm:p-5">{renderCards(upcomingEvents)}</div>
             </details>
             <details className="group rounded-xl border border-border">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-lg font-semibold marker:hidden">
                 <span>
-                  All scheduled events
+                  All upcoming events
                   <span className="ml-2 text-sm font-normal text-muted-foreground">
-                    ({otherEvents.length})
+                    ({allUpcomingEvents.length})
                   </span>
                 </span>
                 <span
@@ -289,7 +276,9 @@ export function EventsBrowser({
                   ⌄
                 </span>
               </summary>
-              <div className="border-t border-border p-4 sm:p-5">{renderCards(otherEvents)}</div>
+              <div className="border-t border-border p-4 sm:p-5">
+                {renderCards(allUpcomingEvents)}
+              </div>
             </details>
           </div>
           {pastEvents.length > 0 && <PastEventsList events={pastEvents} />}
@@ -501,9 +490,7 @@ export function EventsBrowser({
                                 <span>
                                   {countFor(e.id)} / {e.capacity} registered
                                 </span>
-                                <span className="font-semibold">
-                                  {money(e.price_cents, e.members_only)}
-                                </span>
+                                <span className="font-semibold">{eventCardPriceLabel(e)}</span>
                               </div>
                             </div>
                           ) : (

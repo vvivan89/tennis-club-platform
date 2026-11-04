@@ -17,6 +17,7 @@ export type EventRosterRow = {
   avatar_url: string | null;
   tennis_skill_level: number | null;
   birthday_emoji_visible?: boolean;
+  guest_count?: number;
   email?: string | null;
   phone?: string | null;
 };
@@ -75,6 +76,7 @@ export function RosterSelect({
 }
 
 export function EventParticipantsPanel({
+  party,
   eventCourtCount,
   eventPriceCents,
   view,
@@ -86,6 +88,7 @@ export function EventParticipantsPanel({
   isManager,
   waitlisted,
 }: {
+  party: boolean;
   eventCourtCount: number;
   eventPriceCents: number;
   view: 'courts' | 'list';
@@ -97,6 +100,8 @@ export function EventParticipantsPanel({
   isManager: boolean;
   waitlisted: EventRosterRow[];
 }) {
+  if (party) return <PartyParticipantsPanel confirmed={confirmed} />;
+
   return (
     <>
       <section>
@@ -176,6 +181,9 @@ export function EventParticipantsPanel({
                                 birthdayVisible={player.birthday_emoji_visible}
                                 compact
                               />
+                              {Number(player.guest_count ?? 0) > 0 && (
+                                <span className="ml-2 text-xs text-muted-foreground">+1 guest</span>
+                              )}
                               {isManager && (player.email || player.phone) && (
                                 <p className="mt-1 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
                                   {player.email && (
@@ -223,6 +231,9 @@ export function EventParticipantsPanel({
                         birthdayVisible={player.birthday_emoji_visible}
                         compact
                       />
+                      {Number(player.guest_count ?? 0) > 0 && (
+                        <span className="ml-2 text-xs text-muted-foreground">+1 guest</span>
+                      )}
                       {isManager && (player.email || player.phone) && (
                         <span className="mt-1 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
                           {player.email && (
@@ -289,6 +300,38 @@ export function EventParticipantsPanel({
         </div>
       </section>
     </>
+  );
+}
+
+export function PartyParticipantsPanel({ confirmed }: { confirmed: EventRosterRow[] }) {
+  return (
+    <section>
+      <h2 className="text-xl font-semibold">Participants</h2>
+      {confirmed.length ? (
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {confirmed.map((participant) => (
+            <div
+              key={participant.registration_id}
+              className="flex min-h-10 items-center justify-between gap-3 py-2"
+            >
+              <UserIdentity
+                name={participant.full_name}
+                avatarUrl={participant.avatar_url}
+                birthdayVisible={participant.birthday_emoji_visible}
+                compact
+              />
+              {Number(participant.guest_count ?? 0) > 0 && (
+                <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                  +1 guest
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-3 text-sm text-muted-foreground">No participants have registered yet.</p>
+      )}
+    </section>
   );
 }
 
@@ -367,6 +410,8 @@ export function EventScoresPanel({
   setScoreTwo: (value: string) => void;
   opponents: EventRosterRow[];
 }) {
+  if (event.event_type === 'party') return null;
+
   return (
     <section>
       <h2 className="text-xl font-semibold">Scores</h2>

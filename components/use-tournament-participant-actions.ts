@@ -263,6 +263,32 @@ export function useTournamentParticipantActions({
     setError('');
     setMessage('');
     try {
+      const fixedLeaguePair = leagueTournament
+        ? pairs.find(
+            (pair) =>
+              pair.status !== 'withdrawn' &&
+              !!pair.league_team_id &&
+              (pair.player_one_id === participant.id || pair.player_two_id === participant.id),
+          )
+        : undefined;
+      if (fixedLeaguePair) {
+        const { error: teamError } = await db.rpc('admin_withdraw_league_event_team', {
+          p_participant_id: participant.id,
+        });
+        if (teamError) throw new Error(teamError.message);
+        const partnerName =
+          fixedLeaguePair.player_one_id === participant.id
+            ? fixedLeaguePair.player_two_name
+            : fixedLeaguePair.player_one_name;
+        setMessage(
+          partnerName
+            ? `${participant.display_name} and ${partnerName} were withdrawn from the League event.`
+            : `${participant.display_name} and their League partner were withdrawn from the event.`,
+        );
+        await refresh();
+        return;
+      }
+
       const { error: participantError } = await db
         .from('tournament_participants')
         .update({ status: 'withdrawn', updated_at: new Date().toISOString() })
@@ -277,7 +303,7 @@ export function useTournamentParticipantActions({
       if (pairIds.length) {
         const { error: pairError } = await db
           .from('tournament_pairs')
-          .update({ status: 'withdrawn', updated_at: new Date().toISOString() })
+          .update({ status: 'withdrawn' })
           .in('id', pairIds);
         if (pairError) throw new Error(pairError.message);
         const unplayedMatches = matches.filter(

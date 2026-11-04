@@ -57,9 +57,7 @@ function PaymentReturnContent() {
               'Cancellation was confirmed and the provisional tournament registration was removed.',
             );
           } else {
-            setCancellationNotice(
-              'Checkout cancellation was received. No provisional guest tournament registration needed to be removed.',
-            );
+            setCancellationNotice('Checkout cancellation was received.');
           }
           setCancellationResolved(true);
         })

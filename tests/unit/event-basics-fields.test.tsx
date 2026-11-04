@@ -15,6 +15,8 @@ function values(overrides: Partial<EventFormValues> = {}): EventFormValues {
     registration_closes_at: '',
     capacity: 24,
     price_cents: 0,
+    allow_plus_one: false,
+    guest_price_cents: 0,
     members_only: false,
     status: 'draft',
     location: 'Club courts',
@@ -67,6 +69,59 @@ describe('EventBasicsFields', () => {
     });
     expect(onEventTypeChange).toHaveBeenCalledWith('team_tournament');
     expect(change).toHaveBeenCalledWith('gender_restriction', 'female');
+  });
+
+  it('shows Party-specific pricing and hides social registration controls', () => {
+    const change = vi.fn();
+    render(
+      <EventBasicsFields
+        v={values({ event_type: 'party', allow_plus_one: true, guest_price_cents: 1250 })}
+        change={change}
+        showOrganizerField={false}
+        currentUserId="admin-1"
+        organizerOptions={[]}
+        onEventTypeChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText('Event type')).toHaveValue('party');
+    expect(screen.getByLabelText('Cost per member (CAD)')).toBeInTheDocument();
+    expect(screen.getByLabelText('Allow guests')).toBeChecked();
+    expect(screen.getByLabelText('Cost per guest (CAD)')).toHaveValue(12.5);
+    expect(screen.queryByLabelText('Courts available')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Participant gender restriction (optional)')).toBeNull();
+    expect(screen.queryByLabelText('Active paid membership required')).toBeNull();
+    expect(screen.queryByLabelText('Enable waitlist when full')).toBeNull();
+  });
+
+  it('keeps the guest fee beside the Allow guests control and hides it when unchecked', () => {
+    const change = vi.fn();
+    const { rerender } = render(
+      <EventBasicsFields
+        v={values({ event_type: 'party' })}
+        change={change}
+        showOrganizerField={false}
+        currentUserId="admin-1"
+        organizerOptions={[]}
+        onEventTypeChange={vi.fn()}
+      />,
+    );
+    expect(screen.queryByLabelText('Cost per guest (CAD)')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('Allow guests'));
+    expect(change).toHaveBeenCalledWith('allow_plus_one', true);
+
+    rerender(
+      <EventBasicsFields
+        v={values({ event_type: 'party', allow_plus_one: true })}
+        change={change}
+        showOrganizerField={false}
+        currentUserId="admin-1"
+        organizerOptions={[]}
+        onEventTypeChange={vi.fn()}
+      />,
+    );
+    const guestFee = screen.getByLabelText('Cost per guest (CAD)');
+    expect(guestFee).toBeInTheDocument();
+    expect(guestFee.parentElement?.parentElement).toHaveClass('sm:col-span-2');
   });
 
   it('hides social-only inputs and allows an unlimited non-League tournament capacity', () => {

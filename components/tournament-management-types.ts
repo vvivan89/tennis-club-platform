@@ -33,6 +33,7 @@ export type Pair = {
   player_two_id: string;
   group_number: number | null;
   status?: string;
+  league_team_id?: string | null;
   player_one_name?: string;
   player_two_name?: string;
 };

@@ -16,6 +16,7 @@ type CardEvent = {
   registration_closes_at: string | null;
   gender_restriction: string | null;
   price_cents: number;
+  allow_plus_one: boolean;
   event_type: string;
   tournament_format: string | null;
   tournament_config: { categories?: string[]; registration_mode?: string } | null;
@@ -60,7 +61,7 @@ export function EventCardActions({ eventId }: { eventId: string }) {
         db
           .from('events')
           .select(
-            'slug,status,starts_at,registration_opens_at,registration_closes_at,gender_restriction,price_cents,event_type,tournament_format,tournament_config,social_doubles_ladder_id',
+            'slug,status,starts_at,registration_opens_at,registration_closes_at,gender_restriction,price_cents,event_type,allow_plus_one,tournament_format,tournament_config,social_doubles_ladder_id',
           )
           .eq('id', eventId)
           .maybeSingle(),
@@ -73,7 +74,7 @@ export function EventCardActions({ eventId }: { eventId: string }) {
             db.from('profiles').select('application_status').eq('id', user.id).maybeSingle(),
             db
               .from('registrations')
-              .select('id,status,created_at,payment_status')
+              .select('id,status,created_at,payment_status,amount_cents')
               .eq('event_id', eventId)
               .eq('user_id', user.id)
               .in('status', ['confirmed', 'waitlisted'])
@@ -105,7 +106,13 @@ export function EventCardActions({ eventId }: { eventId: string }) {
             setRegistrationId(reg.id);
             setRegistrationStatus(reg.status as RegistrationStatus);
             setRegistrationPaymentPending(
-              ev?.price_cents > 0 && reg.status === 'confirmed' && reg.payment_status === 'pending',
+              ev?.event_type === 'party'
+                ? reg.amount_cents > 0 &&
+                    reg.status === 'confirmed' &&
+                    reg.payment_status === 'pending'
+                : ev?.price_cents > 0 &&
+                    reg.status === 'confirmed' &&
+                    reg.payment_status === 'pending',
             );
           }
           const tournamentEntries = (tournamentEntriesResult.data ?? []) as TournamentEntry[];
@@ -143,11 +150,12 @@ export function EventCardActions({ eventId }: { eventId: string }) {
       : (event?.tournament_config?.categories ?? ['mixed', 'men', 'women']).length;
   const multiCategoryTournament = event?.event_type === 'tournament' && configuredCategoryCount > 1;
   const needsRegistrationSelection =
-    event?.event_type === 'tournament' &&
-    (event.social_doubles_ladder_id !== null ||
-      configuredCategoryCount > 1 ||
-      (event.tournament_format === 'doubles' &&
-        (event.tournament_config?.registration_mode ?? 'both') === 'both'));
+    event?.event_type === 'party' ||
+    (event?.event_type === 'tournament' &&
+      (event.social_doubles_ladder_id !== null ||
+        configuredCategoryCount > 1 ||
+        (event.tournament_format === 'doubles' &&
+          (event.tournament_config?.registration_mode ?? 'both') === 'both')));
   if (!ready || !signedIn || !approved || !event) return null;
   async function act(withdraw = false) {
     setBusy(true);

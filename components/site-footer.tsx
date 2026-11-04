@@ -1,6 +1,8 @@
 'use client';
+import Image from 'next/image';
 import { useEffect, useState } from 'react';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
+import { useSiteHeaderState } from '@/components/site-header-state';
 import Link from 'next/link';
 import {
   Facebook,
@@ -18,6 +20,7 @@ export function SiteFooter({
   shortName: suppliedShortName,
   socialLinks: suppliedSocialLinks,
 }: { clubName?: string; shortName?: string; socialLinks?: Social[] } = {}) {
+  const { logoUrl } = useSiteHeaderState();
   const [settings, setSettings] = useState({
     club_name: suppliedClubName || 'Port Coquitlam Tennis Club',
     short_name: suppliedShortName || 'PCTC',
@@ -56,13 +59,23 @@ export function SiteFooter({
   return (
     <footer className="mt-auto border-t border-border py-6">
       <div className="page-container flex flex-col gap-4 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-        <Link href="/" className="flex items-center gap-3">
-          <span className="brand-mark h-8 w-8 text-base">P</span>
-          <span>
-            <strong className="block text-sm text-foreground">{clubName}</strong>
-            <span className="text-[9px] tracking-[0.2em]">{shortName}</span>
+        <div className="flex items-center gap-3">
+          {logoUrl ? (
+            <Image
+              src={logoUrl}
+              alt={`${settings.club_name} logo`}
+              width={32}
+              height={32}
+              unoptimized
+              className="h-8 w-8 shrink-0 rounded-md object-contain"
+            />
+          ) : (
+            <span className="brand-mark h-8 w-8 text-base">P</span>
+          )}
+          <span className="whitespace-nowrap">
+            <span className="block text-sm font-medium text-foreground">{clubName}</span>
           </span>
-        </Link>
+        </div>
         <div className="flex flex-wrap items-center gap-3">
           <Link href="/legal/terms" className="hover:text-foreground">
             Terms &amp; Conditions

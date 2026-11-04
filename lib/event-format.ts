@@ -14,6 +14,8 @@ export type EventRow = {
   members_only: boolean;
   status: string;
   event_type: string;
+  allow_plus_one?: boolean;
+  guest_price_cents?: number;
   location?: string | null;
 };
 
@@ -75,6 +77,22 @@ export function eventDisplayTitle(event: Pick<EventRow, 'title' | 'series_number
   return event.series_number ? `${event.title} #${event.series_number}` : event.title;
 }
 
+export function eventCardPriceLabel(
+  event: Pick<
+    EventRow,
+    'price_cents' | 'members_only' | 'event_type' | 'allow_plus_one' | 'guest_price_cents'
+  >,
+) {
+  const memberPrice = eventPriceLabel(event.price_cents, event.members_only);
+  if (event.event_type !== 'party') return memberPrice;
+  const guestPrice = !event.allow_plus_one
+    ? ''
+    : event.guest_price_cents
+      ? ` · +${eventPriceLabel(event.guest_price_cents, false)} per guest`
+      : ' · +1 guest included';
+  return `${memberPrice} per member${guestPrice}`;
+}
+
 export function eventDateLabel(value: string) {
   return new Intl.DateTimeFormat('en-CA', {
     weekday: 'short',
@@ -86,10 +104,33 @@ export function eventDateLabel(value: string) {
   }).format(new Date(value));
 }
 
+export function eventDateRangeLabel(startsAt: string, endsAt?: string | null) {
+  if (!endsAt) return eventDateLabel(startsAt);
+
+  const start = new Date(startsAt);
+  const end = new Date(endsAt);
+  const sameDay =
+    start.getFullYear() === end.getFullYear() &&
+    start.getMonth() === end.getMonth() &&
+    start.getDate() === end.getDate();
+
+  if (!sameDay) return `${eventDateLabel(startsAt)} - ${eventDateLabel(endsAt)}`;
+
+  const endTime = new Intl.DateTimeFormat('en-CA', {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(end);
+  return `${eventDateLabel(startsAt)} - ${endTime}`;
+}
+
 export function eventPriceLabel(cents: number, membersOnly: boolean) {
   return cents === 0
     ? membersOnly
       ? 'Free for members'
       : 'Free'
     : new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(cents / 100);
+}
+
+export function formatCadPrice(cents: number) {
+  return new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(cents / 100);
 }

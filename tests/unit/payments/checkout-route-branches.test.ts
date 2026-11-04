@@ -835,6 +835,25 @@ describe('checkout route branch coverage', () => {
     );
   });
 
+  it('charges a Party registration using its saved member and guest total', async () => {
+    configureEventRegistration(
+      { amount_cents: 3500, guest_count: 1 },
+      { event_type: 'party', price_cents: 2500, guest_price_cents: 1000 },
+    );
+    mocks.responses['profiles.maybeSingle'] = [{ ...profile, email: null }];
+    mocks.responses['payments.maybeSingle'] = [null];
+    mocks.responses['payments.then'] = [{ data: null, error: null }];
+
+    const response = await POST(
+      request({ purpose: 'event_registration', businessRecordId: 'registration-1' }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.createPendingPayment).toHaveBeenCalledWith(
+      expect.objectContaining({ businessRecordId: 'registration-1', amountMinor: 3500 }),
+    );
+  });
+
   it('reuses succeeded payments and open checkout sessions', async () => {
     configureCommon();
     mocks.responses['memberships.maybeSingle'] = [currentMembership()];

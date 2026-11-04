@@ -24,7 +24,10 @@ export const leagueTournamentConfig = (
 export function getEventTypeFormUpdate(value: string, current: EventFormValues) {
   const update: Partial<EventFormValues> = {
     is_league_tournament: value === 'league_tournament',
-    event_type: value === 'social' || value === 'social_doubles_ladder' ? value : 'tournament',
+    event_type:
+      value === 'social' || value === 'social_doubles_ladder' || value === 'party'
+        ? value
+        : 'tournament',
   };
   if (value === 'league_tournament') {
     Object.assign(update, {
@@ -34,6 +37,12 @@ export function getEventTypeFormUpdate(value: string, current: EventFormValues) 
     });
   } else if (value === 'social_doubles_ladder') {
     Object.assign(update, { gender_restriction: current.ladder_gender, members_only: true });
+  } else if (value === 'party') {
+    Object.assign(update, {
+      gender_restriction: null,
+      members_only: false,
+      waitlist_enabled: false,
+    });
   } else if (value !== 'social') {
     Object.assign(update, {
       members_only: false,
@@ -115,6 +124,8 @@ export const initialEventFormValues: EventFormValues = {
   registration_closes_at: '',
   capacity: 16,
   price_cents: 0,
+  allow_plus_one: false,
+  guest_price_cents: 0,
   members_only: true,
   status: 'published',
   location: 'Port Coquitlam Tennis Club',

@@ -206,6 +206,22 @@ describe('EventCardActions', () => {
     expect(mocks.routerPush).toHaveBeenLastCalledWith('/events/summer-open#registration');
   });
 
+  it('sends Party registration to its detail section even when +1 is disabled', async () => {
+    mocks.event = {
+      ...mocks.event,
+      slug: 'club-party',
+      event_type: 'party',
+      allow_plus_one: false,
+    };
+    const user = userEvent.setup();
+    render(<EventCardActions eventId="event-party" />);
+
+    await user.click(await screen.findByRole('button', { name: 'Register' }));
+
+    expect(mocks.routerPush).toHaveBeenCalledWith('/events/club-party#registration');
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
   it('labels one pending tournament entry and hides closed events without a registration', async () => {
     mocks.event = {
       ...mocks.event,

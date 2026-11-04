@@ -11,6 +11,8 @@ export type EventInfo = {
   registration_closes_at: string | null;
   capacity: number;
   price_cents: number;
+  allow_plus_one?: boolean;
+  guest_price_cents?: number;
   members_only: boolean;
   status: string;
   location: string;

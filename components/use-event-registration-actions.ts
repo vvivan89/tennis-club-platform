@@ -11,9 +11,11 @@ export function useEventRegistrationActions({
   event,
   currentUserId,
   liveRegistrationId,
+  liveGuestCount,
   livePaymentStatus,
   operationKeys,
   setLiveRegistrationId,
+  setLiveGuestCount,
   setLiveStatus,
   setLivePaymentStatus,
   setBusy,
@@ -30,9 +32,11 @@ export function useEventRegistrationActions({
   event: EventInfo;
   currentUserId: string | null;
   liveRegistrationId: string | null;
+  liveGuestCount: number;
   livePaymentStatus: string | null;
   operationKeys: MutableRefObject<Record<string, string>>;
   setLiveRegistrationId: Dispatch<SetStateAction<string | null>>;
+  setLiveGuestCount: Dispatch<SetStateAction<number>>;
   setLiveStatus: Dispatch<SetStateAction<string | null>>;
   setLivePaymentStatus: Dispatch<SetStateAction<string | null>>;
   setBusy: Dispatch<SetStateAction<boolean>>;
@@ -151,36 +155,46 @@ export function useEventRegistrationActions({
     }
   }
 
-  async function register() {
+  async function register(withGuest = false) {
     setBusy(true);
     setError('');
     setMessage('');
     try {
       const operation = `register:${event.id}`;
       const idempotencyKey = (operationKeys.current[operation] ??= crypto.randomUUID());
-      const { data, error } = await db.rpc('register_for_event', {
-        p_event_id: event.id,
-        p_idempotency_key: idempotencyKey,
-      });
+      const { data, error } =
+        event.event_type === 'party'
+          ? await db.rpc('register_for_party_event', {
+              p_event_id: event.id,
+              p_with_guest: withGuest,
+              p_idempotency_key: idempotencyKey,
+            })
+          : await db.rpc('register_for_event', {
+              p_event_id: event.id,
+              p_idempotency_key: idempotencyKey,
+            });
       if (error) throw error;
       delete operationKeys.current[operation];
       const result = data?.[0];
       let paymentStatus: string | null = null;
+      let amountCents = 0;
       if (result?.registration_id) {
         const { data: created, error: createdError } = await db
           .from('registrations')
-          .select('payment_status')
+          .select('payment_status,amount_cents,guest_count')
           .eq('id', result.registration_id)
           .eq('user_id', currentUserId ?? '')
           .maybeSingle();
         if (createdError) throw createdError;
         paymentStatus = created?.payment_status ?? null;
+        amountCents = Number(created?.amount_cents ?? 0);
+        setLiveGuestCount(Number(created?.guest_count ?? 0));
         setLiveRegistrationId(result.registration_id);
         setLiveStatus(result.registration_state);
-        setLivePaymentStatus(paymentStatus ?? (event.price_cents > 0 ? 'pending' : 'not_required'));
+        setLivePaymentStatus(paymentStatus ?? (amountCents > 0 ? 'pending' : 'not_required'));
       }
       if (
-        event.price_cents > 0 &&
+        amountCents > 0 &&
         result?.registration_state === 'confirmed' &&
         result?.registration_id &&
         paymentStatus !== 'paid'
@@ -213,7 +227,9 @@ export function useEventRegistrationActions({
     setMessage('');
     try {
       if (
-        event.price_cents > 0 &&
+        event.price_cents +
+          (event.event_type === 'party' ? (event.guest_price_cents ?? 0) * liveGuestCount : 0) >
+          0 &&
         livePaymentStatus !== 'paid' &&
         livePaymentStatus !== 'not_required'
       ) {
@@ -237,6 +253,7 @@ export function useEventRegistrationActions({
       if (error) throw error;
       delete operationKeys.current[operation];
       setLiveRegistrationId(null);
+      setLiveGuestCount(0);
       setLiveStatus('cancelled');
       await refreshRoster();
       setMessage('Registration withdrawn. The waitlist has been updated.');

@@ -64,7 +64,9 @@ export function EventBasicsFields({
                   : 'doubles_tournament'
               : v.event_type === 'social_doubles_ladder'
                 ? 'social_doubles_ladder'
-                : 'social'
+                : v.event_type === 'party'
+                  ? 'party'
+                  : 'social'
           }
           onChange={(e) => onEventTypeChange(e.target.value)}
           className="block h-10 w-full rounded-md border border-input bg-background px-3"
@@ -72,24 +74,27 @@ export function EventBasicsFields({
           <option value="doubles_tournament">Doubles tournament</option>
           <option value="league_tournament">League</option>
           <option value="social">Social event</option>
+          <option value="party">Party</option>
           <option value="social_doubles_ladder">Social Doubles Ladder</option>
           <option value="team_tournament">Team tournament</option>
         </select>
       </label>
-      {v.event_type !== 'tournament' && v.event_type !== 'social_doubles_ladder' && (
-        <label className="space-y-1 text-sm font-medium">
-          Participant gender restriction (optional)
-          <select
-            value={v.gender_restriction ?? ''}
-            onChange={(e) => change('gender_restriction', e.target.value || null)}
-            className="block h-10 w-full rounded-md border border-input bg-background px-3"
-          >
-            <option value="">No restriction</option>
-            <option value="male">Male participants only</option>
-            <option value="female">Female participants only</option>
-          </select>
-        </label>
-      )}
+      {v.event_type !== 'tournament' &&
+        v.event_type !== 'social_doubles_ladder' &&
+        v.event_type !== 'party' && (
+          <label className="space-y-1 text-sm font-medium">
+            Participant gender restriction (optional)
+            <select
+              value={v.gender_restriction ?? ''}
+              onChange={(e) => change('gender_restriction', e.target.value || null)}
+              className="block h-10 w-full rounded-md border border-input bg-background px-3"
+            >
+              <option value="">No restriction</option>
+              <option value="male">Male participants only</option>
+              <option value="female">Female participants only</option>
+            </select>
+          </label>
+        )}
       <label className="space-y-1 text-sm font-medium">
         Publication
         <select
@@ -114,7 +119,7 @@ export function EventBasicsFields({
         </label>
       )}
       <label className="space-y-1 text-sm font-medium">
-        Cost per person (CAD)
+        {v.event_type === 'party' ? 'Cost per member (CAD)' : 'Cost per person (CAD)'}
         <Input
           type="number"
           min="0"
@@ -124,6 +129,33 @@ export function EventBasicsFields({
           onChange={(e) => change('price_cents', Math.round(Number(e.target.value || 0) * 100))}
         />
       </label>
+      {v.event_type === 'party' && (
+        <div className="flex items-end gap-4 sm:col-span-2">
+          <label className="flex min-h-10 shrink-0 items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={v.allow_plus_one}
+              onChange={(e) => change('allow_plus_one', e.target.checked)}
+            />{' '}
+            Allow guests
+          </label>
+          {v.allow_plus_one && (
+            <label className="w-full max-w-56 space-y-1 text-sm font-medium">
+              Cost per guest (CAD)
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                required
+                value={(v.guest_price_cents / 100).toString()}
+                onChange={(e) =>
+                  change('guest_price_cents', Math.round(Number(e.target.value || 0) * 100))
+                }
+              />
+            </label>
+          )}
+        </div>
+      )}
       <label className="space-y-1 text-sm font-medium">
         {v.event_type === 'tournament' && !v.is_league_tournament
           ? 'Total tournament capacity (optional)'
@@ -148,21 +180,23 @@ export function EventBasicsFields({
         Location
         <Input required value={v.location} onChange={(e) => change('location', e.target.value)} />
       </label>
-      <label className="space-y-1 text-sm font-medium">
-        Courts available
-        <select
-          value={v.court_count}
-          onChange={(e) => change('court_count', Number(e.target.value))}
-          className="block h-10 w-full rounded-md border border-input bg-background px-3"
-        >
-          {[1, 2, 3, 4].map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </select>
-      </label>
-      {v.event_type !== 'tournament' && (
+      {v.event_type !== 'party' && (
+        <label className="space-y-1 text-sm font-medium">
+          Courts available
+          <select
+            value={v.court_count}
+            onChange={(e) => change('court_count', Number(e.target.value))}
+            className="block h-10 w-full rounded-md border border-input bg-background px-3"
+          >
+            {[1, 2, 3, 4].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {v.event_type !== 'tournament' && v.event_type !== 'party' && (
         <label className="flex items-center gap-2 text-sm">
           <input
             type="checkbox"
@@ -172,14 +206,16 @@ export function EventBasicsFields({
           Active paid membership required
         </label>
       )}
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={v.waitlist_enabled}
-          onChange={(e) => change('waitlist_enabled', e.target.checked)}
-        />{' '}
-        Enable waitlist when full
-      </label>
+      {v.event_type !== 'party' && (
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={v.waitlist_enabled}
+            onChange={(e) => change('waitlist_enabled', e.target.checked)}
+          />{' '}
+          Enable waitlist when full
+        </label>
+      )}
       <label className="space-y-1 text-sm font-medium sm:col-span-2">
         Organizer notes
         <textarea
