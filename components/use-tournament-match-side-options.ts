@@ -4,11 +4,16 @@ import {
   compareTournamentEntries,
   compareTournamentHeadToHead,
   createSideStats,
-  defaultRankingPriority,
+  tournamentRankingPriority,
   tournamentRankingMetric,
 } from '@/lib/tournament-standings';
 import type { MemberOption } from '@/components/searchable-member-select';
 import type { Match, Pair, Team } from '@/components/tournament-management-types';
+import {
+  effectiveTournamentGroup,
+  hasSingleTournamentGroup,
+  tournamentGroupCount,
+} from '@/lib/tournament-groups';
 
 type Props = {
   isTeam: boolean;
@@ -35,32 +40,34 @@ export function useTournamentMatchSideOptions({
   matchCategory,
   matchPhase,
 }: Props) {
+  const singleGroup = hasSingleTournamentGroup(config);
   function groupPlaceDescription(entry: Team | Pair): string {
-    const groupNumber = entry.group_number;
+    const groupNumber = effectiveTournamentGroup(entry.group_number, config);
     if (!groupNumber) return 'No group assigned';
-    const category = isTeam ? 'team' : activeCategory;
+    if (singleGroup) return 'Single group';
+    const category = isTeam ? matchCategory : activeCategory;
     const roundRobinPhase = isTeam ? 'team_round_robin' : 'round_robin';
     const groupEntries = (
       isTeam
         ? teams
         : pairs.filter((pair) => pair.status !== 'withdrawn' && pair.category === activeCategory)
-    ).filter((item) => item.group_number === groupNumber);
+    ).filter((item) => effectiveTournamentGroup(item.group_number, config) === groupNumber);
     const groupMatches = matches.filter(
       (match) =>
         match.category === category &&
         match.phase === roundRobinPhase &&
-        match.group_number === groupNumber &&
+        effectiveTournamentGroup(match.group_number, config) === groupNumber &&
         match.status !== 'cancelled',
     );
     const playedMatches = groupMatches.filter(
       (match) => match.status === 'completed' || match.winner_side != null,
     );
-    if (!playedMatches.length) return `Group ${groupNumber}`;
+    if (!playedMatches.length) return singleGroup ? '' : `Group ${groupNumber}`;
 
     const stats = groupEntries.map((side) =>
       accumulateSideStats(createSideStats(side), playedMatches, isTeam),
     );
-    const priority = config?.ranking_priority ?? defaultRankingPriority(isTeam);
+    const priority = tournamentRankingPriority(config, isTeam);
     const metric = tournamentRankingMetric;
     stats.sort((a, b) =>
       compareTournamentEntries(
@@ -76,27 +83,29 @@ export function useTournamentMatchSideOptions({
     const place = stats.findIndex((row) => row.side.id === entry.id) + 1;
     const expectedMatches = (groupEntries.length * (groupEntries.length - 1)) / 2;
     const allPlayed = expectedMatches > 0 && playedMatches.length >= expectedMatches;
-    return `Group ${groupNumber} · ${allPlayed ? 'Place' : 'Current place'} ${place}`;
+    return `${singleGroup ? '' : `Group ${groupNumber} · `}${allPlayed ? 'Place' : 'Current place'} ${place}`;
   }
 
   const knockoutSlotOptions: MemberOption[] = (() => {
-    const groupCount = Math.max(2, Number(config?.group_count ?? 2));
+    const groupCount = tournamentGroupCount(config);
     const promote = Math.max(1, Number(config?.promoted_teams_per_group ?? 2));
-    const category = isTeam ? 'team' : activeCategory;
+    const category = isTeam ? matchCategory : activeCategory;
     const roundRobinPhase = isTeam ? 'team_round_robin' : 'round_robin';
     const sides = isTeam
       ? teams
       : pairs.filter((pair) => pair.status !== 'withdrawn' && pair.category === activeCategory);
     const completedGroups = new Set<number>();
     for (let group = 1; group <= groupCount; group += 1) {
-      const groupEntries = sides.filter((side) => side.group_number === group);
+      const groupEntries = sides.filter(
+        (side) => effectiveTournamentGroup(side.group_number, config) === group,
+      );
       const expectedMatches = (groupEntries.length * (groupEntries.length - 1)) / 2;
       if (!expectedMatches) continue;
       const groupMatches = matches.filter(
         (match) =>
           match.category === category &&
           match.phase === roundRobinPhase &&
-          match.group_number === group &&
+          effectiveTournamentGroup(match.group_number, config) === group &&
           match.status !== 'cancelled',
       );
       if (
@@ -114,8 +123,10 @@ export function useTournamentMatchSideOptions({
       .filter(({ group }) => !completedGroups.has(group))
       .map(({ group, label, rank }) => ({
         id: `slot:${label}`,
-        full_name: label,
-        statusText: `Expected qualifier · Group ${group} · Place ${rank}`,
+        full_name: singleGroup ? `Team ${rank}` : label,
+        statusText: singleGroup
+          ? `Expected qualifier · Place ${rank}`
+          : `Expected qualifier · Group ${group} · Place ${rank}`,
       }));
   })();
 
@@ -152,9 +163,12 @@ export function useTournamentMatchSideOptions({
       : side === 1
         ? match.pair_two_id
         : match.pair_one_id;
-    const otherGroup = isTeam
-      ? teams.find((team) => team.id === otherId)?.group_number
-      : pairs.find((pair) => pair.id === otherId)?.group_number;
+    const otherGroup = effectiveTournamentGroup(
+      isTeam
+        ? teams.find((team) => team.id === otherId)?.group_number
+        : pairs.find((pair) => pair.id === otherId)?.group_number,
+      config,
+    );
     const otherSlotValue = matchSideValue(match, side === 1 ? 2 : 1);
     const entries = (
       isTeam
@@ -162,8 +176,9 @@ export function useTournamentMatchSideOptions({
         : pairs.filter((pair) => pair.status !== 'withdrawn' && pair.category === match.category)
     ).map((item): MemberOption => {
       const name = 'name' in item ? item.name : `${item.player_one_name} + ${item.player_two_name}`;
+      const itemGroup = effectiveTournamentGroup(item.group_number, config);
       const sameGroupRule =
-        match.phase.includes('round_robin') && otherGroup && item.group_number !== otherGroup;
+        match.phase.includes('round_robin') && otherGroup && itemGroup !== otherGroup;
       const reason =
         item.id === otherId
           ? `Already selected as side ${side === 1 ? 'two' : 'one'}`
@@ -175,9 +190,11 @@ export function useTournamentMatchSideOptions({
         full_name: name,
         statusText: match.phase.includes('knockout')
           ? groupPlaceDescription(item)
-          : 'group_number' in item && item.group_number
-            ? `Group ${item.group_number}`
-            : 'No group assigned',
+          : singleGroup
+            ? undefined
+            : 'group_number' in item && item.group_number
+              ? `Group ${item.group_number}`
+              : 'No group assigned',
         available: !reason,
         unavailableReason: reason || undefined,
       };

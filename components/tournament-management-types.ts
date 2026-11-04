@@ -23,6 +23,7 @@ export type Participant = {
   gender_override: string | null;
   status: string;
   confirmation_status?: string;
+  captain_requested?: boolean;
 };
 
 export type Pair = {
@@ -43,5 +44,9 @@ export type MatchPlayer = {
   team_id: string | null;
 };
 
-export type Match = TournamentMatchCore & { notes: string };
+export type Match = TournamentMatchCore & {
+  notes: string;
+  player_one_name?: string | null;
+  opponent_one_name?: string | null;
+};
 export type Member = { id: string; full_name: string; email: string; gender: string | null };

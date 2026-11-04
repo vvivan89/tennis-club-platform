@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { createPaymentServiceClient } from '@/lib/payments/server';
 import { AdminNav } from '@/components/admin-nav';
+import { FloatingFeedback } from '@/components/floating-feedback';
 import { AdminPaymentsWorkspace } from '@/components/admin-payments-workspace';
 import { syncPaymentProceeds } from '@/lib/payments/proceeds';
 import { loadPaymentEventTitles } from '@/lib/payments/event-titles';
@@ -222,14 +223,11 @@ export default async function AdminPaymentsPage() {
   return (
     <main className="min-h-screen bg-background text-foreground">
       <AdminNav />
+      {error && <FloatingFeedback error="Could not load payments. Please try again." />}
       <div className="page-container py-10">
         <p className="eyebrow">Administration</p>
         <h1 className="section-title">Payments</h1>
-        {error ? (
-          <p role="alert" className="mt-6 rounded-lg border border-destructive p-4 text-sm">
-            Could not load payments.
-          </p>
-        ) : (
+        {error ? null : (
           <AdminPaymentsWorkspace
             rows={rows}
             initialSettings={{

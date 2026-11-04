@@ -15,6 +15,8 @@ export type TournamentMatchCore = {
   winner_side: number | null;
   team_points_one: number;
   team_points_two: number;
+  team_one_lineup_public?: boolean;
+  team_two_lineup_public?: boolean;
   status: string;
 };
 

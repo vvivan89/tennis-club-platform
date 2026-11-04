@@ -1,6 +1,6 @@
 'use client';
 
-import Image from 'next/image';
+import { UserIdentity } from '@/components/user-identity';
 import type { Dispatch, SetStateAction } from 'react';
 import { Button } from '@/components/ui/button';
 import { TennisLoader } from '@/components/tennis-loader';
@@ -13,6 +13,7 @@ type Participant = {
   full_name: string;
   avatar_url: string | null;
   tennis_skill_level: number | null;
+  birthday_emoji_visible?: boolean;
 };
 type Session = Record<number, string[]>;
 type RecordLine = { wins: number; losses: number };
@@ -143,31 +144,17 @@ export function EventCourtAssignmentDialog({
                                 onDragStateChange={setDragging}
                                 className="shadow-sm"
                               >
-                                {p.avatar_url ? (
-                                  <Image
-                                    src={p.avatar_url}
-                                    alt=""
-                                    width={40}
-                                    height={40}
-                                    unoptimized
-                                    className="h-10 w-10 rounded-full object-cover"
-                                  />
-                                ) : (
-                                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-secondary text-sm font-semibold">
-                                    {(p.full_name || '?')
-                                      .split(/\s+/)
-                                      .map((x) => x[0])
-                                      .slice(0, 2)
-                                      .join('')
-                                      .toUpperCase()}
-                                  </div>
-                                )}
                                 <div className="min-w-0">
-                                  <p className="truncate text-sm font-medium">{p.full_name}</p>
+                                  <UserIdentity
+                                    name={p.full_name}
+                                    skillLevel={p.tennis_skill_level}
+                                    avatarUrl={p.avatar_url}
+                                    birthdayVisible={p.birthday_emoji_visible}
+                                    compact
+                                  />
                                   <p className="text-xs text-muted-foreground">
                                     W:{records[p.user_id]?.wins ?? 0}, - L:
-                                    {records[p.user_id]?.losses ?? 0} ·{' '}
-                                    {p.tennis_skill_level ?? '—'}
+                                    {records[p.user_id]?.losses ?? 0}
                                   </p>
                                 </div>
                               </DraggableItem>
@@ -216,19 +203,16 @@ export function EventCourtAssignmentDialog({
                             appearance="assignment"
                             onDragStateChange={setDragging}
                           >
-                            <div className="grid h-10 w-10 place-items-center rounded-full bg-secondary text-sm font-semibold">
-                              {(p.full_name || '?')
-                                .split(/\s+/)
-                                .map((x) => x[0])
-                                .slice(0, 2)
-                                .join('')
-                                .toUpperCase()}
-                            </div>
                             <div>
-                              <p className="text-sm font-medium">{p.full_name}</p>
+                              <UserIdentity
+                                name={p.full_name}
+                                skillLevel={p.tennis_skill_level}
+                                avatarUrl={p.avatar_url}
+                                compact
+                              />
                               <p className="text-xs text-muted-foreground">
                                 W:{records[p.user_id]?.wins ?? 0}, - L:
-                                {records[p.user_id]?.losses ?? 0} · {p.tennis_skill_level ?? '—'}
+                                {records[p.user_id]?.losses ?? 0}
                               </p>
                             </div>
                           </DraggableItem>

@@ -1,5 +1,6 @@
 'use client';
 import { TennisLoader } from '@/components/tennis-loader';
+import { FloatingFeedback } from '@/components/floating-feedback';
 
 import { FormEvent, useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -240,19 +241,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
                 )}
               </label>
             )}
-            {error && (
-              <p
-                role="alert"
-                className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
-              >
-                {error}
-              </p>
-            )}
-            {notice && (
-              <p role="status" className="rounded-md border border-border bg-muted p-3 text-sm">
-                {notice}
-              </p>
-            )}
+            <FloatingFeedback error={error} message={notice} />
             <Button className="w-full" type="submit" disabled={busy}>
               {busy ? <TennisLoader compact label="Please wait" /> : config.submit}
             </Button>

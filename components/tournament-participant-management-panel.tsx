@@ -1,13 +1,16 @@
-import type { FormEvent, ReactNode } from 'react';
+import { useState, type FormEvent, type ReactNode } from 'react';
 import Image from 'next/image';
+import { Square, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { SearchableMemberSelect, type MemberOption } from '@/components/searchable-member-select';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import type { Member, Pair, Participant, Team } from '@/components/tournament-management-types';
 
 type ActionResult = { error: { message: string } | null };
 type Props = {
+  eventId: string;
   isTeam: boolean;
   leagueTournament: boolean;
   activeCategory: string;
@@ -15,6 +18,7 @@ type Props = {
   participants: Participant[];
   pairs: Pair[];
   teams: Team[];
+  groupCount: number;
   availablePairPlayers: Participant[];
   leagueMemberEligibility: Record<string, boolean>;
   groupOptions: ReactNode;
@@ -29,7 +33,7 @@ type Props = {
   participantGender: string;
   teamName: string;
   teamColor: string;
-  teamLogo: string;
+  teamLogo: File | null;
   captain: string;
   pairCategory: string;
   pairOne: string;
@@ -51,7 +55,7 @@ type Props = {
   setParticipantGender: (value: string) => void;
   setTeamName: (value: string) => void;
   setTeamColor: (value: string) => void;
-  setTeamLogo: (value: string) => void;
+  setTeamLogo: (value: File | null) => void;
   setCaptain: (value: string) => void;
   setPairOne: (value: string) => void;
   setPairTwo: (value: string) => void;
@@ -61,7 +65,14 @@ type Props = {
 };
 
 export function TournamentParticipantManagementPanel(props: Props) {
+  const [editingTeamId, setEditingTeamId] = useState<string | null>(null);
+  const [editTeamName, setEditTeamName] = useState('');
+  const [editTeamColor, setEditTeamColor] = useState('');
+  const [editTeamLogo, setEditTeamLogo] = useState<File | null>(null);
+  const [removeTeamLogo, setRemoveTeamLogo] = useState(false);
+  const [pendingRemoveTeam, setPendingRemoveTeam] = useState<Team | null>(null);
   const {
+    eventId,
     isTeam,
     leagueTournament,
     activeCategory,
@@ -69,6 +80,7 @@ export function TournamentParticipantManagementPanel(props: Props) {
     participants,
     pairs,
     teams,
+    groupCount,
     availablePairPlayers,
     leagueMemberEligibility,
     groupOptions,
@@ -282,7 +294,28 @@ export function TournamentParticipantManagementPanel(props: Props) {
                 >
                   <div className="flex min-w-0 items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="font-medium">{p.display_name}</p>
+                      <p className="flex items-center gap-2 font-medium">
+                        {p.display_name}
+                        {(p.captain_requested ||
+                          teams.some((team) => team.captain_user_id === p.user_id)) && (
+                          <span
+                            role="img"
+                            aria-label={
+                              teams.some((team) => team.captain_user_id === p.user_id)
+                                ? 'Confirmed team captain'
+                                : 'Captain request pending'
+                            }
+                            className={`relative inline-flex h-5 w-5 shrink-0 ${teams.some((team) => team.captain_user_id === p.user_id) ? 'text-primary' : 'text-muted-foreground'}`}
+                          >
+                            <Square aria-hidden="true" className="absolute inset-0 h-5 w-5" />
+                            <Star
+                              aria-hidden="true"
+                              className="absolute inset-[5px] h-[10px] w-[10px]"
+                              fill="currentColor"
+                            />
+                          </span>
+                        )}
+                      </p>
                       <p className="text-xs text-muted-foreground">
                         {members.some((member) => member.id === p.user_id)
                           ? 'Member'
@@ -392,7 +425,7 @@ export function TournamentParticipantManagementPanel(props: Props) {
         <div className="space-y-3 rounded-lg border border-border p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="font-semibold">{isTeam ? 'Teams and captains' : 'Doubles pairs'}</h3>
-            {!leagueTournament && (
+            {!leagueTournament && groupCount > 1 && (
               <Button
                 type="button"
                 variant="outline"
@@ -434,23 +467,36 @@ export function TournamentParticipantManagementPanel(props: Props) {
                   value={teamColor}
                   onChange={(e) => setTeamColor(e.target.value)}
                 />
-                <Input
-                  placeholder="Team logo URL (optional)"
-                  value={teamLogo}
-                  onChange={(e) => setTeamLogo(e.target.value)}
-                />
+                <label className="block text-sm">
+                  Team logo (optional)
+                  <Input
+                    className="mt-1"
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    onChange={(e) => setTeamLogo(e.target.files?.[0] ?? null)}
+                  />
+                  {teamLogo && (
+                    <span className="mt-1 block text-xs text-muted-foreground">
+                      {teamLogo.name}
+                    </span>
+                  )}
+                </label>
                 <label className="block text-sm">
                   Captain
                   <SearchableMemberSelect
                     value={captain}
                     onChange={setCaptain}
                     placeholder="Search captains"
-                    options={members.map((m): MemberOption => ({
-                      id: m.id,
-                      full_name: m.full_name || m.email,
-                      email: m.email,
-                      statusText: 'Eligible club member',
-                    }))}
+                    options={participants
+                      .filter(
+                        (participant) => participant.status === 'registered' && participant.user_id,
+                      )
+                      .map((participant): MemberOption => ({
+                        id: participant.user_id!,
+                        full_name: participant.display_name,
+                        email: participant.email ?? '',
+                        statusText: 'Registered player',
+                      }))}
                   />
                 </label>
                 <Button type="submit" disabled={busy}>
@@ -494,28 +540,191 @@ export function TournamentParticipantManagementPanel(props: Props) {
                           players
                         </p>
                       </div>
-                      <label className="flex items-center gap-1 text-xs text-muted-foreground">
-                        Group
-                        <select
-                          aria-label={`Group for ${t.name}`}
-                          className="h-8 rounded-md border border-input bg-background px-2 text-foreground"
-                          value={t.group_number ?? ''}
-                          onChange={(event) =>
-                            void runAction(
-                              () =>
-                                saveEntryGroup(
-                                  t.id,
-                                  event.target.value ? Number(event.target.value) : null,
-                                ),
-                              'Group assignment updated.',
-                            )
-                          }
-                        >
-                          <option value="">Unassigned</option>
-                          {groupOptions}
-                        </select>
-                      </label>
+                      {groupCount > 1 && (
+                        <label className="flex items-center gap-1 text-xs text-muted-foreground">
+                          Group
+                          <select
+                            aria-label={`Group for ${t.name}`}
+                            className="h-8 rounded-md border border-input bg-background px-2 text-foreground"
+                            value={t.group_number ?? ''}
+                            onChange={(event) =>
+                              void runAction(
+                                () =>
+                                  saveEntryGroup(
+                                    t.id,
+                                    event.target.value ? Number(event.target.value) : null,
+                                  ),
+                                'Group assignment updated.',
+                              )
+                            }
+                          >
+                            <option value="">Unassigned</option>
+                            {groupOptions}
+                          </select>
+                        </label>
+                      )}
                     </div>
+                    <label className="mt-3 block text-xs text-muted-foreground">
+                      Captain
+                      <select
+                        aria-label={`Captain for ${t.name}`}
+                        className="mt-1 block h-9 w-full rounded-md border border-input bg-background px-2 text-foreground"
+                        value={t.captain_user_id ?? ''}
+                        onChange={(event) =>
+                          void runAction(
+                            () =>
+                              db
+                                .from('tournament_teams')
+                                .update({ captain_user_id: event.target.value || null })
+                                .eq('id', t.id),
+                            'Team captain updated.',
+                          )
+                        }
+                      >
+                        <option value="">No captain</option>
+                        {participants
+                          .filter(
+                            (participant) =>
+                              participant.team_id === t.id &&
+                              participant.status === 'registered' &&
+                              participant.user_id,
+                          )
+                          .map((participant) => (
+                            <option key={participant.user_id} value={participant.user_id!}>
+                              {participant.display_name}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                    {editingTeamId === t.id ? (
+                      <form
+                        className="mt-3 space-y-2 rounded-md bg-secondary/30 p-3"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          void runAction(async () => {
+                            if (editTeamLogo && !editTeamLogo.type.startsWith('image/'))
+                              return {
+                                error: { message: 'Choose an image file for the team logo.' },
+                              };
+                            if (editTeamLogo && editTeamLogo.size > 3 * 1024 * 1024)
+                              return { error: { message: 'Team logo must be 3 MB or smaller.' } };
+                            let logoUrl = removeTeamLogo ? null : t.logo_url;
+                            if (editTeamLogo) {
+                              const extension =
+                                editTeamLogo.name
+                                  .split('.')
+                                  .pop()
+                                  ?.toLowerCase()
+                                  .replace(/[^a-z0-9]/g, '') || 'png';
+                              const path = `${eventId}/team-logo-${Date.now()}.${extension}`;
+                              const { error } = await db.storage
+                                .from('tournament-team-logos')
+                                .upload(path, editTeamLogo, { contentType: editTeamLogo.type });
+                              if (error) return { error };
+                              logoUrl = db.storage.from('tournament-team-logos').getPublicUrl(path)
+                                .data.publicUrl;
+                            }
+                            return db
+                              .from('tournament_teams')
+                              .update({
+                                name: editTeamName.trim(),
+                                color: editTeamColor.trim(),
+                                logo_url: logoUrl,
+                              })
+                              .eq('id', t.id);
+                          }, 'Team updated.').then((saved) => {
+                            if (saved) {
+                              setEditingTeamId(null);
+                              setEditTeamLogo(null);
+                              setRemoveTeamLogo(false);
+                            }
+                          });
+                        }}
+                      >
+                        <Input
+                          aria-label={`Team name for ${t.name}`}
+                          value={editTeamName}
+                          onChange={(event) => setEditTeamName(event.target.value)}
+                          required
+                        />
+                        <Input
+                          aria-label={`Team color for ${t.name}`}
+                          value={editTeamColor}
+                          onChange={(event) => setEditTeamColor(event.target.value)}
+                          placeholder="Team colour"
+                        />
+                        <label className="block text-xs">
+                          Upload replacement logo
+                          <Input
+                            className="mt-1"
+                            type="file"
+                            accept="image/png,image/jpeg,image/webp,image/gif"
+                            onChange={(event) => {
+                              setEditTeamLogo(event.target.files?.[0] ?? null);
+                              setRemoveTeamLogo(false);
+                            }}
+                          />
+                        </label>
+                        {t.logo_url && !removeTeamLogo && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setEditTeamLogo(null);
+                              setRemoveTeamLogo(true);
+                            }}
+                          >
+                            Remove current logo
+                          </Button>
+                        )}
+                        {removeTeamLogo && (
+                          <p className="text-xs text-muted-foreground">Logo will be removed.</p>
+                        )}
+                        <div className="flex gap-2">
+                          <Button type="submit" size="sm" disabled={busy}>
+                            Save team
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setEditingTeamId(null);
+                              setEditTeamLogo(null);
+                              setRemoveTeamLogo(false);
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </form>
+                    ) : (
+                      <div className="mt-3 flex gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setEditingTeamId(t.id);
+                            setEditTeamName(t.name);
+                            setEditTeamColor(t.color || '');
+                            setEditTeamLogo(null);
+                            setRemoveTeamLogo(false);
+                          }}
+                        >
+                          Edit team
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => setPendingRemoveTeam(t)}
+                        >
+                          Remove team
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -624,7 +833,7 @@ export function TournamentParticipantManagementPanel(props: Props) {
                           </Button>
                         </>
                       )}
-                      {!leagueTournament && (
+                      {!leagueTournament && groupCount > 1 && (
                         <label className="flex items-center gap-1 text-xs text-muted-foreground">
                           Group
                           <select
@@ -693,6 +902,26 @@ export function TournamentParticipantManagementPanel(props: Props) {
           )}
         </div>
       </div>
+      <ConfirmDialog
+        open={!!pendingRemoveTeam}
+        title="Remove team?"
+        description={
+          pendingRemoveTeam
+            ? `Remove ${pendingRemoveTeam.name}? Its players will stay registered and become unassigned.`
+            : ''
+        }
+        confirmLabel="Remove team"
+        destructive
+        busy={busy}
+        onCancel={() => setPendingRemoveTeam(null)}
+        onConfirm={() => {
+          if (!pendingRemoveTeam) return;
+          void runAction(
+            () => db.from('tournament_teams').delete().eq('id', pendingRemoveTeam.id),
+            'Team removed. Its players are now unassigned.',
+          ).then((removed) => removed && setPendingRemoveTeam(null));
+        }}
+      />
     </div>
   );
 }

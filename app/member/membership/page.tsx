@@ -199,6 +199,8 @@ export default function MembershipPortal() {
       setMessage('Accept the current membership waiver before continuing to checkout.');
       return;
     }
+    setToastMessage('');
+    setToastError('');
     setCheckoutLoading(true);
     setMessage('');
     try {
@@ -239,7 +241,7 @@ export default function MembershipPortal() {
           instructions: result.instructions || '',
           message: result.message || '',
         });
-        setMessage(
+        setToastMessage(
           'Interac payment request submitted. Your membership remains unpaid until the club confirms receipt.',
         );
         await load();
@@ -252,7 +254,7 @@ export default function MembershipPortal() {
       console.error('[Member membership] Checkout start failed', {
         message: error instanceof Error ? error.message : 'unknown',
       });
-      setMessage(
+      setToastError(
         error instanceof Error ? error.message : 'Could not start checkout. Please try again.',
       );
       await load();

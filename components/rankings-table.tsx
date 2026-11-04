@@ -2,6 +2,7 @@
 import { useMemo, useState } from 'react';
 import type { RankingPlayer } from '@/lib/player-rankings';
 import { medal } from '@/lib/player-rankings';
+import { UserIdentity } from '@/components/user-identity';
 import type { ReactNode } from 'react';
 type SortKey = 'points' | 'gamesPercentage' | 'gamesWon' | 'setsWon' | 'skillRating' | 'name';
 type GenderFilter = 'all' | 'male' | 'female';
@@ -134,7 +135,35 @@ export function RankingsTable({
     <thead className="bg-muted">
       <tr>
         <th className="px-4 py-3 text-left font-medium">Rank</th>
-        {header('name', 'Player')}
+        <th className="px-4 py-3 text-left font-medium">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <button
+              type="button"
+              aria-label="Sort by Player"
+              onClick={() =>
+                setSort((current) => ({
+                  key: 'name',
+                  asc: current.key === 'name' ? !current.asc : true,
+                }))
+              }
+            >
+              Player {sort.key === 'name' ? (sort.asc ? '↑' : '↓') : ''}
+            </button>
+            <button
+              type="button"
+              aria-label="Sort by Skill rating"
+              className="text-xs text-muted-foreground hover:underline"
+              onClick={() =>
+                setSort((current) => ({
+                  key: 'skillRating',
+                  asc: current.key === 'skillRating' ? !current.asc : false,
+                }))
+              }
+            >
+              Skill rating {sort.key === 'skillRating' ? (sort.asc ? '↑' : '↓') : ''}
+            </button>
+          </div>
+        </th>
         {ladderPoints && (
           <th className="whitespace-nowrap px-4 py-3 text-right font-medium">
             <button
@@ -153,7 +182,6 @@ export function RankingsTable({
         {header('gamesPercentage', 'Games won %', true)}
         {header('gamesWon', 'Games', true)}
         {header('setsWon', 'Sets', true)}
-        {header('skillRating', 'Skill rating', true)}
       </tr>
     </thead>
   );
@@ -179,12 +207,20 @@ export function RankingsTable({
           )}
         </td>
         <td className="px-4 py-3">
-          {player.name}
-          {isMe && (
-            <span className="ml-2 rounded-full bg-primary/15 px-2 py-0.5 text-xs text-primary">
-              You
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            <UserIdentity
+              name={player.name}
+              skillLevel={player.skillRating}
+              avatarUrl={player.avatarUrl}
+              birthdayVisible={player.birthdayVisible}
+              compact
+            />
+            {isMe && (
+              <span className="shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-xs text-primary">
+                You
+              </span>
+            )}
+          </div>
         </td>
         {ladderPoints && (
           <td className="px-4 py-3 text-right">
@@ -199,9 +235,6 @@ export function RankingsTable({
         </td>
         <td className="px-4 py-3 text-right">
           {rank === undefined ? '—' : `${player.setsWon}–${player.setsLost}`}
-        </td>
-        <td className="px-4 py-3 text-right">
-          {player.skillRating === null ? '—' : player.skillRating.toFixed(1)}
         </td>
       </tr>
     );

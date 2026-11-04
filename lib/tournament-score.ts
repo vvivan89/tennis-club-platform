@@ -4,6 +4,17 @@ export type ScoreEvaluation =
   | { error: string }
   | { error?: undefined; sets: SetScore[]; winner: 1 | 2; pointsOne: number; pointsTwo: number };
 
+export function teamMatchPoints(sets: SetScore[], scoringTemplate?: string) {
+  if (scoringTemplate !== 'team_two_sets_bonus_third') return { pointsOne: 0, pointsTwo: 0 };
+  const evaluation = evaluateTournamentScore(
+    sets.map((set) => `${set.one}-${set.two}`).join(', '),
+    scoringTemplate,
+  );
+  return 'error' in evaluation
+    ? { pointsOne: 0, pointsTwo: 0 }
+    : { pointsOne: evaluation.pointsOne, pointsTwo: evaluation.pointsTwo };
+}
+
 const sideWins = (sets: SetScore[]) => ({
   one: sets.filter((s) => s.one > s.two).length,
   two: sets.filter((s) => s.two > s.one).length,

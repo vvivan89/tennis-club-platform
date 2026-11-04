@@ -3,6 +3,8 @@ export type RankingPlayer = {
   name: string;
   gender?: 'male' | 'female' | null;
   skillRating: number | null;
+  avatarUrl?: string | null;
+  birthdayVisible?: boolean;
   gamesWon: number;
   gamesLost: number;
   setsWon: number;

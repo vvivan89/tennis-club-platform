@@ -3,7 +3,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { RichTextEditor } from '@/components/rich-text-editor';
 import { PriorityBuckets } from '@/components/priority-buckets';
-import { reorderRankingPriority, type TournamentConfig } from '@/lib/tournament-config';
+import {
+  reorderRankingPriority,
+  usesTeamStandingsPoints,
+  type TournamentConfig,
+} from '@/lib/tournament-config';
 import type { EventFormValues } from '@/components/event-form-types';
 
 type AvailableCompetition = {
@@ -125,10 +129,12 @@ export function EventCompetitionFields({
             </>
           )}
           <div className="grid gap-4 md:grid-cols-2">
-            {v.tournament_format !== 'team' && !v.is_league_tournament && (
+            {!v.is_league_tournament && (
               <fieldset className="space-y-3 rounded-md border border-border p-3">
                 <legend className="text-sm font-medium">
-                  Enabled doubles categories and capacity
+                  {v.tournament_format === 'team'
+                    ? 'Enabled team match categories'
+                    : 'Enabled doubles categories and capacity'}
                 </legend>
                 <div className="space-y-2">
                   {(
@@ -142,7 +148,7 @@ export function EventCompetitionFields({
                     return (
                       <div
                         key={key}
-                        className="grid grid-cols-[minmax(0,1fr)_7rem] items-center gap-3"
+                        className={`grid items-center gap-3 ${v.tournament_format === 'team' ? 'grid-cols-1' : 'grid-cols-[minmax(0,1fr)_7rem]'}`}
                       >
                         <label className="flex items-center gap-2 text-sm">
                           <input
@@ -161,7 +167,7 @@ export function EventCompetitionFields({
                           />
                           {label}
                         </label>
-                        {enabled && (
+                        {enabled && v.tournament_format !== 'team' && (
                           <Input
                             aria-label={label}
                             type="number"
@@ -185,40 +191,37 @@ export function EventCompetitionFields({
                   })}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Capacity limits count registered participant entries. Both the total limit and the
-                  category limit are enforced when registering.
+                  {v.tournament_format === 'team'
+                    ? 'Players register once and are assigned to a team. These categories apply to team matches and player eligibility.'
+                    : 'Capacity limits count registered participant entries. Both the total limit and the category limit are enforced when registering.'}
                 </p>
               </fieldset>
             )}
-            {v.tournament_format === 'team' && (
-              <fieldset className="space-y-3 rounded-md border border-border p-3">
-                <legend className="px-1 text-sm font-medium">Team registration capacity</legend>
-                <label className="grid grid-cols-[minmax(0,1fr)_7rem] items-center gap-3 text-sm">
-                  Team tournament
-                  <Input
-                    aria-label="Team tournament"
-                    type="number"
-                    min="1"
-                    max="1000"
-                    placeholder="No limit"
-                    value={v.tournament_config.category_capacities?.team ?? ''}
-                    onChange={(e) =>
+            {v.tournament_format === 'team' &&
+              !v.is_league_tournament &&
+              (v.tournament_config.categories ?? []).filter((category: string) =>
+                ['mixed', 'men', 'women'].includes(category),
+              ).length > 1 && (
+                <label className="flex items-start gap-2 rounded-md border border-border p-3 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={v.tournament_config.show_overall_results === true}
+                    onChange={(event) =>
                       change('tournament_config', {
                         ...v.tournament_config,
-                        category_capacities: {
-                          ...v.tournament_config.category_capacities,
-                          team: e.target.value === '' ? null : Number(e.target.value),
-                        },
+                        show_overall_results: event.target.checked,
                       })
                     }
                   />
+                  <span>
+                    <span className="block font-medium">Show overall results</span>
+                    <span className="block text-xs text-muted-foreground">
+                      Add an Overall view that combines each team’s points and match results across
+                      all enabled categories.
+                    </span>
+                  </span>
                 </label>
-                <p className="text-xs text-muted-foreground">
-                  Capacity limits count registered participant entries. Both the total limit and the
-                  category limit are enforced when registering.
-                </p>
-              </fieldset>
-            )}
+              )}
             {v.tournament_format !== 'team' && (
               <fieldset className="space-y-2 rounded-md border border-border p-3">
                 <legend className="px-1 text-sm font-medium">Registration options</legend>
@@ -333,22 +336,38 @@ export function EventCompetitionFields({
                               v.tournament_config.scoring_template ??
                               'best_of_three'
                             }
-                            onChange={(e) =>
+                            onChange={(e) => {
+                              const scoringTemplates = {
+                                ...v.tournament_config.scoring_templates,
+                                [key]: e.target.value,
+                              };
+                              const rankingPriority =
+                                v.tournament_format === 'team' && key === 'team_round_robin'
+                                  ? e.target.value === 'team_two_sets_bonus_third'
+                                    ? [
+                                        'points',
+                                        ...(v.tournament_config.ranking_priority ?? []).filter(
+                                          (item) => item !== 'points',
+                                        ),
+                                      ]
+                                    : (v.tournament_config.ranking_priority ?? []).filter(
+                                        (item) => item !== 'points',
+                                      )
+                                  : v.tournament_config.ranking_priority;
                               change('tournament_config', {
                                 ...v.tournament_config,
-                                scoring_templates: {
-                                  ...v.tournament_config.scoring_templates,
-                                  [key]: e.target.value,
-                                },
-                              })
-                            }
+                                scoring_templates: scoringTemplates,
+                                ...(rankingPriority ? { ranking_priority: rankingPriority } : {}),
+                              });
+                            }}
                             className="block h-10 w-full rounded-md border border-input bg-background px-3"
                           >
                             <option value="one_set">One set</option>
                             <option value="best_of_three">Best of three sets</option>
                             {v.tournament_format === 'team' && (
                               <option value="team_two_sets_bonus_third">
-                                Two sets; if split, third set awards team points
+                                Two sets; a 2–0 win earns 3 team points; if split 1–1, play a third
+                                set for 2 points to the winner and 1 to the loser
                               </option>
                             )}
                           </select>
@@ -434,8 +453,10 @@ export function EventCompetitionFields({
                 Drag criteria into the order you want. You can also use the move buttons.
               </p>
               {(() => {
+                const pointsEnabled =
+                  v.tournament_format === 'team' && usesTeamStandingsPoints(v.tournament_config);
                 const options = [
-                  ...(v.tournament_format === 'team' ? ([['points', 'Points']] as const) : []),
+                  ...(pointsEnabled ? ([['points', 'Points']] as const) : []),
                   ['matches_won', 'Matches won'],
                   ['sets_won', 'Sets won'],
                   ['games_won', 'Games won'],
@@ -444,34 +465,32 @@ export function EventCompetitionFields({
                   ['head_to_head', 'Head-to-head'],
                 ] as const;
                 const optionKeys: string[] = options.map(([key]) => key);
-                const defaults: string[] =
-                  v.tournament_format === 'team'
-                    ? ['points', 'matches_won', 'sets_won', 'games_won']
-                    : ['matches_won', 'sets_won', 'games_won'];
+                const defaults: string[] = pointsEnabled
+                  ? ['points', 'matches_won', 'sets_won', 'games_won']
+                  : ['matches_won', 'sets_won', 'games_won'];
                 const saved: string[] = (v.tournament_config.ranking_priority ?? defaults).filter(
                   (key) => optionKeys.includes(key as (typeof optionKeys)[number]),
                 );
                 const withoutPoints: string[] = [
                   ...new Set<string>(saved.filter((key) => key !== 'points')),
                 ];
-                const priority: string[] =
-                  v.tournament_format === 'team' ? ['points', ...withoutPoints] : withoutPoints;
+                const priority: string[] = pointsEnabled
+                  ? ['points', ...withoutPoints]
+                  : withoutPoints;
                 const reorder = (source: string, targetIndex: number) => {
                   const next = reorderRankingPriority(priority, source, targetIndex);
-                  const ordered =
-                    v.tournament_format === 'team'
-                      ? ['points', ...next.filter((key) => key !== 'points')]
-                      : next;
+                  const ordered = pointsEnabled
+                    ? ['points', ...next.filter((key) => key !== 'points')]
+                    : next;
                   change('tournament_config', {
                     ...v.tournament_config,
                     ranking_priority: ordered,
                   });
                 };
                 const updatePriority = (next: string[]) => {
-                  const ordered =
-                    v.tournament_format === 'team'
-                      ? ['points', ...next.filter((key) => key !== 'points')]
-                      : next;
+                  const ordered = pointsEnabled
+                    ? ['points', ...next.filter((key) => key !== 'points')]
+                    : next;
                   change('tournament_config', {
                     ...v.tournament_config,
                     ranking_priority: ordered,
@@ -493,7 +512,7 @@ export function EventCompetitionFields({
                     priority={priority}
                     selectedAriaLabel="Group ranking priorities"
                     priorityWidth="w-24"
-                    lockedKeys={v.tournament_format === 'team' ? ['points'] : []}
+                    lockedKeys={pointsEnabled ? ['points'] : []}
                     onDropSelectedPanel={(source) => {
                       if (source && !priority.includes(source))
                         updatePriority([...priority.filter((key) => key !== 'points'), source]);
@@ -502,7 +521,7 @@ export function EventCompetitionFields({
                       if (source !== target) reorder(source, index);
                     }}
                     onDropAvailablePanel={(source) => {
-                      if (source && !(v.tournament_format === 'team' && source === 'points'))
+                      if (source && !(pointsEnabled && source === 'points'))
                         updatePriority(priority.filter((key) => key !== source));
                     }}
                     onDropAvailableItem={dropAvailableItem}

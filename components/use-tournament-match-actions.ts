@@ -3,7 +3,12 @@ import type { FormEvent } from 'react';
 import { phaseStartAfterPrerequisites } from '@/lib/tournament-schedule';
 import { pairMatchPlayerRows } from '@/lib/tournament-match';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
-import type { TournamentConfig } from '@/lib/tournament-config';
+import {
+  isPlayerEligibleForTeamMatch,
+  normalizeTournamentGender,
+  type TournamentConfig,
+} from '@/lib/tournament-config';
+import { effectiveTournamentGroup } from '@/lib/tournament-groups';
 import type {
   Match,
   MatchPlayer,
@@ -97,7 +102,12 @@ export function useTournamentMatchActions({
     setMatchTime,
     setPendingScheduleConflicts,
   } = setters;
-  async function saveTeamPairing(match: Match, teamId: string, side: 1 | 2) {
+  async function saveTeamPairing(
+    match: Match,
+    teamId: string,
+    side: 1 | 2,
+    visibleToPublic: boolean,
+  ) {
     if (match.status === 'completed' || match.status === 'cancelled') {
       setError('Completed match pairings are preserved as historical records.');
       return;
@@ -110,6 +120,28 @@ export function useTournamentMatchActions({
     const second = selection?.second ?? currentPair[1]?.participant_id ?? '';
     if (!first || !second || first === second) {
       setError('Select two different players from the same team.');
+      return;
+    }
+    const firstParticipant = participants.find((participant) => participant.id === first);
+    const secondParticipant = participants.find((participant) => participant.id === second);
+    const firstGender = normalizeTournamentGender(
+      firstParticipant?.gender_override ?? firstParticipant?.gender,
+    );
+    const secondGender = normalizeTournamentGender(
+      secondParticipant?.gender_override ?? secondParticipant?.gender,
+    );
+    if (
+      !isPlayerEligibleForTeamMatch(
+        match.category,
+        firstParticipant?.gender_override ?? firstParticipant?.gender,
+      ) ||
+      !isPlayerEligibleForTeamMatch(
+        match.category,
+        secondParticipant?.gender_override ?? secondParticipant?.gender,
+      ) ||
+      (match.category === 'mixed' && firstGender === secondGender)
+    ) {
+      setError('The selected players do not meet this match category’s gender requirements.');
       return;
     }
     setBusy(true);
@@ -127,7 +159,16 @@ export function useTournamentMatchActions({
         { match_id: match.id, participant_id: second, side, team_id: teamId },
       ]);
       if (insertError) throw new Error(insertError.message);
-      setMessage('Team doubles pairing saved.');
+      const visibilityUpdate =
+        side === 1
+          ? { team_one_lineup_public: visibleToPublic }
+          : { team_two_lineup_public: visibleToPublic };
+      const { error: visibilityError } = await db
+        .from('tournament_matches')
+        .update(visibilityUpdate)
+        .eq('id', match.id);
+      if (visibilityError) throw new Error(visibilityError.message);
+      setMessage('Team lineup saved.');
       await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save team pairing.');
@@ -165,12 +206,18 @@ export function useTournamentMatchActions({
       return;
     }
     if (matchTime && !byeSide && !isValidSchedule(matchTime)) return;
-    const inferredGroup = isTeam
-      ? teams.find((t) => t.id === firstId)?.group_number
-      : pairs.find((p) => p.id === firstId)?.group_number;
-    const secondGroup = isTeam
-      ? teams.find((t) => t.id === secondId)?.group_number
-      : pairs.find((p) => p.id === secondId)?.group_number;
+    const inferredGroup = effectiveTournamentGroup(
+      isTeam
+        ? teams.find((t) => t.id === firstId)?.group_number
+        : pairs.find((p) => p.id === firstId)?.group_number,
+      config,
+    );
+    const secondGroup = effectiveTournamentGroup(
+      isTeam
+        ? teams.find((t) => t.id === secondId)?.group_number
+        : pairs.find((p) => p.id === secondId)?.group_number,
+      config,
+    );
     if (
       !byeSide &&
       matchPhase.includes('round_robin') &&
@@ -491,12 +538,18 @@ export function useTournamentMatchActions({
       return;
     }
     if (match.phase.includes('round_robin') && selectedId) {
-      const selectedGroup = teamMatch
-        ? teams.find((team) => team.id === selectedId)?.group_number
-        : pairs.find((pair) => pair.id === selectedId)?.group_number;
-      const otherGroup = teamMatch
-        ? teams.find((team) => team.id === otherId)?.group_number
-        : pairs.find((pair) => pair.id === otherId)?.group_number;
+      const selectedGroup = effectiveTournamentGroup(
+        teamMatch
+          ? teams.find((team) => team.id === selectedId)?.group_number
+          : pairs.find((pair) => pair.id === selectedId)?.group_number,
+        config,
+      );
+      const otherGroup = effectiveTournamentGroup(
+        teamMatch
+          ? teams.find((team) => team.id === otherId)?.group_number
+          : pairs.find((pair) => pair.id === otherId)?.group_number,
+        config,
+      );
       if (!selectedGroup || selectedGroup !== otherGroup) {
         setError('Round-robin matches must be between entries in the same group.');
         return;
@@ -582,7 +635,7 @@ export function useTournamentMatchActions({
     setMessage('');
     try {
       const phase = matchPhase;
-      const category = isTeam ? 'team' : activeCategory;
+      const category = isTeam ? matchCategory : activeCategory;
       let currentMatches = [...matches];
       if (phase === 'round_robin' || phase === 'team_round_robin') {
         const sides = (
@@ -596,11 +649,11 @@ export function useTournamentMatchActions({
         );
         const groups = new Map<number, Array<(typeof sides)[number]>>();
         for (const side of sides) {
-          const groupNumber = side.group_number;
+          const groupNumber = effectiveTournamentGroup(side.group_number, config);
           if (!groupNumber) continue;
           groups.set(groupNumber, [...(groups.get(groupNumber) ?? []), side]);
         }
-        if (sides.some((side) => !side.group_number)) {
+        if (sides.some((side) => !effectiveTournamentGroup(side.group_number, config))) {
           throw new Error(
             'Assign every team or doubles pair to a group before suggesting the round-robin schedule.',
           );
@@ -615,7 +668,7 @@ export function useTournamentMatchActions({
             keyFor(
               (isTeam ? m.team_one_id : m.pair_one_id) || '',
               (isTeam ? m.team_two_id : m.pair_two_id) || '',
-              m.group_number ?? 0,
+              effectiveTournamentGroup(m.group_number, config) ?? 0,
             ),
           ),
         );

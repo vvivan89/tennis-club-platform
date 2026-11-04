@@ -1,3 +1,5 @@
+import { usesTeamStandingsPoints, type TournamentConfig } from '@/lib/tournament-config';
+
 export type RankingKey =
   | 'points'
   | 'matches_won'
@@ -18,6 +20,16 @@ export function defaultRankingPriority(isTeam: boolean): RankingKey[] {
     'game_difference',
     'head_to_head',
   ];
+}
+
+export function tournamentRankingPriority(
+  config: TournamentConfig | null,
+  isTeam: boolean,
+): RankingKey[] {
+  const priority = config?.ranking_priority ?? defaultRankingPriority(isTeam);
+  if (!isTeam) return priority;
+  if (!usesTeamStandingsPoints(config)) return priority.filter((key) => key !== 'points');
+  return ['points', ...priority.filter((key) => key !== 'points')];
 }
 
 export function tournamentRankingMetric(

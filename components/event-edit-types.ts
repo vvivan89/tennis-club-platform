@@ -5,6 +5,7 @@ export type Person = {
   email?: string | null;
   phone?: string | null;
   tennis_skill_level?: number | null;
+  birthday_emoji_visible?: boolean;
   suspended?: boolean;
   gender?: string | null;
 };
@@ -17,6 +18,7 @@ export type Participant = {
   full_name: string;
   avatar_url: string | null;
   tennis_skill_level: number | null;
+  birthday_emoji_visible?: boolean;
   email?: string | null;
   phone?: string | null;
 };

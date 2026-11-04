@@ -45,7 +45,7 @@ export function useTournamentAdminMatchView({
   const adminMatchList = useMemo(() => {
     const list = matches.filter(
       (match) =>
-        match.category === (isTeam ? 'team' : activeCategory) && match.phase === matchPhase,
+        match.category === (isTeam ? matchCategory : activeCategory) && match.phase === matchPhase,
     );
     return list.sort((a, b) => {
       if (matchPhase.includes('knockout')) {
@@ -71,6 +71,7 @@ export function useTournamentAdminMatchView({
     matches,
     isTeam,
     activeCategory,
+    matchCategory,
     matchPhase,
     isRoundRobinPhase,
     adminRoundByMatch,

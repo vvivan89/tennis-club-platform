@@ -1,6 +1,6 @@
 'use client';
 import { TennisLoader } from '@/components/tennis-loader';
-import { FormFeedback } from '@/components/form-feedback';
+import { FloatingFeedback } from '@/components/floating-feedback';
 
 import { FormEvent, useState } from 'react';
 import Link from 'next/link';
@@ -61,7 +61,7 @@ export default function ResetPasswordPage() {
                   required
                 />
               </label>
-              <FormFeedback error={error} message={notice} />
+              <FloatingFeedback error={error} message={notice} />
               <Button className="w-full" type="submit" disabled={busy}>
                 {busy ? <TennisLoader compact label="Saving" /> : 'Update password'}
               </Button>

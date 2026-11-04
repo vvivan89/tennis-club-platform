@@ -4,6 +4,8 @@ import type { FormEvent } from 'react';
 import { Pencil, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TennisLoader } from '@/components/tennis-loader';
+import { UserIdentity } from '@/components/user-identity';
+import type { ReactNode } from 'react';
 
 export type EventRosterRow = {
   registration_id: string;
@@ -14,6 +16,7 @@ export type EventRosterRow = {
   full_name: string;
   avatar_url: string | null;
   tennis_skill_level: number | null;
+  birthday_emoji_visible?: boolean;
   email?: string | null;
   phone?: string | null;
 };
@@ -166,12 +169,13 @@ export function EventParticipantsPanel({
                                 ) + 1}
                                 .
                               </span>
-                              <span className="font-medium">{player.full_name || 'Member'}</span>
-                              {player.tennis_skill_level != null && (
-                                <span className="ml-2 text-xs text-muted-foreground">
-                                  {player.tennis_skill_level}
-                                </span>
-                              )}
+                              <UserIdentity
+                                name={player.full_name}
+                                skillLevel={player.tennis_skill_level}
+                                avatarUrl={player.avatar_url}
+                                birthdayVisible={player.birthday_emoji_visible}
+                                compact
+                              />
                               {isManager && (player.email || player.phone) && (
                                 <p className="mt-1 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
                                   {player.email && (
@@ -212,14 +216,13 @@ export function EventParticipantsPanel({
                   <tr key={player.registration_id} className="border-t border-border">
                     <td className="px-4 py-3">{index + 1}</td>
                     <td className="px-4 py-3">
-                      <span>
-                        {player.full_name || 'Member'}
-                        {player.tennis_skill_level != null && (
-                          <span className="ml-2 text-xs text-muted-foreground">
-                            {player.tennis_skill_level}
-                          </span>
-                        )}
-                      </span>
+                      <UserIdentity
+                        name={player.full_name}
+                        skillLevel={player.tennis_skill_level}
+                        avatarUrl={player.avatar_url}
+                        birthdayVisible={player.birthday_emoji_visible}
+                        compact
+                      />
                       {isManager && (player.email || player.phone) && (
                         <span className="mt-1 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
                           {player.email && (
@@ -328,7 +331,7 @@ export function EventScoresPanel({
   opponents,
 }: {
   scores: EventScoreRow[];
-  playerLabel: (registrationId: string, name: string) => string;
+  playerLabel: (registrationId: string, name: string) => ReactNode;
   editingScore: string | null;
   setEditingScore: (id: string | null) => void;
   editScoreOne: string;
@@ -375,17 +378,35 @@ export function EventScoresPanel({
               className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-3 text-sm"
             >
               <div className="min-w-0 flex-1">
-                <span>
-                  {score.player_three_name
-                    ? `${playerLabel(score.player_one_registration_id, score.player_one_name)} / ${playerLabel(score.player_two_registration_id, score.player_two_name)}`
-                    : playerLabel(score.player_one_registration_id, score.player_one_name)}{' '}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="flex flex-wrap items-center gap-1">
+                    {playerLabel(score.player_one_registration_id, score.player_one_name)}
+                    {score.player_three_name && (
+                      <>/ {playerLabel(score.player_two_registration_id, score.player_two_name)}</>
+                    )}
+                  </span>
                   <strong>
                     {score.player_one_score} – {score.player_two_score}
-                  </strong>{' '}
-                  {score.player_three_name
-                    ? `${playerLabel(score.player_three_registration_id!, score.player_three_name)}${score.player_four_name ? ` / ${playerLabel(score.player_four_registration_id!, score.player_four_name)}` : ''}`
-                    : playerLabel(score.player_two_registration_id, score.player_two_name)}
-                </span>
+                  </strong>
+                  <span className="flex flex-wrap items-center gap-1">
+                    {score.player_three_name ? (
+                      <>
+                        {playerLabel(score.player_three_registration_id!, score.player_three_name)}
+                        {score.player_four_name && (
+                          <>
+                            /{' '}
+                            {playerLabel(
+                              score.player_four_registration_id!,
+                              score.player_four_name,
+                            )}
+                          </>
+                        )}
+                      </>
+                    ) : (
+                      playerLabel(score.player_two_registration_id, score.player_two_name)
+                    )}
+                  </span>
+                </div>
                 {editingScore === score.id && (
                   <div className="mt-3 flex flex-wrap items-end gap-2">
                     <label className="text-xs">

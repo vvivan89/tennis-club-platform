@@ -14,6 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { SiteHeader } from '@/components/site-header';
 import { SiteFooter } from '@/components/site-footer';
 import { MemberNav } from '@/components/member-nav';
+import { FloatingFeedback } from '@/components/floating-feedback';
 
 const SKILL_LEVELS = Array.from({ length: 10 }, (_, i) => (2.5 + i * 0.5).toFixed(1));
 
@@ -249,7 +250,7 @@ export default function ProfilePage() {
       const path = `${user.id}/avatar-${Date.now()}.${ext}`;
       const { error: uploadError } = await supabase.storage
         .from('member-avatars')
-        .upload(path, file, { upsert: true, contentType: file.type });
+        .upload(path, file, { upsert: false, contentType: file.type });
       if (uploadError) throw uploadError;
       const { data } = supabase.storage.from('member-avatars').getPublicUrl(path);
       const url = data.publicUrl;
@@ -275,6 +276,7 @@ export default function ProfilePage() {
     <main className="flex min-h-screen flex-col bg-background text-foreground">
       <SiteHeader clubName={club.club_name} shortName={club.short_name} />
       <MemberNav />
+      <FloatingFeedback error={error} message={message} />
       <div className="page-container w-full flex-1 py-12">
         <div className="mx-auto max-w-6xl">
           <p className="eyebrow">Member portal</p>
@@ -436,22 +438,6 @@ export default function ProfilePage() {
                         ))}
                       </select>
                     </label>
-                    {error && (
-                      <p
-                        role="alert"
-                        className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
-                      >
-                        {error}
-                      </p>
-                    )}
-                    {message && (
-                      <p
-                        role="status"
-                        className="rounded-md border border-border bg-muted p-3 text-sm"
-                      >
-                        {message}
-                      </p>
-                    )}
                     <div className="flex flex-wrap gap-3">
                       <Button type="submit" disabled={busy}>
                         {busy ? <TennisLoader compact label="Saving" /> : 'Save profile'}

@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import { TennisLoader } from '@/components/tennis-loader';
@@ -10,6 +10,7 @@ import { TournamentPublicViewControls } from '@/components/tournament-public-vie
 import { TournamentCompetitionResults } from '@/components/tournament-competition-results';
 import { getTournamentRankingColumns } from '@/components/tournament-ranking-columns';
 import { createTournamentBracketLabels } from '@/components/tournament-bracket-labels';
+import { hasSingleTournamentGroup } from '@/lib/tournament-groups';
 import { getTournamentRegistrationOptions } from '@/components/tournament-registration-options';
 import { useTournamentPublicViewData } from '@/components/use-tournament-public-view-data';
 import { useTournamentCaptainActions } from '@/components/use-tournament-captain-actions';
@@ -17,6 +18,7 @@ import { useLeagueEventScoreActions } from '@/components/use-league-event-score-
 import { useTournamentPaymentAction } from '@/components/use-tournament-payment-action';
 import { useTournamentVisibleMatchData } from '@/components/use-tournament-visible-match-data';
 import { useTournamentPublicViewSubscriptions } from '@/components/use-tournament-public-view-subscriptions';
+import { useTournamentMatchLineupRefresh } from '@/components/use-tournament-match-lineup-refresh';
 import { useTournamentInvitationActions } from '@/components/use-tournament-invitation-actions';
 import { useTournamentEntryEditActions } from '@/components/use-tournament-entry-edit-actions';
 import { useLeagueEventRegistrationActions } from '@/components/use-league-event-registration-actions';
@@ -27,12 +29,17 @@ import { sanitizeHtml } from '@/lib/sanitize-html';
 import type { TournamentPublicViewProps } from '@/components/tournament-public-view-types';
 import { tournamentPaymentActionKey } from '@/components/tournament-public-view-format';
 import { TournamentOverviewPanel } from '@/components/tournament-overview-panel';
+import { TournamentEventSummary } from '@/components/tournament-event-summary';
 import { buildTournamentGroupStandings } from '@/components/tournament-public-group-standings';
 import { buildTournamentWinnerSummaries } from '@/components/tournament-winner-summaries';
 import { useTournamentGroupOverrideActions } from '@/components/use-tournament-group-override-actions';
 import { useTournamentPublicViewUiState } from '@/components/use-tournament-public-view-ui-state';
+import { useTimedFeedback } from '@/hooks/use-timed-feedback';
+import { haveAllScheduledTournamentMatchesBeenPlayed } from '@/lib/tournament-winner-announcement';
+const EMPTY_WINNER_SUMMARIES: Array<{ category: string; winners: string[] }> = [];
 export function TournamentPublicView({
   adminContent = null,
+  isManager = false,
   eventTitle = '',
   eventDescription = '',
   genderRestriction = null,
@@ -41,6 +48,7 @@ export function TournamentPublicView({
   currentUserId,
   currentUserEmail = null,
   currentUserAccountKind = 'member',
+  currentUserIsApprovedMember = false,
   currentUserName = '',
   currentUserPhone = '',
   currentUserSkillLevel = null,
@@ -67,15 +75,27 @@ export function TournamentPublicView({
   leagueStandingsAfter = [],
   leagueHasResults = false,
   courtCount = 4,
+  winnersAnnounced: initialWinnersAnnounced = false,
+  announcedWinners: initialAnnouncedWinners = EMPTY_WINNER_SUMMARIES,
 }: TournamentPublicViewProps) {
   const db = useMemo(() => createSupabaseBrowserClient(), []),
     router = useRouter();
   useEffect(() => {
     if (eventTitle) document.title = `PCTC | ${eventTitle}`;
   }, [eventTitle]);
+  useEffect(() => {
+    setWinnersAnnounced(initialWinnersAnnounced);
+    setAnnouncedWinners(initialAnnouncedWinners);
+  }, [initialWinnersAnnounced, initialAnnouncedWinners]);
   const hasRules = Boolean(rulesHtml?.trim()) && !leagueTournament;
+  const [winnersAnnounced, setWinnersAnnounced] = useState(initialWinnersAnnounced);
+  const [announcedWinners, setAnnouncedWinners] = useState(initialAnnouncedWinners);
+  const announcementFeedback = useTimedFeedback();
   const isEventGuest = !!currentUserId && currentUserAccountKind === 'event_guest';
   const canManageLeagueScores = leagueTournament && Boolean(adminContent);
+  const [captainRequestBusy, setCaptainRequestBusy] = useState(false);
+  const [captainAssignmentBusy, setCaptainAssignmentBusy] = useState(false);
+  const [captainActionMessage, setCaptainActionMessage] = useState('');
   const ui = useTournamentPublicViewUiState({
     resultsOnly,
     startsAt,
@@ -102,6 +122,7 @@ export function TournamentPublicView({
     groupOverrides,
     setGroupOverrides,
     participants,
+    setParticipants,
     partnerMembers,
     pairPaymentStatuses,
     pairs,
@@ -111,6 +132,7 @@ export function TournamentPublicView({
     setMatchPlayers,
     ownParticipantIds,
     ownEntries,
+    setOwnEntries,
     profileGender,
     ownCategories,
     ownTeamIds,
@@ -131,6 +153,53 @@ export function TournamentPublicView({
     registrationRefresh: ui.registrationRefresh,
     setPaymentParticipantIds: ui.setPaymentParticipantIds,
   });
+  const requestCaptain = async (participantId: string) => {
+    setCaptainRequestBusy(true);
+    ui.setRegistrationError('');
+    ui.setRegistrationMessage('');
+    try {
+      const { error } = await db.rpc('request_tournament_captain', {
+        p_participant_id: participantId,
+      });
+      if (error) {
+        ui.setRegistrationError(error.message);
+      } else {
+        setOwnEntries((current) =>
+          current.map((entry) =>
+            entry.id === participantId ? { ...entry, captain_requested: true } : entry,
+          ),
+        );
+        ui.setRegistrationMessage('Your captain request was sent to the tournament organizer.');
+      }
+    } catch {
+      ui.setRegistrationError('Could not send the captain request. Please try again.');
+    } finally {
+      setCaptainRequestBusy(false);
+    }
+  };
+  const assignUnassignedPlayer = async (participantId: string) => {
+    setCaptainAssignmentBusy(true);
+    ui.setRegistrationError('');
+    ui.setRegistrationMessage('');
+    try {
+      const { data: teamId, error } = await db.rpc('assign_tournament_player_to_captain_team', {
+        p_participant_id: participantId,
+      });
+      if (error) throw new Error(error.message);
+      setParticipants((current) =>
+        current.map((participant) =>
+          participant.id === participantId ? { ...participant, team_id: teamId } : participant,
+        ),
+      );
+      ui.setRegistrationMessage('Player added to your team roster.');
+    } catch (error) {
+      ui.setRegistrationError(
+        error instanceof Error ? error.message : 'Could not add this player to your team.',
+      );
+    } finally {
+      setCaptainAssignmentBusy(false);
+    }
+  };
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const guestIds =
@@ -192,6 +261,11 @@ export function TournamentPublicView({
     setActiveCategory: ui.setActiveCategory,
     setRegistrationRefresh: ui.setRegistrationRefresh,
     refreshPage: () => router.refresh(),
+  });
+  useTournamentMatchLineupRefresh({
+    matches,
+    eventStartsAt: startsAt,
+    setRegistrationRefresh: ui.setRegistrationRefresh,
   });
   const { requestEventGuestAccess, requestPartnerInvitation, confirmPartnerParticipation } =
     useTournamentInvitationActions({
@@ -275,11 +349,12 @@ export function TournamentPublicView({
   });
   const { saveCaptainPairing, saveCaptainScore } = useTournamentCaptainActions({
     db,
-    currentUserId,
     config,
-    matchPlayers,
+    eventStartsAt: startsAt,
     setMatchPlayers,
     setMatches,
+    setActionMessage: setCaptainActionMessage,
+    setSuccessMessage: ui.setRegistrationMessage,
   });
   const {
     ownNextMatch,
@@ -323,8 +398,23 @@ export function TournamentPublicView({
     .filter((match) => match.phase.includes('knockout'))
     .sort((a, b) => a.round_number - b.round_number || a.match_number - b.match_number);
   const { stageLabel: bracketStageLabel, sideLabel: bracketSideLabel } =
-    createTournamentBracketLabels({ format, knockoutMatches, teams, pairs });
-  const canViewCompetition = detailsPublic || (!!currentUserId && ownParticipantIds.length > 0);
+    createTournamentBracketLabels({
+      format,
+      knockoutMatches,
+      teams,
+      pairs,
+      singleGroup: hasSingleTournamentGroup(config),
+    });
+  const canViewCompetition =
+    detailsPublic ||
+    currentUserIsApprovedMember ||
+    (!!currentUserId && ownParticipantIds.length > 0);
+  const isTeamCaptain =
+    format === 'team' &&
+    !leagueTournament &&
+    !!currentUserId &&
+    teams.some((team) => team.captain_user_id === currentUserId);
+  const captainOnlyView = isTeamCaptain && !isManager;
   const leagueRegistrationCategory = leagueGender === 'male' ? 'men' : 'women';
   const registrationGender = isEventGuest
     ? ui.entrantGender || null
@@ -443,6 +533,45 @@ export function TournamentPublicView({
     () => buildTournamentWinnerSummaries({ matches, teams, pairs, config, format, groupStandings }),
     [matches, teams, pairs, config, format, groupStandings],
   );
+  const allScheduledMatchesPlayed = haveAllScheduledTournamentMatchesBeenPlayed(matches);
+  const visibleWinnerSummaries = winnersAnnounced
+    ? announcedWinners.length
+      ? announcedWinners
+      : winnerSummaries
+    : [];
+  async function toggleWinnerAnnouncement() {
+    if (!isManager || announcementFeedback.busy) return;
+    const nextAnnounced = !winnersAnnounced;
+    announcementFeedback.setBusy(true);
+    announcementFeedback.setError('');
+    announcementFeedback.setMessage('');
+    try {
+      const { error } = await db
+        .from('events')
+        .update({
+          tournament_winners_announced: nextAnnounced,
+          tournament_winners: nextAnnounced ? winnerSummaries : [],
+        })
+        .eq('id', eventId);
+      if (error) {
+        announcementFeedback.setError(
+          error.message || 'Could not update the winners announcement.',
+        );
+        return;
+      }
+      setWinnersAnnounced(nextAnnounced);
+      setAnnouncedWinners(nextAnnounced ? winnerSummaries : []);
+      announcementFeedback.setMessage(
+        nextAnnounced ? 'Tournament winners announced.' : 'Winners announcement removed.',
+      );
+    } catch (error) {
+      announcementFeedback.setError(
+        error instanceof Error ? error.message : 'Could not update the winners announcement.',
+      );
+    } finally {
+      announcementFeedback.setBusy(false);
+    }
+  }
   const { rankingColumns, rankingColumnLabel } = getTournamentRankingColumns(config, format);
   const activeLeaguePairs = pairs.filter(
     (pair) => pair.category === ui.activeCategory && pair.status !== 'withdrawn',
@@ -518,16 +647,40 @@ export function TournamentPublicView({
   );
   return (
     <section className={leagueTournament ? 'space-y-8' : 'space-y-5'}>
-      <FloatingFeedback error={ui.registrationError} message={ui.registrationMessage} />
-      {(canViewCompetition || !!adminContent) && (
+      <FloatingFeedback
+        error={ui.registrationError || announcementFeedback.error}
+        message={ui.registrationMessage || announcementFeedback.message}
+      />
+      {!resultsOnly && (
+        <TournamentEventSummary
+          leagueTournament={leagueTournament}
+          eventDescription={eventDescription}
+          genderRestriction={genderRestriction}
+          locationQuery={locationQuery}
+          startsAt={startsAt}
+          endsAt={endsAt}
+          registrationOpensAt={registrationOpensAt}
+          registrationClosesAt={registrationClosesAt}
+          priceCents={priceCents}
+        />
+      )}
+      {(canViewCompetition || !!adminContent || isTeamCaptain) && (
         <>
           <TournamentPublicViewControls
             resultsOnly={resultsOnly}
-            winnerSummaries={winnerSummaries}
+            winnerSummaries={visibleWinnerSummaries}
+            adminWinnerPreview={winnerSummaries}
+            isManager={isManager}
+            allScheduledMatchesPlayed={allScheduledMatchesPlayed}
+            winnersAnnounced={winnersAnnounced}
+            announcementBusy={announcementFeedback.busy}
+            onToggleWinnersAnnouncement={() => void toggleWinnerAnnouncement()}
             rankingsControl={rankingsControl}
             hasRules={hasRules}
             leagueTournament={leagueTournament}
-            hasAdminContent={!!adminContent}
+            hasAdminContent={isManager}
+            isTeamCaptain={isTeamCaptain}
+            captainOnlyView={captainOnlyView}
             tab={ui.tab}
             setTab={ui.setTab}
             activeCategory={ui.activeCategory}
@@ -592,13 +745,15 @@ export function TournamentPublicView({
                 ownTeamIds,
                 ownParticipantIds,
                 isOwnPair,
-                winnerSummaries,
+                winnerSummaries: visibleWinnerSummaries,
                 isEventGuest,
                 registrationOpen,
                 ownEntries,
                 leagueRegistrationCategory,
                 loading,
                 currentUserId,
+                assignUnassignedPlayer,
+                captainAssignmentBusy,
                 ownLeagueTeamId,
                 registerLeagueTeam,
                 availableCategories,
@@ -606,6 +761,12 @@ export function TournamentPublicView({
                 confirmPartnerParticipation,
                 currentUserName,
                 currentUserEmail,
+                currentUserPhone,
+                currentUserGender,
+                currentUserSkillLevel,
+                currentUserIsApprovedMember,
+                captainRequestBusy,
+                requestCaptain,
                 eventSlug,
                 eventId,
                 pairPaymentStatuses,
@@ -635,6 +796,7 @@ export function TournamentPublicView({
               leagueStandingsBefore={leagueStandingsBefore}
               leagueStandingsAfter={leagueStandingsAfter}
               leagueHasResults={leagueHasResults}
+              eventStartsAt={startsAt}
               knockoutMatches={knockoutMatches}
               bracketStageLabel={bracketStageLabel}
               bracketSideLabel={bracketSideLabel}
@@ -648,12 +810,13 @@ export function TournamentPublicView({
               groupOverrides={groupOverrides}
               enabledPhases={enabledPhases}
               config={config}
-              hasAdminContent={!!adminContent}
+              hasAdminContent={isManager}
               openGroupOverrideEditor={openGroupOverrideEditor}
               resultsOnly={resultsOnly}
               competitionMatchGrouping={ui.competitionMatchGrouping}
               setCompetitionMatchGrouping={ui.setCompetitionMatchGrouping}
               participants={participants}
+              pairs={pairs}
               teams={teams}
               currentUserId={currentUserId}
               matchPlayers={matchPlayers}
@@ -702,6 +865,8 @@ export function TournamentPublicView({
         confirmTournamentWithdrawal={confirmTournamentWithdrawal}
         interacNotice={ui.interacNotice}
         setInteracNotice={ui.setInteracNotice}
+        captainActionMessage={captainActionMessage}
+        clearCaptainActionMessage={() => setCaptainActionMessage('')}
       />
     </section>
   );

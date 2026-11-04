@@ -43,6 +43,7 @@ export function DraggableItem({
   onDragStateChange,
   onDragStart,
   onDragEnd,
+  draggable = true,
   ...props
 }: Omit<HTMLAttributes<HTMLDivElement>, 'onDragStart' | 'onDragEnd'> & {
   id: string;
@@ -62,7 +63,7 @@ export function DraggableItem({
     <div
       {...props}
       className={className}
-      draggable
+      draggable={draggable}
       onDragStart={(event) => {
         onDragStateChange?.(id);
         if (event.dataTransfer) {

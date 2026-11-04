@@ -9,7 +9,7 @@ const contentSecurityPolicy = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''}`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https:",
+  `img-src 'self' data: blob: https: ${supabaseHttp}`,
   "font-src 'self' data:",
   `connect-src 'self' ${supabaseHttp} ${supabaseWs} https://api.open-meteo.com https://geocoding-api.open-meteo.com${isDev ? ' ws:' : ''}`,
   'frame-src https://maps.google.com https://www.google.com',

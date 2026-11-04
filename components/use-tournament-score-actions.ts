@@ -1,7 +1,7 @@
 import type { Dispatch, SetStateAction } from 'react';
-import { evaluateTournamentScore } from '@/lib/tournament-score';
+import { evaluateTournamentScore, teamMatchPoints } from '@/lib/tournament-score';
 import { hasTwoPlayersPerTeam } from '@/lib/tournament-match';
-import type { TournamentConfig } from '@/lib/tournament-config';
+import { getTournamentScoringTemplate, type TournamentConfig } from '@/lib/tournament-config';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import type { Match, MatchPlayer, Pair } from '@/components/tournament-management-types';
 
@@ -11,6 +11,7 @@ type PendingWalkover = { match: Match; raw: string };
 
 export function useTournamentScoreActions({
   db,
+  eventStartsAt,
   isTeam,
   config,
   matches,
@@ -27,6 +28,7 @@ export function useTournamentScoreActions({
   setPendingWalkoverScore,
 }: {
   db: Db;
+  eventStartsAt?: string;
   isTeam: boolean;
   config: TournamentConfig | null;
   matches: Match[];
@@ -116,29 +118,30 @@ export function useTournamentScoreActions({
   }
 
   async function recordWalkover(match: Match, winnerSide: 1 | 2) {
-    const bonusScoring =
-      (config?.scoring_templates?.[
-        match.phase as keyof NonNullable<TournamentConfig['scoring_templates']>
-      ] ?? config?.scoring_template) === 'team_two_sets_bonus_third';
+    const scoreSets = match.phase.includes('round_robin')
+      ? [
+          winnerSide === 1 ? { one: 6, two: 0 } : { one: 0, two: 6 },
+          winnerSide === 1 ? { one: 6, two: 0 } : { one: 0, two: 6 },
+        ]
+      : [];
+    const scoringTemplate = getTournamentScoringTemplate(config, match.phase);
+    const { pointsOne, pointsTwo } = isTeam
+      ? teamMatchPoints(scoreSets, scoringTemplate)
+      : { pointsOne: 0, pointsTwo: 0 };
     const saved = await runAction(
       () =>
         db
           .from('tournament_matches')
           .update({
             winner_side: winnerSide,
-            score_sets: match.phase.includes('round_robin')
-              ? [
-                  winnerSide === 1 ? { one: 6, two: 0 } : { one: 0, two: 6 },
-                  winnerSide === 1 ? { one: 6, two: 0 } : { one: 0, two: 6 },
-                ]
-              : [],
+            score_sets: scoreSets,
             status: 'completed',
             notes:
               winnerSide === 1
                 ? 'Walkover / retirement awarded to side one'
                 : 'Walkover / retirement awarded to side two',
-            team_points_one: isTeam ? (winnerSide === 1 ? (bonusScoring ? 3 : 1) : 0) : 0,
-            team_points_two: isTeam ? (winnerSide === 2 ? (bonusScoring ? 3 : 1) : 0) : 0,
+            team_points_one: pointsOne,
+            team_points_two: pointsTwo,
             updated_at: new Date().toISOString(),
           })
           .eq('id', match.id),
@@ -171,22 +174,30 @@ export function useTournamentScoreActions({
   }
 
   async function saveScore(match: Match, raw: string, confirmWalkoverReplacement = false) {
+    const eventStartTime = eventStartsAt ? new Date(eventStartsAt).getTime() : 0;
+    const scheduledMatchTime = match.scheduled_at
+      ? new Date(match.scheduled_at).getTime()
+      : eventStartTime;
+    if (Date.now() < Math.max(eventStartTime, scheduledMatchTime)) {
+      setError('A match result can only be recorded after its scheduled start time.');
+      return;
+    }
     if (isTeam && !hasTwoPlayersPerTeam(match, matchPlayers)) {
       setError(
-        'Assign two players to each team before recording the result so individual records remain accurate.',
+        'Assign two players to each side of this match before recording its result so individual records remain accurate.',
       );
       return;
     }
-    const scoringTemplate =
-      config?.scoring_templates?.[
-        match.phase as keyof NonNullable<TournamentConfig['scoring_templates']>
-      ] ?? config?.scoring_template;
+    const scoringTemplate = getTournamentScoringTemplate(config, match.phase);
     const evaluation = evaluateTournamentScore(raw, scoringTemplate);
     if (evaluation.error !== undefined) {
       setError(evaluation.error);
       return;
     }
-    const { sets, winner, pointsOne, pointsTwo } = evaluation;
+    const { sets, winner } = evaluation;
+    const { pointsOne, pointsTwo } = isTeam
+      ? teamMatchPoints(sets, scoringTemplate)
+      : { pointsOne: 0, pointsTwo: 0 };
     const isWalkoverResult = /^Walkover \/ retirement awarded to side (one|two)$/i.test(
       match.notes?.trim() ?? '',
     );

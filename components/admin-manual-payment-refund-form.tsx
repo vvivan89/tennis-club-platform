@@ -2,12 +2,9 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { FloatingFeedback } from '@/components/floating-feedback';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import {
-  RefundAmountRow,
-  RefundStatusMessage,
-  useRefundForm,
-} from '@/components/refund-form-parts';
+import { RefundAmountRow, useRefundForm } from '@/components/refund-form-parts';
 
 export function AdminManualPaymentRefundForm({
   paymentId,
@@ -20,11 +17,13 @@ export function AdminManualPaymentRefundForm({
   const form = useRefundForm(remainingMinor);
   const { amount, idempotencyKey } = form;
   const [note, setNote] = useState('');
+  const [error, setError] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
   async function submit() {
     setConfirmOpen(false);
     form.setBusy(true);
     form.setMessage('');
+    setError('');
     try {
       const response = await fetch('/api/admin/payments/manual-refund', {
         method: 'POST',
@@ -44,7 +43,7 @@ export function AdminManualPaymentRefundForm({
       idempotencyKey.current = crypto.randomUUID();
       router.refresh();
     } catch (error) {
-      form.setMessage(error instanceof Error ? error.message : 'Could not record manual refund.');
+      setError(error instanceof Error ? error.message : 'Could not record manual refund.');
     } finally {
       form.setBusy(false);
     }
@@ -75,7 +74,7 @@ export function AdminManualPaymentRefundForm({
         value={note}
         onChange={(event) => setNote(event.target.value)}
       />
-      <RefundStatusMessage message={form.message} />
+      <FloatingFeedback error={error} message={form.message} />
       <ConfirmDialog
         open={confirmOpen}
         title="Record manual Interac refund?"

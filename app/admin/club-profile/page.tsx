@@ -1,7 +1,7 @@
 'use client';
 import Image from 'next/image';
 import { TennisLoader } from '@/components/tennis-loader';
-import { FormFeedback } from '@/components/form-feedback';
+import { FloatingFeedback } from '@/components/floating-feedback';
 import { SiteFooter } from '@/components/site-footer';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
@@ -284,6 +284,7 @@ export default function ClubProfileAdminPage() {
   return (
     <main className="flex min-h-screen flex-col bg-background text-foreground">
       <AdminNav />
+      <FloatingFeedback error={error} message={message} />
       <div className="page-container flex-1 py-10">
         <p className="eyebrow">Club administration</p>
         <h1 className="section-title">Club Profile</h1>
@@ -500,7 +501,6 @@ export default function ClubProfileAdminPage() {
                     </div>
                   </CardContent>
                 </Card>
-                <FormFeedback error={error} message={message} />
                 <Button type="submit" disabled={busy}>
                   {busy ? <TennisLoader compact label="Saving" /> : 'Save club information'}
                 </Button>
@@ -623,7 +623,6 @@ export default function ClubProfileAdminPage() {
                     </Button>
                   </CardContent>
                 </Card>
-                <FormFeedback error={error} message={message} />
                 <Button type="submit" disabled={busy}>
                   {busy ? <TennisLoader compact label="Saving" /> : 'Save contact details'}
                 </Button>

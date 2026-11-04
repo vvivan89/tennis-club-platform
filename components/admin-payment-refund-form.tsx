@@ -1,11 +1,9 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import {
-  RefundAmountRow,
-  RefundStatusMessage,
-  useRefundForm,
-} from '@/components/refund-form-parts';
+import { useState } from 'react';
+import { FloatingFeedback } from '@/components/floating-feedback';
+import { RefundAmountRow, useRefundForm } from '@/components/refund-form-parts';
 
 export function AdminPaymentRefundForm({
   paymentId,
@@ -16,10 +14,12 @@ export function AdminPaymentRefundForm({
 }) {
   const router = useRouter();
   const form = useRefundForm(remainingMinor);
+  const [error, setError] = useState('');
   const { amount, idempotencyKey } = form;
   async function submit() {
     form.setBusy(true);
     form.setMessage('');
+    setError('');
     try {
       const response = await fetch('/api/admin/payments/refund', {
         method: 'POST',
@@ -38,7 +38,7 @@ export function AdminPaymentRefundForm({
       router.refresh();
       idempotencyKey.current = crypto.randomUUID();
     } catch (error) {
-      form.setMessage(error instanceof Error ? error.message : 'Refund request failed.');
+      setError(error instanceof Error ? error.message : 'Refund request failed.');
     } finally {
       form.setBusy(false);
     }
@@ -57,7 +57,7 @@ export function AdminPaymentRefundForm({
         disabled={!form.canSubmit}
         onClick={() => void submit()}
       />
-      <RefundStatusMessage message={form.message} />
+      <FloatingFeedback error={error} message={form.message} />
     </div>
   );
 }

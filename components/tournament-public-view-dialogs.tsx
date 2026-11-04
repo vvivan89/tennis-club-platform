@@ -30,6 +30,8 @@ export function TournamentPublicViewDialogs({
   confirmTournamentWithdrawal,
   interacNotice,
   setInteracNotice,
+  captainActionMessage,
+  clearCaptainActionMessage,
 }: {
   court: Pick<
     CourtActions,
@@ -68,6 +70,8 @@ export function TournamentPublicViewDialogs({
   confirmTournamentWithdrawal: () => Promise<void>;
   interacNotice: InteracPaymentNotice | null;
   setInteracNotice: Dispatch<SetStateAction<InteracPaymentNotice | null>>;
+  captainActionMessage: string;
+  clearCaptainActionMessage: () => void;
 }) {
   return (
     <>
@@ -85,6 +89,17 @@ export function TournamentPublicViewDialogs({
           onMoveLeaguePairToCourt={court.moveLeaguePairToCourt}
           onUnassignLeaguePair={court.unassignLeaguePair}
           onSaveLeagueCourtAssignments={() => void court.saveLeagueCourtAssignments()}
+        />
+      )}
+      {captainActionMessage && (
+        <ConfirmDialog
+          open
+          title="Match update unavailable"
+          description={captainActionMessage}
+          confirmLabel="Got it"
+          cancelLabel={null}
+          onCancel={clearCaptainActionMessage}
+          onConfirm={clearCaptainActionMessage}
         />
       )}
       {leagueWithdrawTarget && (

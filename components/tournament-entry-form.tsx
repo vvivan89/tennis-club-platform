@@ -93,7 +93,7 @@ export function TournamentEntryForm(props: TournamentEntryFormProps) {
   return (
     <form onSubmit={submitRegistration} className="mt-4 space-y-3">
       <div className="grid gap-3 sm:grid-cols-2">
-        {!leagueTournament && (
+        {!leagueTournament && format !== 'team' && (
           <label className="text-sm">
             Category
             <select

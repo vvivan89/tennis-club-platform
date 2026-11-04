@@ -1,6 +1,6 @@
 'use client';
 import { TennisLoader } from '@/components/tennis-loader';
-import { FormFeedback } from '@/components/form-feedback';
+import { FloatingFeedback } from '@/components/floating-feedback';
 import { AdminSectionTabs } from '@/components/admin-section-tabs';
 import { useState, type FormEvent } from 'react';
 type DocumentRow = {
@@ -92,6 +92,7 @@ export function AdminDocumentsContent({ embedded = false }: { embedded?: boolean
   async function remove(doc: DocumentRow) {
     const db = createSupabaseBrowserClient();
     setError('');
+    setMessage('');
     const { error: storageError } = await db.storage
       .from('member-documents')
       .remove([doc.storage_path]);
@@ -107,6 +108,7 @@ export function AdminDocumentsContent({ embedded = false }: { embedded?: boolean
       return;
     }
     await load();
+    setMessage('Document deleted.');
   }
   return (
     <main
@@ -117,6 +119,7 @@ export function AdminDocumentsContent({ embedded = false }: { embedded?: boolean
       }
     >
       {!embedded && <AdminNav />}
+      <FloatingFeedback error={error} message={message} />
       <div className={embedded ? 'w-full' : 'page-container flex-1 py-10'}>
         {!embedded && <AdminSectionTabs section="legal" />}
         <p className="eyebrow">Member resources</p>
@@ -168,7 +171,6 @@ export function AdminDocumentsContent({ embedded = false }: { embedded?: boolean
               PDF only; maximum 20 MB.
             </span>
           </label>
-          <FormFeedback error={error} message={message} />
           <Button type="submit" disabled={busy}>
             {busy ? <TennisLoader compact label="Uploading" /> : 'Upload PDF'}
           </Button>

@@ -3,6 +3,7 @@ import { TennisLoader } from '@/components/tennis-loader';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { FloatingFeedback } from '@/components/floating-feedback';
 type Settings = {
   single_price_cad: number;
   family_price_cad: number;
@@ -19,6 +20,7 @@ export function MembershipTypesAdmin({ initial }: { initial: Settings }) {
   const [v, setV] = useState(initial);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
   function field(key: keyof Settings, label: string, min = 0, max = 100000) {
     return (
       <label className="block text-sm">
@@ -38,6 +40,7 @@ export function MembershipTypesAdmin({ initial }: { initial: Settings }) {
   async function save() {
     setBusy(true);
     setMessage('');
+    setError('');
     const year = new Date().getFullYear();
     const startDate = `${year}-${String(v.season_start_month).padStart(2, '0')}-01`;
     const endYear = v.season_end_month < v.season_start_month ? year + 1 : year;
@@ -52,20 +55,18 @@ export function MembershipTypesAdmin({ initial }: { initial: Settings }) {
       const j = await r.json();
       if (!r.ok)
         console.error('[Membership settings] Save failed', { status: r.status, result: j });
-      setMessage(
-        r.ok
-          ? 'Membership settings saved.'
-          : 'Could not save membership settings. Please try again.',
-      );
+      if (r.ok) setMessage('Membership settings saved.');
+      else setError(j.error || 'Could not save membership settings. Please try again.');
     } catch (e) {
       console.error('[Membership settings] Request failed', e);
-      setMessage('Could not save membership settings. Please try again.');
+      setError('Could not save membership settings. Please try again.');
     } finally {
       setBusy(false);
     }
   }
   return (
     <div className="mt-7 max-w-3xl space-y-7">
+      <FloatingFeedback error={error} message={message} />
       <section className="rounded-xl border p-5">
         <h2 className="text-lg font-semibold">Single membership</h2>
         <div className="mt-4 max-w-xs">
@@ -116,11 +117,6 @@ export function MembershipTypesAdmin({ initial }: { initial: Settings }) {
         <Button onClick={save} disabled={busy}>
           {busy ? <TennisLoader compact label="Saving" /> : 'Save settings'}
         </Button>
-        {message && (
-          <p role="status" className="text-sm">
-            {message}
-          </p>
-        )}
       </div>
     </div>
   );

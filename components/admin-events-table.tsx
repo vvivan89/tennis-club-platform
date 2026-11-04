@@ -122,7 +122,7 @@ export function AdminEventsTable({ events }: { events: AdminEvent[] }) {
 
   return (
     <div className="mt-7 space-y-4">
-      <FloatingFeedback message={message} />
+      <FloatingFeedback error={error} message={message} />
       <div
         role="group"
         aria-label="Event time period"
@@ -145,11 +145,6 @@ export function AdminEventsTable({ events }: { events: AdminEvent[] }) {
           </button>
         ))}
       </div>
-      {error && (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      )}
       <div className="grid gap-3 rounded-lg border border-border p-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <label className="text-sm">
           Search by name

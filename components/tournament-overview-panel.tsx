@@ -4,23 +4,20 @@ import { EventWeather } from '@/components/event-weather';
 import { TennisLoader } from '@/components/tennis-loader';
 import { LeagueEventScoreEntry } from '@/components/league-event-score-entry';
 import { TournamentOverviewParticipants } from '@/components/tournament-overview-participants';
-import { TournamentEventSummary } from '@/components/tournament-event-summary';
 import { TournamentPartnerConfirmation } from '@/components/tournament-partner-confirmation';
 import { TournamentOwnRegistrationList } from '@/components/tournament-own-registration-list';
 import { TournamentRegistrationStatus } from '@/components/tournament-registration-status';
 import { TournamentEntryForm } from '@/components/tournament-entry-form';
 import { dateLabel } from '@/components/tournament-public-view-format';
+import { UserIdentity } from '@/components/user-identity';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
   const {
-    eventDescription,
-    genderRestriction,
     locationQuery,
     startsAt,
     endsAt,
-    registrationOpensAt,
     registrationClosesAt,
     priceCents,
     canViewCompetition,
@@ -51,6 +48,8 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
     leagueRegistrationCategory,
     loading,
     currentUserId,
+    assignUnassignedPlayer,
+    captainAssignmentBusy,
     ownLeagueTeamId,
     registerLeagueTeam,
     availableCategories,
@@ -68,6 +67,12 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
     confirmPartnerParticipation,
     currentUserName,
     currentUserEmail,
+    currentUserPhone,
+    currentUserGender,
+    currentUserSkillLevel,
+    currentUserIsApprovedMember,
+    captainRequestBusy,
+    requestCaptain,
     interacRequests,
     interacEnabled,
     paymentBusy,
@@ -161,19 +166,30 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
     saveLeagueScore,
   } = { ...view, ...ui };
   const registrationBusy = ui.registrationBusy;
+  const renderPairIdentity = (pairId: string | null, fallback: string) => {
+    const pair = pairs.find((item: { id: string }) => item.id === pairId);
+    if (!pair) return fallback;
+    const renderPlayer = (id: string, name: string, skill?: number | null) => {
+      const player = participants.find((item: { id: string }) => item.id === id);
+      return (
+        <UserIdentity
+          name={player?.display_name ?? name}
+          skillLevel={player?.tennis_skill_level ?? skill}
+          avatarUrl={player?.avatar_url}
+          birthdayVisible={player?.birthday_emoji_visible}
+          compact
+        />
+      );
+    };
+    return (
+      <span className="inline-flex flex-wrap items-center gap-1">
+        {renderPlayer(pair.player_one_id, pair.player_one_name, pair.player_one_skill_level)} +{' '}
+        {renderPlayer(pair.player_two_id, pair.player_two_name, pair.player_two_skill_level)}
+      </span>
+    );
+  };
   return (
     <div className={leagueTournament ? 'flex flex-col gap-5' : 'space-y-5'}>
-      <TournamentEventSummary
-        leagueTournament={leagueTournament}
-        eventDescription={eventDescription}
-        genderRestriction={genderRestriction}
-        locationQuery={locationQuery}
-        startsAt={startsAt}
-        endsAt={endsAt}
-        registrationOpensAt={registrationOpensAt}
-        registrationClosesAt={registrationClosesAt}
-        priceCents={priceCents}
-      />
       <TournamentOverviewParticipants
         canViewCompetition={canViewCompetition}
         format={format}
@@ -195,6 +211,9 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
         ownTeamIds={ownTeamIds}
         ownParticipantIds={ownParticipantIds}
         isOwnPair={isOwnPair}
+        currentUserId={currentUserId}
+        assignUnassignedPlayer={assignUnassignedPlayer}
+        captainAssignmentBusy={captainAssignmentBusy}
       />
       {(!winnerSummaries.length || leagueTournament) && (
         <div className={leagueTournament ? 'order-2' : undefined}>
@@ -256,8 +275,15 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
             currentUserId={currentUserId}
             currentUserName={currentUserName}
             currentUserEmail={currentUserEmail}
+            currentUserPhone={currentUserPhone}
+            currentUserGender={currentUserGender}
+            currentUserSkillLevel={currentUserSkillLevel}
             isEventGuest={isEventGuest}
             ownEntries={ownEntries}
+            teams={teams}
+            canRequestCaptain={currentUserIsApprovedMember}
+            captainRequestBusy={captainRequestBusy}
+            requestCaptain={requestCaptain}
             pairs={pairs}
             pairPaymentStatuses={pairPaymentStatuses}
             registrationClosesAt={registrationClosesAt}
@@ -435,9 +461,21 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
             Your next match
           </p>
           <p className="mt-1 font-semibold">
-            {format === 'team'
-              ? `${ownNextMatch.team_one_name || 'TBD'} vs ${ownNextMatch.team_two_name || 'TBD'}`
-              : `${ownNextMatch.player_one_name || 'TBD'} vs ${ownNextMatch.opponent_one_name || 'TBD'}`}
+            {format === 'team' ? (
+              `${ownNextMatch.team_one_name || 'TBD'} vs ${ownNextMatch.team_two_name || 'TBD'}`
+            ) : (
+              <span className="flex flex-wrap items-center gap-2">
+                {renderPairIdentity(
+                  ownNextMatch.pair_one_id,
+                  ownNextMatch.player_one_name || 'TBD',
+                )}
+                vs
+                {renderPairIdentity(
+                  ownNextMatch.pair_two_id,
+                  ownNextMatch.opponent_one_name || 'TBD',
+                )}
+              </span>
+            )}
           </p>
           <p className="mt-1 text-sm">
             {ownNextMatch.status === 'bye'

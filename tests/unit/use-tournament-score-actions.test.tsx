@@ -2,6 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { useTournamentScoreActions } from '@/components/use-tournament-score-actions';
 import type { Match } from '@/components/tournament-management-types';
+import type { TournamentConfig } from '@/lib/tournament-config';
 
 function match(overrides: Record<string, unknown> = {}) {
   return {
@@ -31,6 +32,7 @@ function setup({
   isTeam = false,
   matches = [],
   matchPlayers = [],
+  config = null,
   pendingDeleteMatch = null,
   dbError = null,
   saveResult = true,
@@ -39,6 +41,7 @@ function setup({
 }: {
   isTeam?: boolean;
   matches?: Match[];
+  config?: TournamentConfig | null;
   matchPlayers?: Array<{
     match_id: string;
     participant_id: string;
@@ -79,7 +82,7 @@ function setup({
     useTournamentScoreActions({
       db,
       isTeam,
-      config: null,
+      config,
       matches,
       pairs: [
         { id: 'pair-1', player_one_id: 'p1', player_two_id: 'p2' },
@@ -111,9 +114,43 @@ describe('useTournamentScoreActions', () => {
     const state = setup({ isTeam: true });
     await act(async () => state.actions.saveScore(match(), '6-4'));
     expect(state.setters.setError).toHaveBeenCalledWith(
-      'Assign two players to each team before recording the result so individual records remain accurate.',
+      'Assign two players to each side of this match before recording its result so individual records remain accurate.',
     );
     expect(state.saveMatch).not.toHaveBeenCalled();
+  });
+
+  it('saves admin team scores with template-specific points', async () => {
+    const players = [
+      { match_id: 'match-1', participant_id: 'a1', side: 1, team_id: 'team-1' },
+      { match_id: 'match-1', participant_id: 'a2', side: 1, team_id: 'team-1' },
+      { match_id: 'match-1', participant_id: 'b1', side: 2, team_id: 'team-2' },
+      { match_id: 'match-1', participant_id: 'b2', side: 2, team_id: 'team-2' },
+    ];
+    const bonus = setup({
+      isTeam: true,
+      matchPlayers: players,
+      config: { scoring_templates: { team_round_robin: 'team_two_sets_bonus_third' } },
+    });
+    await act(async () =>
+      bonus.actions.saveScore(match({ phase: 'team_round_robin' }), '6-4, 6-2'),
+    );
+    expect(bonus.saveMatch).toHaveBeenCalledWith(
+      expect.objectContaining({ phase: 'team_round_robin' }),
+      expect.objectContaining({ team_points_one: 3, team_points_two: 0 }),
+    );
+
+    const standard = setup({
+      isTeam: true,
+      matchPlayers: players,
+      config: { scoring_templates: { team_round_robin: 'best_of_three' } },
+    });
+    await act(async () =>
+      standard.actions.saveScore(match({ phase: 'team_round_robin' }), '6-4, 4-6, 6-3'),
+    );
+    expect(standard.saveMatch).toHaveBeenCalledWith(
+      expect.objectContaining({ phase: 'team_round_robin' }),
+      expect.objectContaining({ team_points_one: 0, team_points_two: 0 }),
+    );
   });
 
   it('validates scores, asks before replacing a walkover, and saves a confirmed replacement', async () => {
@@ -121,15 +158,24 @@ describe('useTournamentScoreActions', () => {
     const state = setup({ matches: [match({ id: 'next', round_number: 2, match_number: 1 })] });
     await act(async () => state.actions.saveScore(saved, 'not a score'));
     expect(state.setters.setError).toHaveBeenCalled();
-    await act(async () => state.actions.saveScore(saved, '6-4'));
+    const validScore = '6-4, 4-6, 6-3';
+    await act(async () => state.actions.saveScore(saved, validScore));
     expect(state.setters.setPendingWalkoverScore).toHaveBeenCalledWith({
       match: saved,
-      raw: '6-4',
+      raw: validScore,
     });
-    await act(async () => state.actions.saveScore(saved, '6-4', true));
+    await act(async () => state.actions.saveScore(saved, validScore, true));
     expect(state.saveMatch).toHaveBeenCalledWith(
       saved,
-      expect.objectContaining({ score_sets: [{ one: 6, two: 4 }], winner_side: 1, notes: '' }),
+      expect.objectContaining({
+        score_sets: [
+          { one: 6, two: 4 },
+          { one: 4, two: 6 },
+          { one: 6, two: 3 },
+        ],
+        winner_side: 1,
+        notes: '',
+      }),
     );
     expect(state.setters.setMessage).toHaveBeenCalledWith('Match score saved.');
     expect(state.refresh).toHaveBeenCalled();

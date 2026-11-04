@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateTournamentScore } from '@/lib/tournament-score';
+import { evaluateTournamentScore, teamMatchPoints } from '@/lib/tournament-score';
 import {
   accumulateSideStats,
   compareTournamentEntries,
   compareTournamentHeadToHead,
   createSideStats,
   defaultRankingPriority,
+  tournamentRankingPriority,
   tournamentRankingMetric,
 } from '@/lib/tournament-standings';
+import { getTournamentRankingColumns } from '@/components/tournament-ranking-columns';
+import { buildTournamentGroupStandings } from '@/components/tournament-public-group-standings';
+import type { Match } from '@/components/tournament-public-view-types';
 
 describe('tournament score evaluation', () => {
   it.each(['', '6-6', 'x-4', '6-abc', '6-4,3-3'])(
@@ -63,12 +67,132 @@ describe('tournament score evaluation', () => {
     });
     expect(evaluateTournamentScore('6-4, 4-6')).toHaveProperty('error');
   });
+
+  it('only awards team standings points for the bonus third-set template', () => {
+    const straightWin = [
+      { one: 6, two: 4 },
+      { one: 6, two: 2 },
+    ];
+    const splitWin = [
+      { one: 6, two: 4 },
+      { one: 4, two: 6 },
+      { one: 10, two: 8 },
+    ];
+
+    expect(teamMatchPoints(straightWin, 'team_two_sets_bonus_third')).toEqual({
+      pointsOne: 3,
+      pointsTwo: 0,
+    });
+    expect(teamMatchPoints(splitWin, 'team_two_sets_bonus_third')).toEqual({
+      pointsOne: 2,
+      pointsTwo: 1,
+    });
+    expect(teamMatchPoints(straightWin, 'best_of_three')).toEqual({
+      pointsOne: 0,
+      pointsTwo: 0,
+    });
+    expect(teamMatchPoints(straightWin, 'one_set')).toEqual({
+      pointsOne: 0,
+      pointsTwo: 0,
+    });
+  });
 });
 
 describe('tournament standings calculations', () => {
+  it('derives team points from scores and ignores stale points for standard templates', () => {
+    const match = {
+      id: 'match-1',
+      event_id: 'event-1',
+      category: 'men',
+      phase: 'team_round_robin',
+      group_number: 1,
+      round_number: 1,
+      match_number: 1,
+      pair_one_id: null,
+      pair_two_id: null,
+      team_one_id: 'team-a',
+      team_two_id: 'team-b',
+      scheduled_at: null,
+      court_number: null,
+      score_sets: [
+        { one: 6, two: 4 },
+        { one: 6, two: 2 },
+      ],
+      winner_side: 1,
+      team_points_one: 1,
+      team_points_two: 0,
+      status: 'completed',
+      team_one_name: 'Aces',
+      team_two_name: 'Rockets',
+      player_one_name: null,
+      player_two_name: null,
+      opponent_one_name: null,
+      opponent_two_name: null,
+    } as Match;
+    const teams = [
+      {
+        id: 'team-a',
+        name: 'Aces',
+        logo_url: null,
+        color: '',
+        group_number: 1,
+        captain_user_id: null,
+        captain_name: null,
+      },
+      {
+        id: 'team-b',
+        name: 'Rockets',
+        logo_url: null,
+        color: '',
+        group_number: 1,
+        captain_user_id: null,
+        captain_name: null,
+      },
+    ];
+    const build = (scoringTemplate: string) =>
+      buildTournamentGroupStandings({
+        visibleMatches: [match],
+        teams,
+        pairs: [],
+        config: {
+          categories: ['men'],
+          group_count: 1,
+          scoring_templates: { team_round_robin: scoringTemplate },
+        },
+        format: 'team',
+        groupOverrides: [],
+      })[0].rows;
+
+    expect(build('team_two_sets_bonus_third').get('team-a')?.points).toBe(3);
+    expect(build('best_of_three').get('team-a')?.points).toBe(0);
+    expect(build('best_of_three').get('team-b')?.points).toBe(0);
+  });
+
   it('uses different default tie-break priority for individual and team standings', () => {
     expect(defaultRankingPriority(false)).not.toContain('points');
     expect(defaultRankingPriority(true)[0]).toBe('points');
+  });
+
+  it('includes points only for team tournaments using bonus third-set scoring', () => {
+    const bonusConfig = {
+      scoring_templates: { team_round_robin: 'team_two_sets_bonus_third' },
+      ranking_priority: ['matches_won', 'sets_won'],
+    };
+    const standardConfig = {
+      scoring_templates: { team_round_robin: 'best_of_three' },
+      ranking_priority: ['points', 'matches_won', 'sets_won'],
+    };
+
+    expect(tournamentRankingPriority(bonusConfig, true)).toEqual([
+      'points',
+      'matches_won',
+      'sets_won',
+    ]);
+    expect(tournamentRankingPriority(standardConfig, true)).toEqual(['matches_won', 'sets_won']);
+    expect(getTournamentRankingColumns(bonusConfig, 'team').rankingColumns).toContain('points');
+    expect(getTournamentRankingColumns(standardConfig, 'team').rankingColumns).not.toContain(
+      'points',
+    );
   });
 
   it('resolves every supported metric and uses score-derived differences as fallbacks', () => {

@@ -20,7 +20,7 @@ type State = {
   participantGender: string;
   teamName: string;
   teamColor: string;
-  teamLogo: string;
+  teamLogo: File | null;
   captain: string;
   pairOne: string;
   pairTwo: string;
@@ -44,7 +44,7 @@ type Setters = {
   setParticipantGender: Dispatch<SetStateAction<string>>;
   setTeamName: Dispatch<SetStateAction<string>>;
   setTeamColor: Dispatch<SetStateAction<string>>;
-  setTeamLogo: Dispatch<SetStateAction<string>>;
+  setTeamLogo: Dispatch<SetStateAction<File | null>>;
   setCaptain: Dispatch<SetStateAction<string>>;
   setPairOne: Dispatch<SetStateAction<string>>;
   setPairTwo: Dispatch<SetStateAction<string>>;
@@ -438,20 +438,44 @@ export function useTournamentParticipantActions({
   async function addTeam(e: FormEvent) {
     e.preventDefault();
     if (!teamName.trim()) return;
-    await runAction(
-      () =>
-        db.from('tournament_teams').insert({
-          event_id: eventId,
-          name: teamName.trim(),
-          color: teamColor.trim(),
-          logo_url: teamLogo.trim() || null,
-          captain_user_id: captain || null,
-        }),
-      'Team created.',
-    );
+    if (teamLogo) {
+      if (!teamLogo.type.startsWith('image/')) {
+        setError('Choose an image file for the team logo.');
+        return;
+      }
+      if (teamLogo.size > 3 * 1024 * 1024) {
+        setError('Team logo must be 3 MB or smaller.');
+        return;
+      }
+    }
+    const created = await runAction(async () => {
+      let logoUrl: string | null = null;
+      if (teamLogo) {
+        const extension =
+          teamLogo.name
+            .split('.')
+            .pop()
+            ?.toLowerCase()
+            .replace(/[^a-z0-9]/g, '') || 'png';
+        const path = `${eventId}/team-logo-${Date.now()}.${extension}`;
+        const { error: uploadError } = await db.storage
+          .from('tournament-team-logos')
+          .upload(path, teamLogo, { contentType: teamLogo.type });
+        if (uploadError) return { error: uploadError };
+        logoUrl = db.storage.from('tournament-team-logos').getPublicUrl(path).data.publicUrl;
+      }
+      return db.rpc('admin_create_tournament_team', {
+        p_event_id: eventId,
+        p_name: teamName.trim(),
+        p_color: teamColor.trim(),
+        p_logo_url: logoUrl,
+        p_captain_user_id: captain || null,
+      });
+    }, 'Team created.');
+    if (!created) return;
     setTeamName('');
     setTeamColor('');
-    setTeamLogo('');
+    setTeamLogo(null);
     setCaptain('');
   }
   async function createPair(e: FormEvent) {

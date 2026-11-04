@@ -1,9 +1,21 @@
 import type { TournamentConfig } from '@/lib/tournament-config';
-import type { GroupOverride, Match } from '@/components/tournament-public-view-types';
+import Image from 'next/image';
+import type {
+  GroupOverride,
+  Match,
+  Pair,
+  Participant,
+} from '@/components/tournament-public-view-types';
+import { UserIdentity } from '@/components/user-identity';
+import { hasSingleTournamentGroup } from '@/lib/tournament-groups';
+import type { Team } from '@/components/tournament-public-view-types';
 import type { GroupStanding } from '@/components/tournament-public-group-standings';
 
 export function TournamentPublicGroupStandingsPanel({
   groupStandings,
+  teams,
+  pairs,
+  participants,
   format,
   activeCategory,
   hasAdminControls,
@@ -17,6 +29,9 @@ export function TournamentPublicGroupStandingsPanel({
   visibleMatches,
 }: {
   groupStandings: GroupStanding[];
+  teams: Team[];
+  pairs: Pair[];
+  participants: Participant[];
   format: string | null;
   activeCategory: string;
   hasAdminControls: boolean;
@@ -29,20 +44,22 @@ export function TournamentPublicGroupStandingsPanel({
   config: TournamentConfig | null;
   visibleMatches: Match[];
 }) {
+  const singleGroup = hasSingleTournamentGroup(config);
   const visibleGroups = groupStandings.filter(
-    (group) =>
-      (format === 'team' || group.category === activeCategory) && group.standings.length > 0,
+    (group) => group.category === activeCategory && group.standings.length > 0,
   );
   if (!visibleGroups.length) return null;
 
   return (
     <details open className="space-y-4">
-      <summary className="cursor-pointer text-lg font-semibold">Group standings</summary>
+      <summary className="cursor-pointer text-lg font-semibold">
+        {singleGroup ? 'Standings' : 'Group standings'}
+      </summary>
       {visibleGroups.map((group) => (
         <div key={`${group.category}-${group.group}`}>
           <div className="flex items-center justify-between gap-2">
-            <h4 className="font-medium">Group {group.group}</h4>
-            {hasAdminControls && (
+            <h4 className="font-medium">{singleGroup ? 'Standings' : `Group ${group.group}`}</h4>
+            {hasAdminControls && group.category !== 'overall' && (
               <button
                 type="button"
                 onClick={() => onOverride(group)}
@@ -83,11 +100,12 @@ export function TournamentPublicGroupStandingsPanel({
                       item.override_type === 'promotion',
                   );
                   const promotionEnabled =
-                    format === 'team'
+                    group.category !== 'overall' &&
+                    (format === 'team'
                       ? enabledPhases.team_round_robin !== false &&
                         enabledPhases.team_knockout !== false
                       : enabledPhases.round_robin !== false &&
-                        enabledPhases.final_knockout !== false;
+                        enabledPhases.final_knockout !== false);
                   const automaticallyPromoted =
                     group.standings.some((standing) => standing.played > 0) &&
                     promotionEnabled &&
@@ -117,7 +135,56 @@ export function TournamentPublicGroupStandingsPanel({
                     >
                       <td className="p-2">{index + 1}</td>
                       <td className="p-2 font-medium">
-                        {row.name}
+                        <span className="inline-flex items-center gap-2">
+                          {format === 'team' &&
+                            teams.find((team) => team.id === row.id)?.logo_url && (
+                              <Image
+                                src={teams.find((team) => team.id === row.id)!.logo_url!}
+                                alt=""
+                                width={24}
+                                height={24}
+                                unoptimized
+                                className="h-6 w-6 shrink-0 object-contain"
+                              />
+                            )}
+                          {format === 'team'
+                            ? row.name
+                            : (() => {
+                                const pair = pairs.find((item) => item.id === row.id);
+                                if (!pair) return row.name;
+                                return (
+                                  <span className="inline-flex flex-wrap items-center gap-1">
+                                    {[pair.player_one_id, pair.player_two_id]
+                                      .map((id, index) => {
+                                        const player = participants.find((item) => item.id === id);
+                                        const name =
+                                          index === 0 ? pair.player_one_name : pair.player_two_name;
+                                        const rating =
+                                          index === 0
+                                            ? pair.player_one_skill_level
+                                            : pair.player_two_skill_level;
+                                        return (
+                                          <UserIdentity
+                                            key={id}
+                                            name={player?.display_name ?? name}
+                                            skillLevel={player?.tennis_skill_level ?? rating}
+                                            avatarUrl={player?.avatar_url}
+                                            birthdayVisible={player?.birthday_emoji_visible}
+                                            compact
+                                          />
+                                        );
+                                      })
+                                      .reduce(
+                                        (acc, item, index) =>
+                                          index
+                                            ? [...acc, <span key={`plus-${index}`}>+</span>, item]
+                                            : [item],
+                                        [] as React.ReactNode[],
+                                      )}
+                                  </span>
+                                );
+                              })()}
+                        </span>
                         {rankingOverride &&
                           rankingOverride.override_value !== row.automaticPosition && (
                             <span

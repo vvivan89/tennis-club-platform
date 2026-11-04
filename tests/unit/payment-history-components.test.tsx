@@ -151,7 +151,7 @@ describe('AdminPaymentRefundForm', () => {
     );
     rerender(<AdminPaymentRefundForm paymentId="payment-3" remainingMinor={1000} />);
     await user.click(screen.getByRole('button', { name: 'Request refund for payment-3' }));
-    expect(await screen.findByRole('status')).toHaveTextContent('Refund unavailable');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Refund unavailable');
   });
 
   it('uses the default error for an empty API error and a non-Error network failure', async () => {
@@ -164,11 +164,11 @@ describe('AdminPaymentRefundForm', () => {
       <AdminPaymentRefundForm paymentId="payment-fallback" remainingMinor={1000} />,
     );
     await user.click(screen.getByRole('button', { name: 'Request refund for payment-fallback' }));
-    expect(await screen.findByRole('status')).toHaveTextContent('Refund request failed.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Refund request failed.');
 
     rerender(<AdminPaymentRefundForm paymentId="payment-network" remainingMinor={1000} />);
     await user.click(screen.getByRole('button', { name: 'Request refund for payment-network' }));
-    expect(await screen.findByRole('status')).toHaveTextContent('Refund request failed.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Refund request failed.');
   });
 });
 
@@ -210,7 +210,7 @@ describe('AdminManualPaymentRefundForm', () => {
     rerender(<AdminManualPaymentRefundForm paymentId="interac-2" remainingMinor={1000} />);
     await user.click(screen.getByRole('button', { name: 'Record manual refund for interac-2' }));
     await user.click(screen.getByRole('button', { name: 'Record refund' }));
-    expect(await screen.findByRole('status')).toHaveTextContent('Manual ledger unavailable.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Manual ledger unavailable.');
   });
 
   it('omits an empty note and defaults a missing currency to CAD', async () => {

@@ -102,7 +102,7 @@ export function filterTournamentAuditRows({
 }) {
   return auditRows.filter((row) => {
     const category = String(row.after_data?.category ?? row.before_data?.category ?? '');
-    if (isTeam) return !category || category === 'team';
+    if (isTeam) return !category || category === activeCategory || category === 'team';
     if (category) return category === activeCategory;
     if (row.entity_type.includes('participant'))
       return (

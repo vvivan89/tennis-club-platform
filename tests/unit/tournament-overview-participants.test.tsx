@@ -210,9 +210,10 @@ describe('TournamentOverviewParticipants', () => {
     fireEvent.click(screen.getByRole('button', { name: 'List view' }));
     expect(onChange).toHaveBeenCalledWith('list');
     expect(screen.getByText('Team court assignments')).toBeInTheDocument();
-    expect(screen.getByText('Alex + Sam')).toBeInTheDocument();
+    expect(screen.getByText('Alex')).toBeInTheDocument();
+    expect(screen.getByText('Sam')).toBeInTheDocument();
     expect(screen.getByText('Sub-session to be announced')).toBeInTheDocument();
-    expect(screen.getByText('Team 1')).toBeInTheDocument();
+    expect(screen.getByText('Player 1')).toBeInTheDocument();
     expect(screen.getByText('Waiting player')).toBeInTheDocument();
 
     rerender(

@@ -1,5 +1,5 @@
 import { knockoutRoundCount, type TournamentConfig } from '@/lib/tournament-config';
-import { defaultRankingPriority, tournamentRankingMetric } from '@/lib/tournament-standings';
+import { tournamentRankingPriority, tournamentRankingMetric } from '@/lib/tournament-standings';
 import type { Match, Pair, Team } from '@/components/tournament-public-view-types';
 import type { buildTournamentGroupStandings } from '@/components/tournament-public-group-standings';
 
@@ -19,9 +19,13 @@ export function buildTournamentWinnerSummaries({
   groupStandings: ReturnType<typeof buildTournamentGroupStandings>;
 }) {
   const categories =
-    format === 'team' ? ['team'] : (config?.categories ?? ['mixed', 'men', 'women']);
+    format === 'team'
+      ? (config?.categories ?? ['mixed', 'men', 'women']).filter((category) =>
+          ['mixed', 'men', 'women'].includes(category),
+        )
+      : (config?.categories ?? ['mixed', 'men', 'women']);
   const summaries: Array<{ category: string; winners: string[] }> = [];
-  const rankingPriority = config?.ranking_priority ?? defaultRankingPriority(format === 'team');
+  const rankingPriority = tournamentRankingPriority(config, format === 'team');
   for (const category of categories) {
     const phase = format === 'team' ? 'team_knockout' : 'final_knockout';
     const knockoutEnabled = config?.phases?.[phase] !== false;
@@ -30,44 +34,45 @@ export function buildTournamentWinnerSummaries({
     );
     if (knockoutEnabled) {
       const finals = categoryMatches.filter((match) => match.phase === phase);
-      if (!finals.length) continue;
-      const roundRobinPhase = format === 'team' ? 'team_round_robin' : 'round_robin';
-      const roundRobinEnabled = config?.phases?.[roundRobinPhase] !== false;
-      const categoryEntries =
-        format === 'team'
-          ? teams
-          : pairs.filter((pair) => pair.category === category && pair.status !== 'withdrawn');
-      const entrantCount = roundRobinEnabled
-        ? new Set(
-            categoryEntries.map((entry) => entry.group_number).filter((group) => group != null),
-          ).size * Math.max(1, Number(config?.promoted_teams_per_group ?? 2))
-        : categoryEntries.length;
-      const expectedFinalRound = knockoutRoundCount(entrantCount);
-      const finalMatch = finals.find((match) => match.round_number === expectedFinalRound);
-      if (
-        !expectedFinalRound ||
-        !finalMatch ||
-        finalMatch.status !== 'completed' ||
-        !finalMatch.winner_side
-      )
+      if (finals.length) {
+        const roundRobinPhase = format === 'team' ? 'team_round_robin' : 'round_robin';
+        const roundRobinEnabled = config?.phases?.[roundRobinPhase] !== false;
+        const categoryEntries =
+          format === 'team'
+            ? teams
+            : pairs.filter((pair) => pair.category === category && pair.status !== 'withdrawn');
+        const entrantCount = roundRobinEnabled
+          ? new Set(
+              categoryEntries.map((entry) => entry.group_number).filter((group) => group != null),
+            ).size * Math.max(1, Number(config?.promoted_teams_per_group ?? 2))
+          : categoryEntries.length;
+        const expectedFinalRound = knockoutRoundCount(entrantCount);
+        const finalMatch = finals.find((match) => match.round_number === expectedFinalRound);
+        if (
+          !expectedFinalRound ||
+          !finalMatch ||
+          finalMatch.status !== 'completed' ||
+          !finalMatch.winner_side
+        )
+          continue;
+        const winnerId =
+          format === 'team'
+            ? finalMatch.winner_side === 1
+              ? finalMatch.team_one_id
+              : finalMatch.team_two_id
+            : finalMatch.winner_side === 1
+              ? finalMatch.pair_one_id
+              : finalMatch.pair_two_id;
+        const winner =
+          format === 'team'
+            ? teams.find((team) => team.id === winnerId)?.name
+            : (() => {
+                const pair = pairs.find((item) => item.id === winnerId);
+                return pair ? `${pair.player_one_name} + ${pair.player_two_name}` : undefined;
+              })();
+        if (winner) summaries.push({ category, winners: [winner] });
         continue;
-      const winnerId =
-        format === 'team'
-          ? finalMatch.winner_side === 1
-            ? finalMatch.team_one_id
-            : finalMatch.team_two_id
-          : finalMatch.winner_side === 1
-            ? finalMatch.pair_one_id
-            : finalMatch.pair_two_id;
-      const winner =
-        format === 'team'
-          ? teams.find((team) => team.id === winnerId)?.name
-          : (() => {
-              const pair = pairs.find((item) => item.id === winnerId);
-              return pair ? `${pair.player_one_name} + ${pair.player_two_name}` : undefined;
-            })();
-      if (winner) summaries.push({ category, winners: [winner] });
-      continue;
+      }
     }
 
     const roundRobinPhase = format === 'team' ? 'team_round_robin' : 'round_robin';

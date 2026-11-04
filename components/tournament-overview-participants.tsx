@@ -1,5 +1,10 @@
+'use client';
+
+import { useState } from 'react';
+import Image from 'next/image';
 import type { Match, Pair, Participant, Team } from '@/components/tournament-public-view-types';
 import { dateLabel } from '@/components/tournament-public-view-format';
+import { UserIdentity } from '@/components/user-identity';
 
 type Props = {
   canViewCompetition: boolean;
@@ -22,6 +27,9 @@ type Props = {
   ownTeamIds: string[];
   ownParticipantIds: string[];
   isOwnPair: (pairId: string | null | undefined) => boolean;
+  currentUserId: string | null;
+  assignUnassignedPlayer: (participantId: string) => Promise<void>;
+  captainAssignmentBusy: boolean;
 };
 
 export function TournamentOverviewParticipants({
@@ -45,7 +53,23 @@ export function TournamentOverviewParticipants({
   ownTeamIds,
   ownParticipantIds,
   isOwnPair,
+  currentUserId,
+  assignUnassignedPlayer,
+  captainAssignmentBusy,
 }: Props) {
+  const [unassignedPlayerId, setUnassignedPlayerId] = useState('');
+  const player = (id: string, name: string, skill?: number | null) => {
+    const participant = participants.find((item) => item.id === id);
+    return (
+      <UserIdentity
+        name={name && name !== 'Member' ? name : (participant?.display_name ?? name)}
+        skillLevel={participant?.tennis_skill_level ?? skill}
+        avatarUrl={participant?.avatar_url}
+        birthdayVisible={participant?.birthday_emoji_visible}
+        compact
+      />
+    );
+  };
   return (
     <>
       {canViewCompetition &&
@@ -130,23 +154,38 @@ export function TournamentOverviewParticipants({
                             participant.id === pair.player_two_id,
                         );
                         return (
-                          <tr key={pair.id} className="border-t border-border">
+                          <tr
+                            key={pair.id}
+                            className={`border-t border-border ${isOwnPair(pair.id) ? 'bg-primary/10 font-medium' : ''}`}
+                          >
                             <td className="px-3 py-2">{index + 1}</td>
                             <td className="px-3 py-2">
-                              {pair.player_one_name || 'Member'}
-                              {pair.player_one_skill_level != null && (
-                                <span className="ml-2 text-xs text-muted-foreground">
-                                  {pair.player_one_skill_level}
-                                </span>
-                              )}
+                              <span className="inline-flex items-center gap-2">
+                                {player(
+                                  pair.player_one_id,
+                                  pair.player_one_name || 'Member',
+                                  pair.player_one_skill_level,
+                                )}
+                                {ownParticipantIds.includes(pair.player_one_id) && (
+                                  <span className="inline-flex shrink-0 items-center rounded-full bg-primary/15 px-2 py-0.5 text-xs text-primary">
+                                    You
+                                  </span>
+                                )}
+                              </span>
                             </td>
                             <td className="px-3 py-2">
-                              {pair.player_two_name || 'Member'}
-                              {pair.player_two_skill_level != null && (
-                                <span className="ml-2 text-xs text-muted-foreground">
-                                  {pair.player_two_skill_level}
-                                </span>
-                              )}
+                              <span className="inline-flex items-center gap-2">
+                                {player(
+                                  pair.player_two_id,
+                                  pair.player_two_name || 'Member',
+                                  pair.player_two_skill_level,
+                                )}
+                                {ownParticipantIds.includes(pair.player_two_id) && (
+                                  <span className="inline-flex shrink-0 items-center rounded-full bg-primary/15 px-2 py-0.5 text-xs text-primary">
+                                    You
+                                  </span>
+                                )}
+                              </span>
                             </td>
                             <td className="px-3 py-2">
                               {pairParticipants.some(
@@ -174,15 +213,26 @@ export function TournamentOverviewParticipants({
                         );
                       })}
                       {unpairedLeagueParticipants.map((participant, index) => (
-                        <tr key={participant.id} className="border-t border-border">
+                        <tr
+                          key={participant.id}
+                          className={`border-t border-border ${ownParticipantIds.includes(participant.id) ? 'bg-primary/10 font-medium' : ''}`}
+                        >
                           <td className="px-3 py-2">{activeLeaguePairs.length + index + 1}</td>
                           <td className="px-3 py-2">
-                            {participant.display_name}
-                            {participant.tennis_skill_level != null && (
-                              <span className="ml-2 text-xs text-muted-foreground">
-                                {participant.tennis_skill_level}
-                              </span>
-                            )}
+                            <span className="inline-flex items-center gap-2">
+                              <UserIdentity
+                                name={participant.display_name}
+                                skillLevel={participant.tennis_skill_level}
+                                avatarUrl={participant.avatar_url}
+                                birthdayVisible={participant.birthday_emoji_visible}
+                                compact
+                              />
+                              {ownParticipantIds.includes(participant.id) && (
+                                <span className="inline-flex shrink-0 items-center rounded-full bg-primary/15 px-2 py-0.5 text-xs text-primary">
+                                  You
+                                </span>
+                              )}
+                            </span>
                           </td>
                           <td className="px-3 py-2 text-muted-foreground">—</td>
                           <td className="px-3 py-2">Registered</td>
@@ -228,8 +278,21 @@ export function TournamentOverviewParticipants({
                                       <h6 className="font-semibold">Court {court}</h6>
                                       <div className="mt-2 space-y-2 text-sm">
                                         {courtPairs.map((pair) => (
-                                          <p key={pair.id}>
-                                            {pair.player_one_name} + {pair.player_two_name}
+                                          <p
+                                            key={pair.id}
+                                            className="flex flex-wrap items-center gap-1"
+                                          >
+                                            {player(
+                                              pair.player_one_id,
+                                              pair.player_one_name,
+                                              pair.player_one_skill_level,
+                                            )}{' '}
+                                            +{' '}
+                                            {player(
+                                              pair.player_two_id,
+                                              pair.player_two_name,
+                                              pair.player_two_skill_level,
+                                            )}
                                           </p>
                                         ))}
                                       </div>
@@ -272,11 +335,33 @@ export function TournamentOverviewParticipants({
                                         {match.match_number}.
                                       </span>
                                       <span className="font-medium">
-                                        {match.player_one_name || 'Team 1'}
+                                        {format === 'team'
+                                          ? match.team_one_name || 'Team 1'
+                                          : player(
+                                              pairs.find((pair) => pair.id === match.pair_one_id)
+                                                ?.player_one_id ?? '',
+                                              pairs.find((pair) => pair.id === match.pair_one_id)
+                                                ?.player_one_name ??
+                                                match.player_one_name ??
+                                                'Player 1',
+                                              pairs.find((pair) => pair.id === match.pair_one_id)
+                                                ?.player_one_skill_level,
+                                            )}
                                       </span>
                                       <span> vs </span>
                                       <span className="font-medium">
-                                        {match.opponent_one_name || 'Team 2'}
+                                        {format === 'team'
+                                          ? match.team_two_name || 'Team 2'
+                                          : player(
+                                              pairs.find((pair) => pair.id === match.pair_two_id)
+                                                ?.player_one_id ?? '',
+                                              pairs.find((pair) => pair.id === match.pair_two_id)
+                                                ?.player_one_name ??
+                                                match.opponent_one_name ??
+                                                'Player 2',
+                                              pairs.find((pair) => pair.id === match.pair_two_id)
+                                                ?.player_one_skill_level,
+                                            )}
                                       </span>
                                     </div>
                                   ))}
@@ -291,9 +376,18 @@ export function TournamentOverviewParticipants({
                     <section className="rounded-md border border-dashed border-border p-3 sm:col-span-2">
                       <h4 className="font-medium">Players without an assigned team</h4>
                       <p className="mt-2 text-sm text-muted-foreground">
-                        {unpairedLeagueParticipants
-                          .map((participant) => participant.display_name)
-                          .join(', ')}
+                        <span className="flex flex-wrap gap-2">
+                          {unpairedLeagueParticipants.map((participant) => (
+                            <UserIdentity
+                              key={participant.id}
+                              name={participant.display_name}
+                              skillLevel={participant.tennis_skill_level}
+                              avatarUrl={participant.avatar_url}
+                              birthdayVisible={participant.birthday_emoji_visible}
+                              compact
+                            />
+                          ))}
+                        </span>
                       </p>
                     </section>
                   )}
@@ -308,8 +402,18 @@ export function TournamentOverviewParticipants({
                       key={team.id}
                       className={`rounded-md border p-3 text-sm ${ownTeamIds.includes(team.id) ? 'border-primary/40 bg-primary/[0.04]' : 'border-border'}`}
                     >
-                      <p className="font-medium">
-                        {team.name}
+                      <p className="flex items-center gap-2 font-medium">
+                        {team.logo_url && (
+                          <Image
+                            src={team.logo_url}
+                            alt=""
+                            width={32}
+                            height={32}
+                            unoptimized
+                            className="h-8 w-8 shrink-0 object-contain"
+                          />
+                        )}
+                        <span>{team.name}</span>
                         {ownTeamIds.includes(team.id) && (
                           <span className="ml-2 inline-flex rounded-full bg-primary/10 px-1.5 py-0.5 align-middle text-[10px] font-medium text-primary">
                             You
@@ -321,15 +425,53 @@ export function TournamentOverviewParticipants({
                           .filter((participant) => participant.team_id === team.id)
                           .map((participant) => (
                             <li key={participant.id} className="flex items-center gap-2">
-                              <span>{participant.display_name}</span>
-                              {participant.tennis_skill_level != null && (
-                                <span className="inline-flex rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                                  {participant.tennis_skill_level}
-                                </span>
-                              )}
+                              <UserIdentity
+                                name={participant.display_name}
+                                skillLevel={participant.tennis_skill_level}
+                                avatarUrl={participant.avatar_url}
+                                birthdayVisible={participant.birthday_emoji_visible}
+                                compact
+                              />
                             </li>
                           ))}
                       </ul>
+                      {team.captain_user_id === currentUserId && (
+                        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
+                          <label className="sr-only" htmlFor={'assign-player-' + team.id}>
+                            Add an unassigned player to {team.name}
+                          </label>
+                          <select
+                            id={'assign-player-' + team.id}
+                            className="h-9 min-w-48 flex-1 rounded-md border border-input bg-background px-2 text-sm"
+                            value={unassignedPlayerId}
+                            onChange={(event) => setUnassignedPlayerId(event.target.value)}
+                          >
+                            <option value="">Select an unassigned player</option>
+                            {participants
+                              .filter(
+                                (participant) =>
+                                  participant.status === 'registered' && !participant.team_id,
+                              )
+                              .map((participant) => (
+                                <option key={participant.id} value={participant.id}>
+                                  {participant.display_name}
+                                </option>
+                              ))}
+                          </select>
+                          <button
+                            type="button"
+                            disabled={!unassignedPlayerId || captainAssignmentBusy}
+                            onClick={() => {
+                              if (!unassignedPlayerId) return;
+                              void assignUnassignedPlayer(unassignedPlayerId);
+                              setUnassignedPlayerId('');
+                            }}
+                            className="h-9 rounded-md border border-border px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {captainAssignmentBusy ? 'Adding…' : 'Add to team'}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -345,17 +487,16 @@ export function TournamentOverviewParticipants({
                           key={pair.id}
                           className={`rounded-md border p-3 text-sm ${isOwnPair(pair.id) ? 'border-primary/40 bg-primary/[0.04]' : 'border-border'}`}
                         >
-                          <span>{pair.player_one_name}</span>
-                          {pair.player_one_skill_level != null && (
-                            <span className="ml-1 inline-flex rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                              {pair.player_one_skill_level}
-                            </span>
+                          {player(
+                            pair.player_one_id,
+                            pair.player_one_name,
+                            pair.player_one_skill_level,
                           )}{' '}
-                          + <span>{pair.player_two_name}</span>
-                          {pair.player_two_skill_level != null && (
-                            <span className="ml-1 inline-flex rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                              {pair.player_two_skill_level}
-                            </span>
+                          +{' '}
+                          {player(
+                            pair.player_two_id,
+                            pair.player_two_name,
+                            pair.player_two_skill_level,
                           )}
                           {isOwnPair(pair.id) && (
                             <span className="ml-2 inline-flex rounded-full bg-primary/10 px-1.5 py-0.5 align-middle text-[10px] font-medium text-primary">
@@ -382,12 +523,13 @@ export function TournamentOverviewParticipants({
                           key={participant.id}
                           className={`rounded-md border p-3 text-sm ${ownParticipantIds.includes(participant.id) ? 'border-primary/40 bg-primary/[0.04]' : 'border-border'}`}
                         >
-                          <span>{participant.display_name}</span>
-                          {participant.tennis_skill_level != null && (
-                            <span className="ml-1 inline-flex rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                              {participant.tennis_skill_level}
-                            </span>
-                          )}
+                          <UserIdentity
+                            name={participant.display_name}
+                            skillLevel={participant.tennis_skill_level}
+                            avatarUrl={participant.avatar_url}
+                            birthdayVisible={participant.birthday_emoji_visible}
+                            compact
+                          />
                           {ownParticipantIds.includes(participant.id) && (
                             <span className="ml-2 inline-flex rounded-full bg-primary/10 px-1.5 py-0.5 align-middle text-[10px] font-medium text-primary">
                               You
@@ -413,7 +555,15 @@ export function TournamentOverviewParticipants({
                           participant.status === 'waitlisted',
                       )
                       .map((participant) => (
-                        <li key={participant.id}>{participant.display_name}</li>
+                        <li key={participant.id}>
+                          <UserIdentity
+                            name={participant.display_name}
+                            skillLevel={participant.tennis_skill_level}
+                            avatarUrl={participant.avatar_url}
+                            birthdayVisible={participant.birthday_emoji_visible}
+                            compact
+                          />
+                        </li>
                       ))}
                   </ol>
                 ) : (

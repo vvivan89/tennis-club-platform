@@ -1,6 +1,7 @@
 import type { TournamentConfig } from '@/lib/tournament-config';
 import { parseBracketSlots } from '@/lib/tournament-match';
 import type { Match, Pair, Participant, Team } from '@/components/tournament-management-types';
+import { tournamentGroupCount } from '@/lib/tournament-groups';
 
 export function getTournamentDrawStatus({
   config,
@@ -8,6 +9,7 @@ export function getTournamentDrawStatus({
   phases,
   isTeam,
   activeCategory,
+  matchCategory = activeCategory,
   matchPhase,
   teams,
   participants,
@@ -19,6 +21,7 @@ export function getTournamentDrawStatus({
   phases: ReadonlyArray<readonly [string, string]>;
   isTeam: boolean;
   activeCategory: string;
+  matchCategory?: string;
   matchPhase: string;
   teams: Team[];
   participants: Participant[];
@@ -62,7 +65,7 @@ export function getTournamentDrawStatus({
   const bracketUsesRoundRobinPromotion =
     matchPhase === (isTeam ? 'team_knockout' : 'final_knockout') &&
     (isTeam ? enabledPhases.team_round_robin !== false : enabledPhases.round_robin !== false);
-  const bracketGroupCount = Math.max(2, Number(config?.group_count ?? 2));
+  const bracketGroupCount = tournamentGroupCount(config);
   const assignedGroupCount = new Set(
     (isTeam
       ? teams
@@ -77,7 +80,7 @@ export function getTournamentDrawStatus({
     : currentBracketEntrantCount || bracketGroupCount;
   const existingKnockoutMatches = matches.filter(
     (match) =>
-      match.category === (isTeam ? 'team' : activeCategory) &&
+      match.category === (isTeam ? matchCategory : activeCategory) &&
       match.phase === matchPhase &&
       match.phase.includes('knockout'),
   );

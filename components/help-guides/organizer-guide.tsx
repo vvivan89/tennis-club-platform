@@ -79,7 +79,7 @@ export function OrganizerHelpGuide() {
             {
               field: 'Maximum attendees / tournament capacity',
               value:
-                'Set the entrant limit. Doubles tournaments may leave total capacity unlimited and instead use category limits.',
+                'Set the total entrant limit. Team tournaments use this total limit; doubles tournaments may also set limits for individual categories.',
               effect:
                 'The total cap and category cap are enforced at registration; tournament counts are participant entries, not just pairs.',
             },
@@ -140,12 +140,7 @@ export function OrganizerHelpGuide() {
               value:
                 'Enable Mixed, Men’s, and/or Women’s doubles; enter a capacity for each enabled category or leave it blank for no category cap.',
               effect:
-                'Only enabled categories appear to registrants. A category cap and total capacity both apply.',
-            },
-            {
-              field: 'Team registration capacity',
-              value: 'For Team tournament, set the team-category limit or leave it blank.',
-              effect: 'This limits team entries, rather than individual players.',
+                'Only enabled doubles categories appear to registrants. Doubles category caps work alongside total capacity; Team tournaments use total capacity only.',
             },
             {
               field: 'Registration options',

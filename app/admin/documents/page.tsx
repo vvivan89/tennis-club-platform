@@ -1,6 +1,6 @@
 'use client';
 import { TennisLoader } from '@/components/tennis-loader';
-import { FormFeedback } from '@/components/form-feedback';
+import { FloatingFeedback } from '@/components/floating-feedback';
 import { AdminSectionTabs } from '@/components/admin-section-tabs';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
@@ -146,6 +146,7 @@ export default function AdminLegalPage() {
   return (
     <main className="flex min-h-screen flex-col bg-background text-foreground">
       <AdminNav />
+      <FloatingFeedback error={error} message={message} />
       <div className="page-container flex-1 py-10">
         <AdminSectionTabs section="legal" />
         {activeTab !== 'uploaded_documents' && (
@@ -192,7 +193,6 @@ export default function AdminLegalPage() {
                 <p className="mb-1.5 text-sm font-medium">Document text</p>
                 <RichTextEditor value={body} onChange={setBody} />
               </div>
-              <FormFeedback error={error} message={message} />
               <Button type="submit" disabled={busy}>
                 {busy ? <TennisLoader compact label="Saving" /> : 'Save new version'}
               </Button>

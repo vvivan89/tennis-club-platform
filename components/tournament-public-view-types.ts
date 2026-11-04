@@ -23,6 +23,7 @@ export type Team = {
 
 export type Participant = {
   id: string;
+  user_id?: string | null;
   event_id: string;
   team_id: string | null;
   category: string;
@@ -33,6 +34,8 @@ export type Participant = {
   payment_status?: string;
   tennis_skill_level?: number | null;
   is_member?: boolean;
+  avatar_url?: string | null;
+  birthday_emoji_visible?: boolean;
 };
 
 export type PartnerMember = { id: string; full_name: string; gender: string | null };
@@ -65,6 +68,7 @@ export type OwnTournamentEntry = {
   partner_skill_level?: number | null;
   partner_confirmation_status?: string | null;
   partner_is_league_team?: boolean;
+  captain_requested?: boolean;
 };
 
 export type TournamentPartnerConfirmation = {
@@ -111,11 +115,14 @@ export type Match = TournamentMatchCore & {
   notes?: string | null;
 };
 
+export type TournamentWinnerSummary = { category: string; winners: string[] };
+
 import type { ReactNode } from 'react';
 import type { TournamentConfig } from '@/lib/tournament-config';
 
 export type TournamentPublicViewProps = {
   adminContent?: ReactNode;
+  isManager?: boolean;
   eventTitle?: string;
   eventDescription?: string | null;
   genderRestriction?: string | null;
@@ -124,6 +131,7 @@ export type TournamentPublicViewProps = {
   currentUserId: string | null;
   currentUserEmail?: string | null;
   currentUserAccountKind?: string;
+  currentUserIsApprovedMember?: boolean;
   currentUserName?: string;
   currentUserPhone?: string;
   currentUserSkillLevel?: string | null;
@@ -150,4 +158,6 @@ export type TournamentPublicViewProps = {
   leagueStandingsAfter?: Array<Record<string, unknown>>;
   leagueHasResults?: boolean;
   courtCount?: number;
+  winnersAnnounced?: boolean;
+  announcedWinners?: TournamentWinnerSummary[];
 };

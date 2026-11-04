@@ -167,7 +167,7 @@ describe('admin client pages', () => {
         .closest('form') as HTMLFormElement,
     );
 
-    expect(await screen.findAllByText('Club information saved.')).toHaveLength(2);
+    expect(await screen.findAllByText('Club information saved.')).toHaveLength(1);
     expect(mocks.writes).toContainEqual({
       table: 'club_settings',
       operation: 'upsert',
@@ -263,7 +263,7 @@ describe('admin client pages', () => {
     fireEvent.change(input, { target: { files: [valid] } });
     expect(
       await screen.findAllByText('Logo uploaded. Save the club profile to publish it.'),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
     expect(mocks.storageUploads).toHaveLength(1);
     expect(mocks.storageUploads[0]).toMatchObject({
       bucket: 'club-assets',
@@ -331,7 +331,7 @@ describe('admin client pages', () => {
         .closest('form') as HTMLFormElement,
     );
 
-    expect(await screen.findAllByText('Contact details saved.')).toHaveLength(2);
+    expect(await screen.findAllByText('Contact details saved.')).toHaveLength(1);
     expect(mocks.writes).toContainEqual({
       table: 'club_contacts',
       operation: 'insert',
@@ -386,7 +386,7 @@ describe('admin client pages', () => {
         .closest('form') as HTMLFormElement,
     );
 
-    expect(await screen.findAllByText('Contact details saved.')).toHaveLength(2);
+    expect(await screen.findAllByText('Contact details saved.')).toHaveLength(1);
     expect(mocks.writes).toContainEqual({
       table: 'club_contacts',
       operation: 'update',

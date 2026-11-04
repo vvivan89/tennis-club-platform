@@ -1,7 +1,6 @@
 'use client';
-import Image from 'next/image';
 import { dispatchEventNotificationsInBackground } from '@/lib/event-notifications';
-import { FormFeedback } from '@/components/form-feedback';
+import { FloatingFeedback } from '@/components/floating-feedback';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
@@ -9,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { SearchableMemberSelect } from '@/components/searchable-member-select';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EventCourtAssignmentDialog } from '@/components/event-court-assignment-dialog';
+import { UserIdentity } from '@/components/user-identity';
 import { registrationErrorMessage } from '@/lib/registration-error-message';
 import { getEligibility, validateAssignments } from '@/components/event-edit-helpers';
 import { createAssignLadderCourts } from '@/components/event-edit-ladder-courts';
@@ -187,6 +187,7 @@ export function EventEditManagement({
             full_name: contact?.full_name ?? 'Unknown member',
             avatar_url: contact?.avatar_url ?? null,
             tennis_skill_level: contact?.tennis_skill_level ?? null,
+            birthday_emoji_visible: contact?.birthday_emoji_visible,
           };
         }),
       );
@@ -332,6 +333,7 @@ export function EventEditManagement({
             full_name: selectedPerson.full_name,
             avatar_url: selectedPerson.avatar_url,
             tennis_skill_level: selectedPerson.tennis_skill_level ?? null,
+            birthday_emoji_visible: selectedPerson.birthday_emoji_visible,
             email: selectedPerson.email,
             phone: selectedPerson.phone,
           },
@@ -627,7 +629,7 @@ export function EventEditManagement({
           </ul>
         </div>
       )}
-      <FormFeedback error={error} message={message} />
+      <FloatingFeedback error={error} message={message} />
       {!courtChangesLocked && (
         <div className="flex justify-end">
           <Button onClick={openCourtModal}>Assign courts</Button>
@@ -656,34 +658,13 @@ export function EventEditManagement({
                     className="flex flex-wrap items-center gap-3 rounded-lg border border-border p-3"
                   >
                     <div className="flex min-w-0 flex-1 items-center gap-3">
-                      {p.avatar_url ? (
-                        <Image
-                          src={p.avatar_url}
-                          alt=""
-                          width={40}
-                          height={40}
-                          unoptimized
-                          className="h-10 w-10 rounded-full object-cover"
-                        />
-                      ) : (
-                        <div className="grid h-10 w-10 place-items-center rounded-full bg-muted text-sm font-semibold">
-                          {(p.full_name || '?')
-                            .split(/\s+/)
-                            .map((x) => x[0])
-                            .slice(0, 2)
-                            .join('')
-                            .toUpperCase()}
-                        </div>
-                      )}
                       <div>
-                        <p className="font-medium">
-                          {p.full_name || 'Member'}
-                          {p.tennis_skill_level != null && (
-                            <span className="ml-2 text-xs font-normal text-muted-foreground">
-                              {p.tennis_skill_level}
-                            </span>
-                          )}
-                        </p>
+                        <UserIdentity
+                          name={p.full_name}
+                          skillLevel={p.tennis_skill_level}
+                          avatarUrl={p.avatar_url}
+                          birthdayVisible={p.birthday_emoji_visible}
+                        />
                         <p className="text-xs text-muted-foreground">
                           {status === 'waitlisted'
                             ? `Waitlist position ${p.queue_position ?? '—'}`

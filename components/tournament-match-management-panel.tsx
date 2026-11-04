@@ -1,12 +1,19 @@
-import type { FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { MoreHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { TennisLoader } from '@/components/tennis-loader';
 import { SearchableMemberSelect, type MemberOption } from '@/components/searchable-member-select';
 import { TournamentCourtScheduleBoard } from '@/components/tournament-court-schedule-board';
+import { hasSingleTournamentGroup } from '@/lib/tournament-groups';
 import { DraggableItem } from '@/components/drag-drop';
 import { knockoutStageLabel, type TournamentConfig } from '@/lib/tournament-config';
+import { getTournamentScoringTemplate } from '@/lib/tournament-config';
+import { teamMatchPoints } from '@/lib/tournament-score';
+import {
+  normalizeTournamentGender,
+  teamMatchGenderIneligibilityReason,
+} from '@/lib/tournament-config';
 import type {
   Match,
   MatchPlayer,
@@ -25,6 +32,8 @@ type MatchTileLabels = { players: string; stage: string };
 type MatchOption = readonly [string, string];
 type Props = {
   isTeam: boolean;
+  captainMode?: boolean;
+  captainTeamId?: string | null;
   busy: boolean;
   config: TournamentConfig | null;
   courtCount: number;
@@ -64,7 +73,15 @@ type Props = {
   recordWalkover: (match: Match, winner: 1 | 2) => void;
   saveScore: (match: Match, raw: string) => void;
   saveMatch: (match: Match, changes: Partial<Match>) => Promise<boolean>;
-  saveTeamPairing: (match: Match, teamId: string, side: 1 | 2) => void;
+  saveTeamPairing: (match: Match, teamId: string, side: 1 | 2, visibleToPublic: boolean) => void;
+  saveCaptainPairing?: (
+    match: Match,
+    teamId: string,
+    side: 1 | 2,
+    first: string,
+    second: string,
+    visibleToPublic: boolean,
+  ) => void;
   setMatchCourt: (value: string) => void;
   setMatchGrouping: (value: 'group' | 'round') => void;
   setMatchOne: (value: string) => void;
@@ -80,6 +97,8 @@ type Props = {
 
 export function TournamentMatchManagementPanel({
   isTeam,
+  captainMode = false,
+  captainTeamId = null,
   busy,
   config,
   courtCount,
@@ -120,6 +139,7 @@ export function TournamentMatchManagementPanel({
   saveScore,
   saveMatch,
   saveTeamPairing,
+  saveCaptainPairing,
   setMatchCourt,
   setMatchGrouping,
   setMatchOne,
@@ -128,84 +148,90 @@ export function TournamentMatchManagementPanel({
   setMatchTwo,
   setTeamPairSelection,
 }: Props) {
+  const [lineupVisibility, setLineupVisibility] = useState<Record<string, boolean>>({});
+  const singleGroup = hasSingleTournamentGroup(config);
   return (
     <div className="space-y-4 rounded-lg border border-border p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="font-semibold">Matches, scheduling and results</h3>
-        <div className="flex flex-wrap items-center gap-2">
-          {matchPhase === (isTeam ? 'team_round_robin' : 'round_robin') && (
-            <Button
-              type="button"
-              variant="outline"
-              disabled={
-                busy ||
-                matches.some(
-                  (m) =>
-                    m.category === matchCategory &&
-                    m.phase === matchPhase &&
-                    ((m.score_sets?.length ?? 0) > 0 ||
-                      m.winner_side != null ||
-                      m.status === 'completed'),
-                )
-              }
-              onClick={() => void generateSchedule()}
-            >
-              {busy ? <TennisLoader label="Scheduling" compact /> : 'Suggest schedule'}
-            </Button>
-          )}
-          {(matchPhase === (isTeam ? 'team_knockout' : 'final_knockout') ||
-            matchPhase === 'preliminary_knockout') && (
-            <Button
-              type="button"
-              variant="outline"
-              disabled={
-                busy ||
-                matches.some(
-                  (m) =>
-                    m.category === matchCategory &&
-                    m.phase.includes('knockout') &&
-                    ((m.score_sets?.length ?? 0) > 0 ||
-                      m.winner_side != null ||
-                      m.status === 'completed'),
-                )
-              }
-              onClick={() => void randomizeKnockoutDraw()}
-            >
-              {busy ? <TennisLoader label="Creating draw" compact /> : 'Create draw'}
-            </Button>
-          )}
-          {(matchPhase === (isTeam ? 'team_round_robin' : 'round_robin') ||
-            matchPhase === (isTeam ? 'team_knockout' : 'final_knockout') ||
-            matchPhase === 'preliminary_knockout') &&
-            availableMatchPhases.length > 1 && (
-              <span aria-hidden="true" className="mx-1 h-7 border-l border-border" />
+        {!captainMode && (
+          <div className="flex flex-wrap items-center gap-2">
+            {matchPhase === (isTeam ? 'team_round_robin' : 'round_robin') && (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={
+                  busy ||
+                  matches.some(
+                    (m) =>
+                      m.category === matchCategory &&
+                      m.phase === matchPhase &&
+                      ((m.score_sets?.length ?? 0) > 0 ||
+                        m.winner_side != null ||
+                        m.status === 'completed'),
+                  )
+                }
+                onClick={() => void generateSchedule()}
+              >
+                {busy ? <TennisLoader label="Scheduling" compact /> : 'Suggest schedule'}
+              </Button>
             )}
-          {availableMatchPhases.length > 1 && (
-            <div
-              className="inline-flex rounded-md border border-border p-1"
-              role="group"
-              aria-label="Match schedule phase"
-            >
-              {availableMatchPhases.map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  aria-pressed={matchPhase === key}
-                  onClick={() => setMatchPhase(key)}
-                  className={`rounded px-3 py-2 text-sm ${matchPhase === key ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary'}`}
-                >
-                  {label.replace('Team ', '')}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+            {(matchPhase === (isTeam ? 'team_knockout' : 'final_knockout') ||
+              matchPhase === 'preliminary_knockout') && (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={
+                  busy ||
+                  matches.some(
+                    (m) =>
+                      m.category === matchCategory &&
+                      m.phase.includes('knockout') &&
+                      ((m.score_sets?.length ?? 0) > 0 ||
+                        m.winner_side != null ||
+                        m.status === 'completed'),
+                  )
+                }
+                onClick={() => void randomizeKnockoutDraw()}
+              >
+                {busy ? <TennisLoader label="Creating draw" compact /> : 'Create draw'}
+              </Button>
+            )}
+            {(matchPhase === (isTeam ? 'team_round_robin' : 'round_robin') ||
+              matchPhase === (isTeam ? 'team_knockout' : 'final_knockout') ||
+              matchPhase === 'preliminary_knockout') &&
+              availableMatchPhases.length > 1 && (
+                <span aria-hidden="true" className="mx-1 h-7 border-l border-border" />
+              )}
+            {availableMatchPhases.length > 1 && (
+              <div
+                className="inline-flex rounded-md border border-border p-1"
+                role="group"
+                aria-label="Match schedule phase"
+              >
+                {availableMatchPhases.map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    aria-pressed={matchPhase === key}
+                    onClick={() => setMatchPhase(key)}
+                    className={`rounded px-3 py-2 text-sm ${matchPhase === key ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary'}`}
+                  >
+                    {label.replace('Team ', '')}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
-      <p className="text-sm text-muted-foreground">
-        Suggested start times are between 8:00 AM and 9:00 PM, with configurable match length and
-        breaks. Every match remains editable or deletable by administrators.
-      </p>
-      {isRoundRobinPhase && (
+      {!captainMode && (
+        <p className="text-sm text-muted-foreground">
+          Suggested start times are between 8:00 AM and 9:00 PM, with configurable match length and
+          breaks. Every match remains editable or deletable by administrators.
+        </p>
+      )}
+      {!captainMode && isRoundRobinPhase && !singleGroup && (
         <div
           className="inline-flex rounded-md border border-border p-1"
           role="group"
@@ -224,7 +250,7 @@ export function TournamentMatchManagementPanel({
           ))}
         </div>
       )}
-      {bracketNeedsRedraw && (
+      {!captainMode && bracketNeedsRedraw && (
         <p
           role="status"
           className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm"
@@ -235,74 +261,78 @@ export function TournamentMatchManagementPanel({
             : 'Use Create draw to regenerate the bracket and schedule, or edit the bracket manually.'}
         </p>
       )}
-      <form onSubmit={createMatch} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <label className="text-sm">
-          Side one
-          <SearchableMemberSelect
-            value={matchOne}
-            onChange={setMatchOne}
-            placeholder="Choose side one"
-            options={newMatchSideOptions(1)}
-          />
-        </label>
-        <label className="text-sm">
-          Side two
-          <SearchableMemberSelect
-            value={matchTwo}
-            onChange={setMatchTwo}
-            placeholder="Choose side two"
-            options={newMatchSideOptions(2)}
-          />
-        </label>
-        <label className="text-sm">
-          Date and time (optional)
-          <Input
-            type="datetime-local"
-            value={matchTime}
-            onChange={(e) => setMatchTime(e.target.value)}
-          />
-        </label>
-        <label className="text-sm">
-          Court (optional)
-          <select
-            className="block h-10 w-full rounded-md border border-input bg-background px-3"
-            value={matchCourt}
-            onChange={(e) => setMatchCourt(e.target.value)}
-          >
-            <option value="">Unassigned</option>
-            {Array.from({ length: Math.max(1, courtCount) }, (_, i) => i + 1).map((n) => (
-              <option key={n} value={n}>
-                Court {n}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="flex items-end gap-2">
-          <Button disabled={busy} type="submit">
-            Add match
-          </Button>
-        </div>
-      </form>
+      {!captainMode && (
+        <form onSubmit={createMatch} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <label className="text-sm">
+            Side one
+            <SearchableMemberSelect
+              value={matchOne}
+              onChange={setMatchOne}
+              placeholder="Choose side one"
+              options={newMatchSideOptions(1)}
+            />
+          </label>
+          <label className="text-sm">
+            Side two
+            <SearchableMemberSelect
+              value={matchTwo}
+              onChange={setMatchTwo}
+              placeholder="Choose side two"
+              options={newMatchSideOptions(2)}
+            />
+          </label>
+          <label className="text-sm">
+            Date and time (optional)
+            <Input
+              type="datetime-local"
+              value={matchTime}
+              onChange={(e) => setMatchTime(e.target.value)}
+            />
+          </label>
+          <label className="text-sm">
+            Court (optional)
+            <select
+              className="block h-10 w-full rounded-md border border-input bg-background px-3"
+              value={matchCourt}
+              onChange={(e) => setMatchCourt(e.target.value)}
+            >
+              <option value="">Unassigned</option>
+              {Array.from({ length: Math.max(1, courtCount) }, (_, i) => i + 1).map((n) => (
+                <option key={n} value={n}>
+                  Court {n}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="flex items-end gap-2">
+            <Button disabled={busy} type="submit">
+              Add match
+            </Button>
+          </div>
+        </form>
+      )}
       <div className="space-y-3">
-        <TournamentCourtScheduleBoard
-          courtCount={courtCount}
-          matches={matches}
-          getMatchLabels={matchCourtTileNames}
-          formatScheduledTime={formatDateTime}
-          conflicts={courtScheduleConflicts.map((conflict) => ({
-            key: `${conflict.court}-${conflict.current.id}`,
-            court: conflict.court,
-            severity: conflict.severity,
-            previousPlayers: matchCourtTileNames(conflict.previous).players,
-            previousTime: formatDateTime(conflict.previous.scheduled_at!),
-            currentPlayers: matchCourtTileNames(conflict.current).players,
-            currentTime: formatDateTime(conflict.current.scheduled_at!),
-          }))}
-          onMoveMatchToCourt={(matchId, court) => {
-            const match = matches.find((item) => item.id === matchId);
-            if (match) void moveMatchToCourt(match, court);
-          }}
-        />
+        {!captainMode && (
+          <TournamentCourtScheduleBoard
+            courtCount={courtCount}
+            matches={matches}
+            getMatchLabels={matchCourtTileNames}
+            formatScheduledTime={formatDateTime}
+            conflicts={courtScheduleConflicts.map((conflict) => ({
+              key: `${conflict.court}-${conflict.current.id}`,
+              court: conflict.court,
+              severity: conflict.severity,
+              previousPlayers: matchCourtTileNames(conflict.previous).players,
+              previousTime: formatDateTime(conflict.previous.scheduled_at!),
+              currentPlayers: matchCourtTileNames(conflict.current).players,
+              currentTime: formatDateTime(conflict.current.scheduled_at!),
+            }))}
+            onMoveMatchToCourt={(matchId, court) => {
+              const match = matches.find((item) => item.id === matchId);
+              if (match) void moveMatchToCourt(match, court);
+            }}
+          />
+        )}
         {adminMatchList.map((m, index, list) => {
           const knockoutPhase = matchPhase.includes('knockout');
           const groupKey = knockoutPhase
@@ -319,14 +349,19 @@ export function TournamentMatchManagementPanel({
                 : String(adminRoundByMatch.get(previous.id) ?? previous.round_number)
             : null;
           const showGroupTitle =
-            (isRoundRobinPhase || knockoutPhase) && (index === 0 || groupKey !== previousKey);
+            !captainMode &&
+            (isRoundRobinPhase || knockoutPhase) &&
+            !(singleGroup && isRoundRobinPhase) &&
+            (index === 0 || groupKey !== previousKey);
           const maxStageRound = Math.max(1, ...list.map((item) => item.round_number));
           const groupTitle = knockoutPhase
             ? knockoutStageLabel(m.round_number, maxStageRound)
             : matchGrouping === 'group'
-              ? m.group_number
-                ? `Group ${m.group_number}`
-                : 'Unassigned group'
+              ? singleGroup
+                ? ''
+                : m.group_number
+                  ? `Group ${m.group_number}`
+                  : 'Unassigned group'
               : `Round ${adminRoundByMatch.get(m.id) ?? m.round_number}`;
           const sideName = (side: 1 | 2): string => {
             const id = isTeam
@@ -392,6 +427,7 @@ export function TournamentMatchManagementPanel({
               <DraggableItem
                 id={m.id}
                 dataType="application/x-pctc-match-id"
+                draggable={!captainMode}
                 className="space-y-3 rounded-lg border border-border p-3"
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
@@ -415,40 +451,42 @@ export function TournamentMatchManagementPanel({
                       })()}
                     </p>
                   </div>
-                  <details className="relative shrink-0" data-tournament-menu="true">
-                    <summary
-                      aria-label={`Actions for match ${m.match_number}`}
-                      className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-md border border-input hover:bg-secondary [&::-webkit-details-marker]:hidden"
-                    >
-                      <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
-                    </summary>
-                    <div className="absolute right-0 z-50 mt-1 w-64 max-w-[calc(100vw-2rem)] flex flex-col rounded-md border border-border bg-background p-1 shadow-lg">
-                      <button
-                        type="button"
-                        className="rounded px-3 py-2 text-left text-sm text-destructive hover:bg-destructive/10 focus-visible:bg-destructive/10"
-                        disabled={busy}
-                        onClick={() => void deleteMatch(m)}
+                  {!captainMode && (
+                    <details className="relative shrink-0" data-tournament-menu="true">
+                      <summary
+                        aria-label={`Actions for match ${m.match_number}`}
+                        className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-md border border-input hover:bg-secondary [&::-webkit-details-marker]:hidden"
                       >
-                        Delete match
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded px-3 py-2 text-left text-sm hover:bg-secondary"
-                        disabled={busy || !(m.pair_one_id || m.team_one_id)}
-                        onClick={() => void recordWalkover(m, 1)}
-                      >
-                        Walkover: side one
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded px-3 py-2 text-left text-sm hover:bg-secondary"
-                        disabled={busy || !(m.pair_two_id || m.team_two_id)}
-                        onClick={() => void recordWalkover(m, 2)}
-                      >
-                        Walkover: side two
-                      </button>
-                    </div>
-                  </details>
+                        <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+                      </summary>
+                      <div className="absolute right-0 z-50 mt-1 w-64 max-w-[calc(100vw-2rem)] flex flex-col rounded-md border border-border bg-background p-1 shadow-lg">
+                        <button
+                          type="button"
+                          className="rounded px-3 py-2 text-left text-sm text-destructive hover:bg-destructive/10 focus-visible:bg-destructive/10"
+                          disabled={busy}
+                          onClick={() => void deleteMatch(m)}
+                        >
+                          Delete match
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded px-3 py-2 text-left text-sm hover:bg-secondary"
+                          disabled={busy || !(m.pair_one_id || m.team_one_id)}
+                          onClick={() => void recordWalkover(m, 1)}
+                        >
+                          Walkover: side one
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded px-3 py-2 text-left text-sm hover:bg-secondary"
+                          disabled={busy || !(m.pair_two_id || m.team_two_id)}
+                          onClick={() => void recordWalkover(m, 2)}
+                        >
+                          Walkover: side two
+                        </button>
+                      </div>
+                    </details>
+                  )}
                 </div>
                 {m.status === 'bye' && (
                   <div
@@ -462,7 +500,7 @@ export function TournamentMatchManagementPanel({
                     </p>
                   </div>
                 )}
-                {m.status !== 'completed' && (
+                {!captainMode && m.status !== 'completed' && (
                   <div className="grid gap-2 sm:grid-cols-2">
                     <label className="block text-xs">
                       Side one draw
@@ -484,165 +522,273 @@ export function TournamentMatchManagementPanel({
                     </label>
                   </div>
                 )}
-                <div className="grid items-start gap-3 sm:grid-cols-3">
-                  <label className="flex min-w-0 flex-col gap-1 text-xs">
-                    Date/time
-                    <Input
-                      className="h-10"
-                      type="datetime-local"
-                      value={localDateTime(m.scheduled_at)}
-                      onChange={(e) =>
-                        void saveMatch(m, {
-                          scheduled_at: e.target.value
-                            ? new Date(e.target.value).toISOString()
-                            : null,
-                        })
-                      }
-                    />
-                    {m.scheduled_at && (
-                      <span className="text-muted-foreground">
-                        Scheduled end:{' '}
-                        {formatTime(
-                          new Date(
-                            new Date(m.scheduled_at).getTime() +
-                              Math.max(30, Number(config?.schedule?.match_minutes ?? 60)) * 60000,
+                {captainMode ? (
+                  <p className="text-xs text-muted-foreground">
+                    {m.scheduled_at ? formatDateTime(m.scheduled_at) : 'Date not scheduled'}
+                    {m.court_number ? ` · Court ${m.court_number}` : ' · Court not assigned'}
+                  </p>
+                ) : (
+                  <div className="grid items-start gap-3 sm:grid-cols-3">
+                    <label className="flex min-w-0 flex-col gap-1 text-xs">
+                      Date/time
+                      <Input
+                        className="h-10"
+                        type="datetime-local"
+                        value={localDateTime(m.scheduled_at)}
+                        onChange={(e) =>
+                          void saveMatch(m, {
+                            scheduled_at: e.target.value
+                              ? new Date(e.target.value).toISOString()
+                              : null,
+                          })
+                        }
+                      />
+                      {m.scheduled_at && (
+                        <span className="text-muted-foreground">
+                          Scheduled end:{' '}
+                          {formatTime(
+                            new Date(
+                              new Date(m.scheduled_at).getTime() +
+                                Math.max(30, Number(config?.schedule?.match_minutes ?? 60)) * 60000,
+                            ),
+                          )}
+                        </span>
+                      )}
+                    </label>
+                    <label className="flex min-w-0 flex-col gap-1 text-xs">
+                      Court
+                      <select
+                        className="block h-10 w-full rounded-md border border-input bg-background px-3"
+                        value={m.court_number ?? ''}
+                        onChange={(e) =>
+                          void moveMatchToCourt(m, e.target.value ? Number(e.target.value) : null)
+                        }
+                      >
+                        <option value="">Unassigned</option>
+                        {Array.from({ length: Math.max(1, courtCount) }, (_, i) => i + 1).map(
+                          (n) => (
+                            <option key={n} value={n}>
+                              Court {n}
+                            </option>
                           ),
                         )}
-                      </span>
-                    )}
-                  </label>
-                  <label className="flex min-w-0 flex-col gap-1 text-xs">
-                    Court
-                    <select
-                      className="block h-10 w-full rounded-md border border-input bg-background px-3"
-                      value={m.court_number ?? ''}
-                      onChange={(e) =>
-                        void moveMatchToCourt(m, e.target.value ? Number(e.target.value) : null)
-                      }
-                    >
-                      <option value="">Unassigned</option>
-                      {Array.from({ length: Math.max(1, courtCount) }, (_, i) => i + 1).map((n) => (
-                        <option key={n} value={n}>
-                          Court {n}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="flex min-w-0 flex-col gap-1 text-xs">
-                    Set scores (e.g. 6-4, 3-6, 10-8)
-                    <Input
-                      className="h-10"
-                      key={`${m.id}-${scoreText}`}
-                      defaultValue={scoreText}
-                      placeholder={m.status === 'bye' ? 'Unavailable for BYE' : '6-4, 6-3'}
-                      disabled={m.status === 'bye'}
-                      onBlur={(e) => {
-                        if (e.target.value !== scoreText) void saveScore(m, e.target.value);
-                      }}
-                    />
-                  </label>
-                </div>
-                {isTeam && m.status !== 'completed' && m.status !== 'cancelled' && (
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    {([1, 2] as const).map((side) => {
-                      const teamId = side === 1 ? m.team_one_id : m.team_two_id;
-                      if (!teamId) return null;
-                      const roster = activeParticipants.filter(
-                        (participant) =>
-                          participant.team_id === teamId && participant.category === 'team',
-                      );
-                      const currentPair = matchPlayers.filter(
-                        (player) => player.match_id === m.id && player.team_id === teamId,
-                      );
-                      return (
-                        <div
-                          key={`${m.id}-team-pair-${side}`}
-                          className="rounded-md bg-secondary/30 p-3"
-                        >
-                          <p className="text-xs font-semibold">{sideName(side)} pairing</p>
-                          <div className="mt-2 grid gap-2">
-                            <SearchableMemberSelect
-                              value={
-                                teamPairSelection[`${m.id}-${side}`]?.first ??
-                                currentPair[0]?.participant_id ??
-                                ''
-                              }
-                              onChange={(value) =>
-                                setTeamPairSelection((previous) => ({
-                                  ...previous,
-                                  [`${m.id}-${side}`]: {
-                                    first: value,
-                                    second:
-                                      previous[`${m.id}-${side}`]?.second ??
-                                      currentPair[1]?.participant_id ??
-                                      '',
-                                  },
-                                }))
-                              }
-                              placeholder="Choose player one"
-                              options={roster.map((participant): MemberOption => ({
-                                id: participant.id,
-                                full_name: participant.display_name,
-                                statusText: 'Team roster member',
-                              }))}
-                            />
-                            <SearchableMemberSelect
-                              value={
-                                teamPairSelection[`${m.id}-${side}`]?.second ??
-                                currentPair[1]?.participant_id ??
-                                ''
-                              }
-                              onChange={(value) =>
-                                setTeamPairSelection((previous) => ({
-                                  ...previous,
-                                  [`${m.id}-${side}`]: {
-                                    first:
-                                      previous[`${m.id}-${side}`]?.first ??
-                                      currentPair[0]?.participant_id ??
-                                      '',
-                                    second: value,
-                                  },
-                                }))
-                              }
-                              placeholder="Choose player two"
-                              options={roster.map((participant): MemberOption => {
-                                const firstId =
-                                  teamPairSelection[`${m.id}-${side}`]?.first ??
-                                  currentPair[0]?.participant_id ??
-                                  '';
-                                const reason =
-                                  participant.id === firstId
-                                    ? 'Already selected as player one'
-                                    : '';
-                                return {
-                                  id: participant.id,
-                                  full_name: participant.display_name,
-                                  statusText: reason || 'Team roster member',
-                                  available: !reason,
-                                  unavailableReason: reason || undefined,
-                                };
-                              })}
-                            />
-                            <Button
-                              type="button"
-                              variant="outline"
-                              disabled={busy}
-                              onClick={() => void saveTeamPairing(m, teamId, side)}
-                            >
-                              Save pairing
-                            </Button>
-                          </div>
-                        </div>
-                      );
-                    })}
+                      </select>
+                    </label>
+                    <label className="flex min-w-0 flex-col gap-1 text-xs">
+                      Set scores (e.g. 6-4, 3-6, 10-8)
+                      <Input
+                        className="h-10"
+                        key={`${m.id}-${scoreText}`}
+                        defaultValue={scoreText}
+                        placeholder={m.status === 'bye' ? 'Unavailable for BYE' : '6-4, 6-3'}
+                        disabled={m.status === 'bye'}
+                        onBlur={(e) => {
+                          if (e.target.value !== scoreText) void saveScore(m, e.target.value);
+                        }}
+                      />
+                    </label>
                   </div>
                 )}
-                {isTeam && (
-                  <p className="text-xs text-muted-foreground">
-                    Team standings points: {m.team_points_one} – {m.team_points_two}. Score edits
-                    are immediately applied; administrators can correct them at any time.
-                  </p>
+                {isTeam && m.status !== 'completed' && m.status !== 'cancelled' && (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {([1, 2] as const)
+                      .filter(
+                        (side) =>
+                          !captainMode ||
+                          (side === 1 ? m.team_one_id : m.team_two_id) === captainTeamId,
+                      )
+                      .map((side) => {
+                        const teamId = side === 1 ? m.team_one_id : m.team_two_id;
+                        if (!teamId) return null;
+                        const roster = activeParticipants.filter(
+                          (participant) =>
+                            participant.team_id === teamId && participant.category === 'team',
+                        );
+                        const currentPair = matchPlayers.filter(
+                          (player) => player.match_id === m.id && player.team_id === teamId,
+                        );
+                        const firstId =
+                          teamPairSelection[`${m.id}-${side}`]?.first ??
+                          currentPair[0]?.participant_id ??
+                          '';
+                        const firstParticipant = roster.find(
+                          (participant) => participant.id === firstId,
+                        );
+                        const firstGender = normalizeTournamentGender(
+                          firstParticipant?.gender_override ?? firstParticipant?.gender,
+                        );
+                        const visibilityKey = `${m.id}-${side}`;
+                        const visibleToPublic =
+                          lineupVisibility[visibilityKey] ??
+                          (side === 1
+                            ? m.team_one_lineup_public === true
+                            : m.team_two_lineup_public === true);
+                        return (
+                          <div
+                            key={`${m.id}-team-pair-${side}`}
+                            className="rounded-md bg-secondary/30 p-3"
+                          >
+                            <p className="text-xs font-semibold">{sideName(side)} lineup</p>
+                            <div className="mt-2 grid gap-2">
+                              <SearchableMemberSelect
+                                value={
+                                  teamPairSelection[`${m.id}-${side}`]?.first ??
+                                  currentPair[0]?.participant_id ??
+                                  ''
+                                }
+                                onChange={(value) =>
+                                  setTeamPairSelection((previous) => ({
+                                    ...previous,
+                                    [`${m.id}-${side}`]: {
+                                      first: value,
+                                      second:
+                                        previous[`${m.id}-${side}`]?.second ??
+                                        currentPair[1]?.participant_id ??
+                                        '',
+                                    },
+                                  }))
+                                }
+                                placeholder="Choose player one"
+                                options={roster.map((participant): MemberOption => {
+                                  const reason = teamMatchGenderIneligibilityReason(
+                                    m.category,
+                                    participant.gender_override ?? participant.gender,
+                                  );
+                                  return {
+                                    id: participant.id,
+                                    full_name: participant.display_name,
+                                    statusText: reason || 'Team roster member',
+                                    available: !reason,
+                                    unavailableReason: reason || undefined,
+                                  };
+                                })}
+                              />
+                              <SearchableMemberSelect
+                                value={
+                                  teamPairSelection[`${m.id}-${side}`]?.second ??
+                                  currentPair[1]?.participant_id ??
+                                  ''
+                                }
+                                onChange={(value) =>
+                                  setTeamPairSelection((previous) => ({
+                                    ...previous,
+                                    [`${m.id}-${side}`]: {
+                                      first:
+                                        previous[`${m.id}-${side}`]?.first ??
+                                        currentPair[0]?.participant_id ??
+                                        '',
+                                      second: value,
+                                    },
+                                  }))
+                                }
+                                placeholder="Choose player two"
+                                options={roster.map((participant): MemberOption => {
+                                  const sameMixedGender =
+                                    m.category === 'mixed' &&
+                                    firstGender !== null &&
+                                    normalizeTournamentGender(
+                                      participant.gender_override ?? participant.gender,
+                                    ) === firstGender;
+                                  let reason: string | null = null;
+                                  if (participant.id === firstId) {
+                                    reason = 'Already selected as player one';
+                                  } else {
+                                    reason = teamMatchGenderIneligibilityReason(
+                                      m.category,
+                                      participant.gender_override ?? participant.gender,
+                                    );
+                                    if (!reason && m.category === 'mixed' && firstGender === null)
+                                      reason = 'Select a player with a known gender first';
+                                    if (!reason && sameMixedGender)
+                                      reason =
+                                        'Mixed matches require one male and one female player';
+                                  }
+                                  return {
+                                    id: participant.id,
+                                    full_name: participant.display_name,
+                                    statusText: reason || 'Team roster member',
+                                    available: !reason,
+                                    unavailableReason: reason || undefined,
+                                  };
+                                })}
+                              />
+                              <label className="flex items-center gap-2 text-xs">
+                                <input
+                                  type="checkbox"
+                                  checked={visibleToPublic}
+                                  onChange={(event) =>
+                                    setLineupVisibility((current) => ({
+                                      ...current,
+                                      [visibilityKey]: event.target.checked,
+                                    }))
+                                  }
+                                />
+                                Show this lineup to everyone on the public tournament page
+                              </label>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                disabled={busy}
+                                onClick={() =>
+                                  captainMode
+                                    ? saveCaptainPairing?.(
+                                        m,
+                                        teamId,
+                                        side,
+                                        teamPairSelection[`${m.id}-${side}`]?.first ??
+                                          currentPair[0]?.participant_id ??
+                                          '',
+                                        teamPairSelection[`${m.id}-${side}`]?.second ??
+                                          currentPair[1]?.participant_id ??
+                                          '',
+                                        visibleToPublic,
+                                      )
+                                    : saveTeamPairing(m, teamId, side, visibleToPublic)
+                                }
+                              >
+                                Save lineup
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
                 )}
+                {captainMode &&
+                  isTeam &&
+                  (() => {
+                    const opponentTeamId =
+                      m.team_one_id === captainTeamId ? m.team_two_id : m.team_one_id;
+                    const opponentSide = m.team_one_id === opponentTeamId ? 1 : 2;
+                    const opponentVisible =
+                      opponentSide === 1 ? m.team_one_lineup_public : m.team_two_lineup_public;
+                    if (!opponentVisible || !opponentTeamId) return null;
+                    const names = opponentSide === 1 ? m.player_one_name : m.opponent_one_name;
+                    return names ? (
+                      <p className="text-xs text-muted-foreground">Opponent lineup: {names}</p>
+                    ) : null;
+                  })()}
+                {isTeam &&
+                  m.status === 'completed' &&
+                  getTournamentScoringTemplate(config, m.phase) === 'team_two_sets_bonus_third' && (
+                    <p className="text-xs text-muted-foreground">
+                      Team standings points:{' '}
+                      {
+                        teamMatchPoints(
+                          m.score_sets ?? [],
+                          getTournamentScoringTemplate(config, m.phase),
+                        ).pointsOne
+                      }
+                      {' – '}
+                      {
+                        teamMatchPoints(
+                          m.score_sets ?? [],
+                          getTournamentScoringTemplate(config, m.phase),
+                        ).pointsTwo
+                      }
+                      .
+                    </p>
+                  )}
                 {m.notes &&
                   (() => {
                     try {

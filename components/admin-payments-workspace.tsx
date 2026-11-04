@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Check, Download, Search, X, Save } from 'lucide-react';
 import { AdminPaymentRefundForm } from '@/components/admin-payment-refund-form';
 import { AdminManualPaymentRefundForm } from '@/components/admin-manual-payment-refund-form';
+import { FloatingFeedback } from '@/components/floating-feedback';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { usePendingInteracPaymentsCount } from '@/lib/use-pending-interac-payments-count';
 
@@ -109,7 +110,6 @@ export function AdminPaymentsWorkspace({
   );
   const [settings, setSettings] = useState(initialSettings);
   const [settingsBusy, setSettingsBusy] = useState(false);
-  const [settingsMessage, setSettingsMessage] = useState('');
   const [query, setQuery] = useState('');
   const [paymentPurpose, setPaymentPurpose] = useState('all');
   const [paymentStatus, setPaymentStatus] = useState('all');
@@ -124,6 +124,7 @@ export function AdminPaymentsWorkspace({
     action: 'confirm' | 'reject';
   } | null>(null);
   const [actionError, setActionError] = useState('');
+  const [actionMessage, setActionMessage] = useState('');
   const pendingInteracPaymentCount = usePendingInteracPaymentsCount(true);
   useEffect(() => {
     setTab(
@@ -233,7 +234,8 @@ export function AdminPaymentsWorkspace({
     .filter((r) => maxAmount === '' || r.amountMinor <= Number(maxAmount) * 100);
   async function saveSettings() {
     setSettingsBusy(true);
-    setSettingsMessage('');
+    setActionError('');
+    setActionMessage('');
     try {
       const response = await fetch('/api/admin/payments/interac-settings', {
         method: 'PUT',
@@ -246,16 +248,17 @@ export function AdminPaymentsWorkspace({
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Could not save settings.');
-      setSettingsMessage('Interac settings saved.');
+      setActionMessage('Interac settings saved.');
       router.refresh();
     } catch (e) {
-      setSettingsMessage(e instanceof Error ? e.message : 'Could not save settings.');
+      setActionError(e instanceof Error ? e.message : 'Could not save settings.');
     } finally {
       setSettingsBusy(false);
     }
   }
   async function review(row: Row, action: 'confirm' | 'reject') {
     setActionError('');
+    setActionMessage('');
     setReviewDialog({ row, action });
   }
   async function performReview() {
@@ -272,6 +275,9 @@ export function AdminPaymentsWorkspace({
       if (!response.ok) throw new Error(result.error || 'Review action failed.');
       setReviewNote((v) => ({ ...v, [row.id]: '' }));
       setReviewDialog(null);
+      setActionMessage(
+        action === 'confirm' ? 'Interac payment confirmed.' : 'Interac payment rejected.',
+      );
       window.dispatchEvent(new Event('pctc-pending-interac-payments-refresh'));
       router.refresh();
     } catch (e) {
@@ -282,14 +288,7 @@ export function AdminPaymentsWorkspace({
   }
   return (
     <div className="mt-6 space-y-6">
-      {actionError && (
-        <p
-          role="alert"
-          className="rounded-md border border-destructive p-3 text-sm text-destructive"
-        >
-          {actionError}
-        </p>
-      )}
+      <FloatingFeedback error={actionError} message={actionMessage} />
       <div
         role="tablist"
         aria-label="Payment administration"
@@ -517,11 +516,6 @@ export function AdminPaymentsWorkspace({
                     <Save size={16} />
                     {settingsBusy ? 'Saving…' : 'Save instructions'}
                   </button>
-                  {settingsMessage && (
-                    <span role="status" className="text-sm text-muted-foreground">
-                      {settingsMessage}
-                    </span>
-                  )}
                 </div>
               </div>
             </section>

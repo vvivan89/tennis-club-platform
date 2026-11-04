@@ -1,12 +1,15 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Input } from '@/components/ui/input';
+import { UserIdentity } from '@/components/user-identity';
 export type MemberOption = {
   id: string;
   full_name?: string | null;
   email?: string | null;
   phone?: string | null;
   tennis_skill_level?: number | string | null;
+  avatar_url?: string | null;
+  birthday_emoji_visible?: boolean;
   available?: boolean;
   unavailableReason?: string;
   statusText?: string;
@@ -107,14 +110,14 @@ export function SearchableMemberSelect({
               }}
               className="block w-full rounded px-3 py-2 text-left text-sm enabled:hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <span className="block font-medium">
-                {option.full_name || 'Member'}
-                {option.tennis_skill_level != null && (
-                  <span className="ml-2 text-xs text-muted-foreground">
-                    {option.tennis_skill_level}
-                  </span>
-                )}
-              </span>
+              <UserIdentity
+                name={option.full_name || 'Member'}
+                skillLevel={option.tennis_skill_level}
+                avatarUrl={option.avatar_url}
+                birthdayVisible={option.birthday_emoji_visible}
+                compact
+                className="font-medium"
+              />
               {option.statusText && (
                 <span className="block text-xs text-muted-foreground">{option.statusText}</span>
               )}

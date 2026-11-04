@@ -8,6 +8,7 @@ import type { SuspensionRecord } from '@/components/member-edit-modal';
 import { InviteMemberForm } from '@/components/invite-member-form';
 import { MembershipTypesAdmin } from '@/components/membership-types-admin';
 import { AdminApplications } from '@/components/admin-applications';
+import { FloatingFeedback } from '@/components/floating-feedback';
 type MembershipRow = {
   id: string;
   user_id: string;
@@ -89,6 +90,7 @@ export default async function MembersAdminPage({
     return (
       <main className="flex min-h-screen flex-col bg-background text-foreground">
         <AdminNav />
+        {error && <FloatingFeedback error={error.message} />}
         <div className="page-container flex-1 py-10">
           <AdminSectionTabs section="membership" />
           <p className="eyebrow">Club administration</p>
@@ -96,13 +98,7 @@ export default async function MembersAdminPage({
           <p className="mt-3 mb-7 text-sm text-muted-foreground">
             New accounts remain unapproved until an administrator accepts their application.
           </p>
-          {error ? (
-            <p role="alert" className="text-sm text-destructive">
-              {error.message}
-            </p>
-          ) : (
-            <AdminApplications applications={data ?? []} />
-          )}
+          {error ? null : <AdminApplications applications={data ?? []} />}
         </div>
         <SiteFooter />
       </main>
@@ -236,6 +232,7 @@ export default async function MembersAdminPage({
   return (
     <main className="flex min-h-screen flex-col bg-background text-foreground">
       <AdminNav />
+      {error && <FloatingFeedback error={error.message} />}
       <div className="page-container flex-1 py-10">
         <AdminSectionTabs section="membership" />
         <p className="eyebrow">Club administration</p>
@@ -243,13 +240,7 @@ export default async function MembersAdminPage({
         <div className="my-7">
           <InviteMemberForm />
         </div>
-        {error ? (
-          <p role="alert" className="text-sm text-destructive">
-            {error.message}
-          </p>
-        ) : (
-          <MembersTable initialMembers={rows} />
-        )}
+        {error ? null : <MembersTable initialMembers={rows} />}
       </div>
       <SiteFooter />
     </main>

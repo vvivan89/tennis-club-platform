@@ -42,7 +42,7 @@ export function getEventTypeFormUpdate(value: string, current: EventFormValues) 
         ...current.tournament_config,
         ranking_priority:
           value === 'team_tournament'
-            ? ['points', 'matches_won', 'sets_won', 'games_won']
+            ? ['matches_won', 'sets_won', 'games_won']
             : (
                 current.tournament_config.ranking_priority ?? [
                   'matches_won',

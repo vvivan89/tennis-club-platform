@@ -26,7 +26,9 @@ export function useTournamentVisibleMatchData({
         .filter(
           (match) =>
             match.status === 'scheduled' &&
-            (format === 'team' || match.category === activeCategory) &&
+            (format === 'team'
+              ? activeCategory === 'overall' || match.category === activeCategory
+              : match.category === activeCategory) &&
             match.scheduled_at &&
             new Date(match.scheduled_at).getTime() >= Date.now() &&
             (ownTeamIds.includes(match.team_one_id || '') ||
@@ -68,8 +70,8 @@ export function useTournamentVisibleMatchData({
                 ? enabledPhases.team_knockout !== false
                 : false),
   );
-  const categoryVisibleMatches = visibleMatches.filter(
-    (match) => format === 'team' || match.category === activeCategory,
+  const categoryVisibleMatches = visibleMatches.filter((match) =>
+    activeCategory === 'overall' && format === 'team' ? true : match.category === activeCategory,
   );
   const roundRobinRoundByMatch = useMemo(
     () =>

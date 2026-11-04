@@ -292,7 +292,7 @@ describe('Member profile page', () => {
     expect(mocks.upload).toHaveBeenCalledWith(
       expect.stringMatching(/^member-1\/avatar-\d+\.png$/),
       expect.any(File),
-      { upsert: true, contentType: 'image/png' },
+      { upsert: false, contentType: 'image/png' },
     );
 
     await user.upload(input, new File(['image'], 'avatar.', { type: 'image/png' }));

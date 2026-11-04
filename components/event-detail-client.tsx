@@ -23,6 +23,7 @@ import {
   type EventRosterRow as Roster,
   type EventScoreRow as Score,
 } from '@/components/event-detail-panels';
+import { UserIdentity } from '@/components/user-identity';
 
 import type { EventInfo } from '@/components/event-detail-types';
 import { useEventRegistrationActions } from '@/components/use-event-registration-actions';
@@ -265,7 +266,7 @@ export function EventDetailClient({
         db
           .from('event_roster')
           .select(
-            'registration_id,user_id,status,payment_status,queue_position,full_name,avatar_url,tennis_skill_level',
+            'registration_id,user_id,status,payment_status,queue_position,full_name,avatar_url,tennis_skill_level,birthday_emoji_visible',
           )
           .eq('event_id', event.id),
         currentUserId
@@ -469,8 +470,16 @@ export function EventDetailClient({
     }
   }
   function playerLabel(registrationId: string, name: string) {
-    const rating = liveRoster.find((r) => r.registration_id === registrationId)?.tennis_skill_level;
-    return `${name}${rating != null ? ` (${rating})` : ''}`;
+    const player = liveRoster.find((r) => r.registration_id === registrationId);
+    return (
+      <UserIdentity
+        name={player?.full_name ?? name}
+        skillLevel={player?.tennis_skill_level}
+        avatarUrl={player?.avatar_url}
+        birthdayVisible={player?.birthday_emoji_visible}
+        compact
+      />
+    );
   }
   const scoreEditLocked =
     Date.now() - new Date(event.starts_at).getTime() > 2 * 24 * 60 * 60 * 1000;

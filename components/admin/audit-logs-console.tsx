@@ -14,6 +14,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import { actionLabel, auditChangeLines, safeAuditDetails } from '@/lib/audit-format';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { FloatingFeedback } from '@/components/floating-feedback';
 
 type LogMode = 'audit' | 'errors';
 type AuditRow = {
@@ -370,15 +371,13 @@ export function AuditLogsConsole() {
           </div>
         </div>
       </div>
-      {error && (
-        <div
-          role="alert"
-          className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive"
-        >
-          Could not load logs: {error}. Confirm the audit-log migration has been applied and your
-          account has administrator access.
-        </div>
-      )}
+      <FloatingFeedback
+        error={
+          error
+            ? `Could not load logs: ${error}. Confirm the audit-log migration has been applied and your account has administrator access.`
+            : ''
+        }
+      />
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[900px] text-left text-sm">

@@ -114,7 +114,7 @@ describe('AdminPaymentsWorkspace', () => {
       json: async () => ({ error: 'Settings unavailable.' }),
     });
     await user.click(screen.getByRole('button', { name: 'Save instructions' }));
-    expect(await screen.findByRole('status')).toHaveTextContent('Settings unavailable.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Settings unavailable.');
   });
 
   it('confirms and retries a failed payment review, and requires a rejection note', async () => {

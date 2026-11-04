@@ -1,24 +1,26 @@
 import type { Dispatch, SetStateAction } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { evaluateTournamentScore } from '@/lib/tournament-score';
-import { hasTwoPlayersPerTeam } from '@/lib/tournament-match';
+import { evaluateTournamentScore, teamMatchPoints } from '@/lib/tournament-score';
+import { getTournamentScoringTemplate } from '@/lib/tournament-config';
 import type { Match, MatchPlayer } from '@/components/tournament-public-view-types';
 import type { TournamentConfig } from '@/lib/tournament-config';
 
 export function useTournamentCaptainActions({
   db,
-  currentUserId,
   config,
-  matchPlayers,
+  eventStartsAt,
   setMatchPlayers,
   setMatches,
+  setActionMessage,
+  setSuccessMessage,
 }: {
   db: SupabaseClient;
-  currentUserId: string | null;
   config: TournamentConfig | null;
-  matchPlayers: MatchPlayer[];
+  eventStartsAt: string;
   setMatchPlayers: Dispatch<SetStateAction<MatchPlayer[]>>;
   setMatches: Dispatch<SetStateAction<Match[]>>;
+  setActionMessage: (message: string) => void;
+  setSuccessMessage: (message: string) => void;
 }) {
   async function saveCaptainPairing(match: Match, teamId: string, side: 1 | 2) {
     const first =
@@ -28,24 +30,24 @@ export function useTournamentCaptainActions({
       (document.getElementById(`captain-pair-${match.id}-${side}-b`) as HTMLSelectElement | null)
         ?.value || '';
     if (!first || !second || first === second) {
-      window.alert('Select two different players for the doubles pairing.');
+      setActionMessage('Select two different players for the doubles pairing.');
       return;
     }
-    const { error: deleteError } = await db
-      .from('tournament_match_players')
-      .delete()
-      .eq('match_id', match.id)
-      .eq('team_id', teamId);
-    if (deleteError) {
-      window.alert(deleteError.message);
-      return;
-    }
-    const { error: insertError } = await db.from('tournament_match_players').insert([
-      { match_id: match.id, participant_id: first, side, team_id: teamId },
-      { match_id: match.id, participant_id: second, side, team_id: teamId },
-    ]);
-    if (insertError) {
-      window.alert(insertError.message);
+    const visible =
+      (
+        document.getElementById(
+          `captain-lineup-visible-${match.id}-${side}`,
+        ) as HTMLInputElement | null
+      )?.checked ?? false;
+    const { error } = await db.rpc('save_tournament_captain_match_lineup', {
+      p_match_id: match.id,
+      p_team_id: teamId,
+      p_player_one: first,
+      p_player_two: second,
+      p_visible_to_public: visible,
+    });
+    if (error) {
+      setActionMessage(error.message);
       return;
     }
     setMatchPlayers((current) => [
@@ -53,37 +55,46 @@ export function useTournamentCaptainActions({
       { match_id: match.id, participant_id: first, side, team_id: teamId },
       { match_id: match.id, participant_id: second, side, team_id: teamId },
     ]);
+    setMatches((current) =>
+      current.map((item) =>
+        item.id === match.id
+          ? {
+              ...item,
+              team_one_lineup_public: side === 1 ? visible : item.team_one_lineup_public,
+              team_two_lineup_public: side === 2 ? visible : item.team_two_lineup_public,
+            }
+          : item,
+      ),
+    );
   }
 
-  async function saveCaptainScore(match: Match) {
-    if (!hasTwoPlayersPerTeam(match, matchPlayers)) {
-      window.alert(
-        'Assign two players to each team before recording the result so individual records remain accurate.',
-      );
-      return;
+  async function saveCaptainScore(match: Match, rawScore?: string): Promise<boolean> {
+    const matchStart = new Date(match.scheduled_at || eventStartsAt).getTime();
+    if (Date.now() < matchStart) {
+      setActionMessage('A match result can only be entered after its scheduled start time.');
+      return false;
     }
+
     const input = document.getElementById(`captain-score-${match.id}`) as HTMLInputElement | null;
-    const evaluation = evaluateTournamentScore(input?.value ?? '', config?.scoring_template);
+    const scoringTemplate = getTournamentScoringTemplate(config, match.phase);
+    const evaluation = evaluateTournamentScore(rawScore ?? input?.value ?? '', scoringTemplate);
     if (evaluation.error !== undefined) {
-      window.alert(evaluation.error);
-      return;
+      setActionMessage(evaluation.error);
+      return false;
     }
-    const { sets, winner, pointsOne, pointsTwo } = evaluation;
-    const { error } = await db
-      .from('tournament_matches')
-      .update({
-        score_sets: sets,
-        winner_side: winner,
-        status: 'completed',
-        team_points_one: pointsOne,
-        team_points_two: pointsTwo,
-        entered_by: currentUserId,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', match.id);
+
+    const { sets, winner } = evaluation;
+    const { pointsOne, pointsTwo } = teamMatchPoints(sets, scoringTemplate);
+    const { error } = await db.rpc('save_captain_team_match_result', {
+      p_match_id: match.id,
+      p_score_sets: sets,
+      p_winner_side: winner,
+      p_team_points_one: pointsOne,
+      p_team_points_two: pointsTwo,
+    });
     if (error) {
-      window.alert(error.message);
-      return;
+      setActionMessage(error.message);
+      return false;
     }
     setMatches((current) =>
       current.map((item) =>
@@ -99,6 +110,8 @@ export function useTournamentCaptainActions({
           : item,
       ),
     );
+    setSuccessMessage('Match result saved.');
+    return true;
   }
 
   return { saveCaptainPairing, saveCaptainScore };

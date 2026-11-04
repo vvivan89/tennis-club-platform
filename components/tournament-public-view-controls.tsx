@@ -9,10 +9,18 @@ export type TournamentPublicTab =
 export function TournamentPublicViewControls({
   resultsOnly,
   winnerSummaries,
+  adminWinnerPreview,
+  isManager,
+  allScheduledMatchesPlayed,
+  winnersAnnounced,
+  announcementBusy,
+  onToggleWinnersAnnouncement,
   rankingsControl,
   hasRules,
   leagueTournament,
   hasAdminContent,
+  isTeamCaptain,
+  captainOnlyView,
   tab,
   setTab,
   activeCategory,
@@ -23,10 +31,18 @@ export function TournamentPublicViewControls({
 }: {
   resultsOnly: boolean;
   winnerSummaries: Array<{ category: string; winners: string[] }>;
+  adminWinnerPreview: Array<{ category: string; winners: string[] }>;
+  isManager: boolean;
+  allScheduledMatchesPlayed: boolean;
+  winnersAnnounced: boolean;
+  announcementBusy: boolean;
+  onToggleWinnersAnnouncement: () => void;
   rankingsControl?: ReactNode;
   hasRules: boolean;
   leagueTournament: boolean;
   hasAdminContent: boolean;
+  isTeamCaptain: boolean;
+  captainOnlyView: boolean;
   tab: TournamentPublicTab;
   setTab: Dispatch<SetStateAction<TournamentPublicTab>>;
   activeCategory: string;
@@ -35,9 +51,86 @@ export function TournamentPublicViewControls({
   config: TournamentConfig | null;
   onAssignCourts: () => void;
 }) {
+  const enabledCategories = (config?.categories ?? ['mixed', 'men', 'women']).filter((category) =>
+    ['mixed', 'men', 'women'].includes(category),
+  );
+  const categoryOptions =
+    format === 'team' && enabledCategories.length > 1 && config?.show_overall_results
+      ? [...enabledCategories, 'overall']
+      : enabledCategories;
+  const winnerCategoryLabel = (category: string) => {
+    if (format !== 'team') return categoryLabel(category);
+    if (category === 'overall') return 'Overall team standings';
+    const gender = category === 'men' ? "Men's" : category === 'women' ? "Women's" : 'Mixed';
+    return `${gender} teams`;
+  };
+  const reviewWinners = winnersAnnounced ? winnerSummaries : adminWinnerPreview;
   return (
     <>
-      {!resultsOnly && winnerSummaries.length > 0 && (
+      {!resultsOnly && isManager && (allScheduledMatchesPlayed || winnersAnnounced) && (
+        <section
+          aria-label="Tournament winner announcement"
+          className="space-y-4 rounded-2xl border-2 border-amber-500 bg-gradient-to-br from-amber-100 via-yellow-50 to-orange-100 p-5 shadow-lg ring-2 ring-amber-400/40 dark:border-amber-700 dark:from-amber-950 dark:via-yellow-950 dark:to-orange-950 dark:ring-amber-800/60"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-amber-950 dark:text-amber-100">
+                {winnersAnnounced
+                  ? 'Tournament winners announced'
+                  : 'Tournament results are complete'}
+              </h2>
+              <p className="mt-1 text-sm text-amber-900/90 dark:text-amber-200">
+                {allScheduledMatchesPlayed
+                  ? 'Results of all matches are recorded.'
+                  : 'Winners have been announced.'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onToggleWinnersAnnouncement}
+              disabled={announcementBusy || (!allScheduledMatchesPlayed && !winnersAnnounced)}
+              className="h-10 shrink-0 rounded-md bg-amber-950 px-4 text-sm font-semibold text-white shadow hover:bg-amber-900 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-amber-100 dark:text-amber-950 dark:hover:bg-amber-200"
+            >
+              {announcementBusy
+                ? 'Saving…'
+                : winnersAnnounced
+                  ? 'Unannounce winners'
+                  : 'Announce winners'}
+            </button>
+          </div>
+          {!winnersAnnounced && reviewWinners.length > 0 && (
+            <p className="border-t border-amber-500/40 pt-4 text-sm font-medium text-amber-900 dark:text-amber-200">
+              Review the winners below. They will appear publicly after you announce them.
+            </p>
+          )}
+          {reviewWinners.length > 0 && (
+            <ul
+              aria-label={winnersAnnounced ? 'Announced winners' : 'Winner preview'}
+              className="grid gap-3 border-t border-amber-500/40 pt-4 sm:grid-cols-2 lg:grid-cols-3"
+            >
+              {reviewWinners.map((summary) => (
+                <li
+                  key={summary.category}
+                  className="rounded-lg border border-amber-500/40 bg-white/70 p-3 shadow-sm dark:border-amber-700 dark:bg-black/20"
+                >
+                  <p className="text-xs font-bold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+                    {winnerCategoryLabel(summary.category)}
+                  </p>
+                  <p className="mt-1 font-semibold text-amber-950 dark:text-amber-50">
+                    {summary.winners.join(' / ')}
+                  </p>
+                  {summary.winners.length > 1 && (
+                    <p className="mt-1 text-xs font-medium text-amber-800 dark:text-amber-300">
+                      Tie
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+      {!resultsOnly && !isManager && winnerSummaries.length > 0 && (
         <section aria-label="Tournament winners">
           <div className="grid auto-cols-max grid-flow-col gap-4 overflow-x-auto pb-2">
             {winnerSummaries.map((summary) => (
@@ -54,13 +147,15 @@ export function TournamentPublicViewControls({
                   <Sparkles className="h-4 w-4" />
                 </div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  {summary.category === 'men'
-                    ? "Men's Doubles Winners"
-                    : summary.category === 'women'
-                      ? "Women's Doubles Winners"
-                      : summary.category === 'mixed'
-                        ? 'Mixed Doubles Winners'
-                        : 'Team Tournament Winners'}
+                  {format === 'team'
+                    ? `${categoryLabel(summary.category)} Team Winners`
+                    : summary.category === 'men'
+                      ? "Men's Doubles Winners"
+                      : summary.category === 'women'
+                        ? "Women's Doubles Winners"
+                        : summary.category === 'mixed'
+                          ? 'Mixed Doubles Winners'
+                          : 'Team Tournament Winners'}
                 </p>
                 <p className="mt-2 font-semibold">{summary.winners.join(' / ')}</p>
                 {summary.winners.length > 1 && (
@@ -87,7 +182,7 @@ export function TournamentPublicViewControls({
                     'competition',
                     leagueTournament ? 'Schedule & Results' : 'Groups, Schedule & Results',
                   ],
-                  ...(hasAdminContent
+                  ...(hasAdminContent && !captainOnlyView
                     ? [
                         ['participants', 'Participants'] as [TournamentPublicTab, string],
                         ...(!leagueTournament
@@ -97,7 +192,9 @@ export function TournamentPublicViewControls({
                             ] as Array<[TournamentPublicTab, string]>)
                           : []),
                       ]
-                    : []),
+                    : isTeamCaptain && !leagueTournament
+                      ? ([['matches', 'Matches']] as Array<[TournamentPublicTab, string]>)
+                      : []),
                 ] as Array<[TournamentPublicTab, string]>
               ).map(([key, label]) => (
                 <button
@@ -128,37 +225,32 @@ export function TournamentPublicViewControls({
             </div>
           )}
           {rankingsControl && <div className="order-1 shrink-0">{rankingsControl}</div>}
-          {format !== 'team' &&
-            (config?.categories ?? ['mixed', 'men', 'women']).filter((category) =>
-              ['mixed', 'men', 'women'].includes(category),
-            ).length > 1 && (
-              <div
-                className="order-2 ml-auto inline-flex flex-wrap rounded-md border border-border p-1"
-                role="group"
-                aria-label="Tournament category"
-              >
-                {(config?.categories ?? ['mixed', 'men', 'women'])
-                  .filter((category) => ['mixed', 'men', 'women'].includes(category))
-                  .map((category) => (
-                    <button
-                      key={category}
-                      type="button"
-                      aria-pressed={activeCategory === category}
-                      onClick={() => {
-                        setActiveCategory(category);
-                        window.dispatchEvent(
-                          new CustomEvent('pctc-tournament-category-change', {
-                            detail: { category },
-                          }),
-                        );
-                      }}
-                      className={`rounded px-3 py-2 text-sm ${activeCategory === category ? 'bg-primary text-primary-foreground font-semibold' : 'hover:bg-secondary'}`}
-                    >
-                      {categoryLabel(category)}
-                    </button>
-                  ))}
-              </div>
-            )}
+          {categoryOptions.length > 1 && (
+            <div
+              className="order-2 ml-auto inline-flex flex-wrap rounded-md border border-border p-1"
+              role="group"
+              aria-label="Tournament category"
+            >
+              {categoryOptions.map((category) => (
+                <button
+                  key={category}
+                  type="button"
+                  aria-pressed={activeCategory === category}
+                  onClick={() => {
+                    setActiveCategory(category);
+                    window.dispatchEvent(
+                      new CustomEvent('pctc-tournament-category-change', {
+                        detail: { category },
+                      }),
+                    );
+                  }}
+                  className={`rounded px-3 py-2 text-sm ${activeCategory === category ? 'bg-primary text-primary-foreground font-semibold' : 'hover:bg-secondary'}`}
+                >
+                  {categoryLabel(category)}
+                </button>
+              ))}
+            </div>
+          )}
           {leagueTournament && hasAdminContent && (
             <button
               type="button"

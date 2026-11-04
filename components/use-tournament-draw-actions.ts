@@ -2,12 +2,13 @@ import type { Dispatch, SetStateAction } from 'react';
 import { buildKnockoutSchedule, phaseStartAfterPrerequisites } from '@/lib/tournament-schedule';
 import { pairKnockoutFirstRound } from '@/lib/knockout-draw';
 import type { TournamentConfig } from '@/lib/tournament-config';
+import { effectiveTournamentGroup, tournamentGroupCount } from '@/lib/tournament-groups';
 import {
   accumulateSideStats,
   compareTournamentEntries,
   compareTournamentHeadToHead,
   createSideStats,
-  defaultRankingPriority,
+  tournamentRankingPriority,
   tournamentRankingMetric,
 } from '@/lib/tournament-standings';
 import { pairMatchPlayerRows } from '@/lib/tournament-match';
@@ -79,7 +80,7 @@ export function useTournamentDrawActions({
   setPendingWalkoverScore,
 }: Props) {
   async function syncUnplayedRoundRobinMatches() {
-    const category = isTeam ? 'team' : activeCategory;
+    const category = isTeam ? matchCategory : activeCategory;
     const phase = isTeam ? 'team_round_robin' : 'round_robin';
     const entryResult = isTeam
       ? await db.from('tournament_teams').select('id,group_number').eq('event_id', eventId)
@@ -113,8 +114,8 @@ export function useTournamentDrawActions({
         continue;
       const oneId = isTeam ? match.team_one_id : match.pair_one_id;
       const twoId = isTeam ? match.team_two_id : match.pair_two_id;
-      const oneGroup = oneId ? groupById.get(oneId) : null;
-      const twoGroup = twoId ? groupById.get(twoId) : null;
+      const oneGroup = oneId ? effectiveTournamentGroup(groupById.get(oneId), config) : null;
+      const twoGroup = twoId ? effectiveTournamentGroup(groupById.get(twoId), config) : null;
       const sameGroup = !!oneGroup && oneGroup === twoGroup;
       const { error } = await db
         .from('tournament_matches')
@@ -184,7 +185,7 @@ export function useTournamentDrawActions({
     }
   }
   async function syncPromotedKnockoutEntrants() {
-    const category = isTeam ? 'team' : activeCategory;
+    const category = isTeam ? matchCategory : activeCategory;
     const knockoutPhase = isTeam ? 'team_knockout' : 'final_knockout';
     const roundRobinPhase = isTeam ? 'team_round_robin' : 'round_robin';
     const roundRobinEnabled = isTeam
@@ -268,11 +269,7 @@ export function useTournamentDrawActions({
         }
         return row;
       });
-      const priority =
-        config?.ranking_priority ??
-        (isTeam
-          ? ['points', 'matches_won', 'sets_won', 'games_won', 'set_difference', 'game_difference']
-          : ['matches_won', 'sets_won', 'games_won', 'set_difference', 'game_difference']);
+      const priority = tournamentRankingPriority(config, isTeam);
       stats.sort((a, b) => {
         for (const key of priority) {
           if (key === 'head_to_head') {
@@ -393,7 +390,7 @@ export function useTournamentDrawActions({
         );
       }
       const phase = matchPhase;
-      const category = isTeam ? 'team' : activeCategory;
+      const category = isTeam ? matchCategory : activeCategory;
       const roundRobinPhase = isTeam ? 'team_round_robin' : 'round_robin';
       const roundRobinEnabled =
         phase === (isTeam ? 'team_knockout' : 'final_knockout') &&
@@ -405,24 +402,31 @@ export function useTournamentDrawActions({
         ? teams
         : pairs.filter((pair) => pair.status !== 'withdrawn' && pair.category === activeCategory);
       if (roundRobinEnabled) {
-        if (allSides.some((side) => !side.group_number))
+        const singleGroup = tournamentGroupCount(config) === 1;
+        if (!singleGroup && allSides.some((side) => !side.group_number))
           throw new Error(
             'Assign every team or pair to a group before generating the knockout draw.',
           );
         const promote = Math.max(1, Number(config?.promoted_teams_per_group ?? 2));
-        const configuredGroupCount = Math.max(2, Number(config?.group_count ?? 2));
+        const configuredGroupCount = tournamentGroupCount(config);
         const groups = allSides.length
           ? [
-              ...new Set(allSides.map((side) => side.group_number).filter((n): n is number => !!n)),
+              ...new Set(
+                allSides
+                  .map((side) => effectiveTournamentGroup(side.group_number, config))
+                  .filter((n): n is number => !!n),
+              ),
             ].sort((a, b) => a - b)
           : Array.from({ length: configuredGroupCount }, (_, index) => index + 1);
         const groupRanked = groups.map((groupNumber) => {
-          const groupSides = allSides.filter((side) => side.group_number === groupNumber);
+          const groupSides = allSides.filter(
+            (side) => effectiveTournamentGroup(side.group_number, config) === groupNumber,
+          );
           const relevantMatches = matches.filter(
             (m) =>
               m.category === category &&
               m.phase === roundRobinPhase &&
-              m.group_number === groupNumber &&
+              effectiveTournamentGroup(m.group_number, config) === groupNumber &&
               m.status !== 'cancelled',
           );
           const expected = (groupSides.length * (groupSides.length - 1)) / 2;
@@ -433,7 +437,7 @@ export function useTournamentDrawActions({
           const stats = groupSides
             .map((side) => accumulateSideStats(createSideStats(side), relevantMatches, isTeam))
             .sort((a, b) => {
-              const priority = config?.ranking_priority ?? defaultRankingPriority(isTeam);
+              const priority = tournamentRankingPriority(config, isTeam);
               const metric = tournamentRankingMetric;
               return compareTournamentEntries(
                 a,
@@ -457,9 +461,7 @@ export function useTournamentDrawActions({
             const entry = group.stats[rank - 1];
             slots.push({
               id: group.complete && entry ? entry.side.id : null,
-              label: entry
-                ? `Group ${group.groupNumber} Team ${rank}`
-                : `Group ${group.groupNumber} Team ${rank}`,
+              label: `Group ${group.groupNumber} Team ${rank}`,
               group: group.groupNumber,
               rank,
             });
@@ -473,7 +475,7 @@ export function useTournamentDrawActions({
           rank: null,
         }));
         if (slots.length === 0) {
-          const placeholderGroupCount = Math.max(2, Number(config?.group_count ?? 2));
+          const placeholderGroupCount = tournamentGroupCount(config);
           const placeholderPromotions = Math.max(1, Number(config?.promoted_teams_per_group ?? 2));
           slots = Array.from(
             { length: placeholderGroupCount * placeholderPromotions },
@@ -712,6 +714,7 @@ export function useTournamentDrawActions({
   }
   const scoreActions = useTournamentScoreActions({
     db,
+    eventStartsAt,
     isTeam,
     config,
     matches,

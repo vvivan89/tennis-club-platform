@@ -127,6 +127,8 @@ vi.mock('@tiptap/extension-underline', () => ({ default: {} }));
 import { TournamentManagement } from '@/components/tournament-management';
 import { TournamentPublicView } from '@/components/tournament-public-view';
 import { PublicOrganizerContacts } from '@/components/public-organizer-contacts';
+import { dateLabel } from '@/components/tournament-public-view-format';
+import { eventPriceLabel } from '@/lib/event-format';
 
 afterEach(() => {
   cleanup();
@@ -163,6 +165,264 @@ describe('tournament component coverage', () => {
   });
 
   describe('public tournament contact and registration workflows', () => {
+    it('lets managers review winners before announcing them and removes the public announcement when unannounced', async () => {
+      supabaseMocks.data.tournament_public_pairs = [
+        {
+          id: 'pair-a',
+          event_id: 'winner-event',
+          category: 'mixed',
+          player_one_id: 'a1',
+          player_two_id: 'a2',
+          group_number: 1,
+          seed: null,
+          status: 'active',
+          player_one_name: 'Alex Player',
+          player_two_name: 'Jordan Player',
+        },
+        {
+          id: 'pair-b',
+          event_id: 'winner-event',
+          category: 'mixed',
+          player_one_id: 'b1',
+          player_two_id: 'b2',
+          group_number: 1,
+          seed: null,
+          status: 'active',
+          player_one_name: 'Taylor Player',
+          player_two_name: 'Casey Player',
+        },
+      ];
+      supabaseMocks.data.tournament_public_matches = [
+        {
+          id: 'completed-match',
+          event_id: 'winner-event',
+          category: 'mixed',
+          phase: 'round_robin',
+          group_number: 1,
+          round_number: 1,
+          match_number: 1,
+          pair_one_id: 'pair-a',
+          pair_two_id: 'pair-b',
+          team_one_id: null,
+          team_two_id: null,
+          scheduled_at: '2026-11-01T12:00:00Z',
+          court_number: 1,
+          score_sets: [{ one: 6, two: 2 }],
+          winner_side: 1,
+          team_points_one: 0,
+          team_points_two: 0,
+          status: 'completed',
+        },
+      ];
+      const user = userEvent.setup();
+      render(
+        <TournamentPublicView
+          eventId="winner-event"
+          currentUserId={null}
+          isManager
+          format="doubles"
+          config={{
+            categories: ['mixed'],
+            phases: { round_robin: true, final_knockout: false },
+          }}
+          rulesHtml={null}
+          detailsPublic
+          allowNonMemberRegistration={false}
+          eventStatus="published"
+          startsAt="2026-11-01T12:00:00Z"
+          endsAt={null}
+          locationQuery="PCTC courts"
+          registrationOpensAt="2026-01-01T00:00:00Z"
+          registrationClosesAt={null}
+          priceCents={0}
+        />,
+      );
+
+      const announce = await screen.findByRole('button', { name: 'Announce winners' });
+      expect(screen.queryByRole('region', { name: 'Tournament winners' })).not.toBeInTheDocument();
+      const preview = screen.getByRole('list', { name: 'Winner preview' });
+      expect(preview).toHaveTextContent('Mixed doubles');
+      expect(preview).toHaveTextContent('Alex Player + Jordan Player');
+
+      await user.click(announce);
+      expect(await screen.findByText('Alex Player + Jordan Player')).toBeInTheDocument();
+      expect(screen.getByRole('list', { name: 'Announced winners' })).toHaveTextContent(
+        'Mixed doubles',
+      );
+      expect(supabaseMocks.writes).toContainEqual(
+        expect.objectContaining({
+          table: 'events',
+          operation: 'update',
+          values: expect.objectContaining({
+            tournament_winners_announced: true,
+            tournament_winners: [{ category: 'mixed', winners: ['Alex Player + Jordan Player'] }],
+          }),
+        }),
+      );
+
+      await user.click(screen.getByRole('button', { name: 'Unannounce winners' }));
+      await waitFor(() =>
+        expect(screen.queryByRole('list', { name: 'Announced winners' })).not.toBeInTheDocument(),
+      );
+      expect(screen.getByRole('list', { name: 'Winner preview' })).toHaveTextContent(
+        'Alex Player + Jordan Player',
+      );
+      expect(supabaseMocks.writes).toContainEqual(
+        expect.objectContaining({
+          table: 'events',
+          operation: 'update',
+          values: expect.objectContaining({
+            tournament_winners_announced: false,
+            tournament_winners: [],
+          }),
+        }),
+      );
+    });
+
+    it('announces team standings winners for the completed single-group tournament flow', async () => {
+      supabaseMocks.data.tournament_public_teams = [
+        {
+          id: 'team-a',
+          name: 'Court Chaos',
+          logo_url: null,
+          color: '',
+          group_number: null,
+          captain_user_id: 'captain-a',
+          captain_name: 'Alex Player',
+        },
+        {
+          id: 'team-b',
+          name: 'Team 2',
+          logo_url: null,
+          color: '',
+          group_number: null,
+          captain_user_id: 'captain-b',
+          captain_name: 'Taylor Player',
+        },
+      ];
+      supabaseMocks.data.tournament_public_matches = [
+        {
+          id: 'team-match',
+          event_id: 'team-winner-event',
+          category: 'men',
+          phase: 'team_round_robin',
+          group_number: null,
+          round_number: 1,
+          match_number: 1,
+          pair_one_id: null,
+          pair_two_id: null,
+          team_one_id: 'team-a',
+          team_two_id: 'team-b',
+          team_one_name: 'Court Chaos',
+          team_two_name: 'Team 2',
+          scheduled_at: '2026-11-03T23:30:00Z',
+          court_number: 1,
+          score_sets: [
+            { one: 6, two: 3 },
+            { one: 2, two: 6 },
+            { one: 7, two: 6 },
+          ],
+          winner_side: 1,
+          team_points_one: 2,
+          team_points_two: 1,
+          status: 'completed',
+        },
+      ];
+      const user = userEvent.setup();
+      render(
+        <TournamentPublicView
+          eventId="team-winner-event"
+          currentUserId={null}
+          isManager
+          format="team"
+          config={{
+            categories: ['mixed', 'men', 'women'],
+            phases: { team_round_robin: true, team_knockout: false },
+            group_count: 1,
+            ranking_priority: ['points', 'matches_won', 'sets_won', 'games_won'],
+            scoring_templates: { team_round_robin: 'team_two_sets_bonus_third' },
+          }}
+          rulesHtml={null}
+          detailsPublic
+          allowNonMemberRegistration={false}
+          eventStatus="published"
+          startsAt="2026-11-03T20:00:00Z"
+          endsAt={null}
+          locationQuery="PCTC courts"
+          registrationOpensAt="2026-01-01T00:00:00Z"
+          registrationClosesAt={null}
+          priceCents={0}
+        />,
+      );
+
+      const preview = await screen.findByRole('list', { name: 'Winner preview' });
+      expect(preview).toHaveTextContent("Men's teams");
+      expect(preview).toHaveTextContent('Court Chaos');
+      await user.click(await screen.findByRole('button', { name: 'Announce winners' }));
+      const winners = await screen.findByRole('list', { name: 'Announced winners' });
+      expect(winners).toHaveTextContent("Men's teams");
+      expect(winners).toHaveTextContent('Court Chaos');
+    });
+
+    it('keeps cost, event dates, and registration window public when tournament details are hidden', () => {
+      const startsAt = '2027-06-01T18:00:00.000Z';
+      const endsAt = '2027-06-01T21:00:00.000Z';
+      const opensAt = '2027-05-01T18:00:00.000Z';
+      const closesAt = '2027-05-31T18:00:00.000Z';
+      render(
+        <TournamentPublicView
+          eventTitle="Private details tournament"
+          eventId="private-details-tournament"
+          currentUserId={null}
+          format="doubles"
+          config={{ categories: ['mixed'], registration_mode: 'both' }}
+          rulesHtml={null}
+          detailsPublic={false}
+          allowNonMemberRegistration={false}
+          eventStatus="published"
+          startsAt={startsAt}
+          endsAt={endsAt}
+          locationQuery="PCTC courts"
+          registrationOpensAt={opensAt}
+          registrationClosesAt={closesAt}
+          priceCents={2500}
+        />,
+      );
+
+      expect(screen.getByText(eventPriceLabel(2500, false))).toBeInTheDocument();
+      expect(screen.getByText(`${dateLabel(startsAt)} – ${dateLabel(endsAt)}`)).toBeInTheDocument();
+      expect(screen.getByText(`Opens: ${dateLabel(opensAt)}`)).toBeInTheDocument();
+      expect(screen.getByText(`Closes: ${dateLabel(closesAt)}`)).toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: 'Participants' })).not.toBeInTheDocument();
+    });
+
+    it('lets approved members view unpublished team tournament details before registering', async () => {
+      render(
+        <TournamentPublicView
+          eventId="member-team-tournament"
+          currentUserId="approved-member"
+          currentUserIsApprovedMember
+          format="team"
+          config={{ categories: ['open'], phases: { round_robin: true } }}
+          rulesHtml={null}
+          detailsPublic={false}
+          allowNonMemberRegistration={false}
+          eventStatus="published"
+          startsAt="2027-06-01T12:00:00Z"
+          endsAt="2027-06-01T20:00:00Z"
+          locationQuery="PCTC courts"
+          registrationOpensAt="2027-01-01T00:00:00Z"
+          registrationClosesAt="2027-05-31T23:00:00Z"
+          priceCents={0}
+        />,
+      );
+
+      expect(
+        await screen.findByRole('tab', { name: /Groups, Schedule & Results/i }),
+      ).toBeInTheDocument();
+      await waitFor(() => expect(supabaseMocks.fromCalls).toContain('tournament_public_teams'));
+    });
+
     it('loads public organizer contacts once and renders only the supplied contact details', async () => {
       supabaseMocks.rpcData.event_public_tournament_organizer_contact_details = [
         {
@@ -1115,6 +1375,30 @@ describe('tournament component coverage', () => {
     expect(screen.getByText('Something happened · Custom entity')).toBeInTheDocument();
   });
 
+  it.each(['doubles', 'team'] as const)(
+    'hides random group draw for a one-group %s tournament',
+    async (format) => {
+      render(
+        <TournamentManagement
+          eventId={`event-one-group-${format}`}
+          eventStartsAt="2027-06-01T12:00:00Z"
+          eventEndsAt="2027-06-01T20:00:00Z"
+          courtCount={4}
+          format={format}
+          config={{
+            categories: [format === 'team' ? 'team' : 'mixed'],
+            group_count: 1,
+            phases: { round_robin: true, team_round_robin: true },
+          }}
+          priceCents={0}
+        />,
+      );
+
+      await screen.findByRole('heading', { name: 'Participants' });
+      expect(screen.queryByRole('button', { name: 'Random group draw' })).not.toBeInTheDocument();
+    },
+  );
+
   it('keeps group draw and pair group assignment in Participants, not in a separate section', async () => {
     render(
       <TournamentManagement
@@ -1473,19 +1757,16 @@ describe('tournament component coverage', () => {
     await user.click(screen.getByRole('button', { name: 'Create team' }));
 
     await waitFor(() =>
-      expect(supabaseMocks.writes).toContainEqual(
-        expect.objectContaining({
-          table: 'tournament_teams',
-          operation: 'insert',
-          values: expect.objectContaining({
-            event_id: 'event-team-create',
-            name: 'Baseline Crew',
-            color: '',
-            logo_url: null,
-            captain_user_id: null,
-          }),
-        }),
-      ),
+      expect(supabaseMocks.rpcArgs).toContainEqual({
+        name: 'admin_create_tournament_team',
+        args: {
+          p_event_id: 'event-team-create',
+          p_name: 'Baseline Crew',
+          p_color: '',
+          p_logo_url: null,
+          p_captain_user_id: null,
+        },
+      }),
     );
     expect(await screen.findByRole('status')).toHaveTextContent('Team created.');
   });
@@ -2401,8 +2682,8 @@ describe('tournament component coverage', () => {
     render(
       <TournamentManagement
         eventId="promotion-event"
-        eventStartsAt="2027-06-01T12:00:00Z"
-        eventEndsAt="2027-06-01T20:00:00Z"
+        eventStartsAt="2026-06-01T12:00:00Z"
+        eventEndsAt="2026-06-01T20:00:00Z"
         courtCount={2}
         format="doubles"
         config={{
@@ -2422,7 +2703,7 @@ describe('tournament component coverage', () => {
     );
     const score = screen.getByPlaceholderText('6-4, 6-3');
     await user.clear(score);
-    await user.type(score, '6-2');
+    await user.type(score, '6-2, 6-2');
     fireEvent.blur(score);
     await waitFor(() =>
       expect(supabaseMocks.writes).toContainEqual(
@@ -2486,8 +2767,8 @@ describe('tournament component coverage', () => {
     render(
       <TournamentManagement
         eventId="event-score"
-        eventStartsAt="2027-06-01T12:00:00Z"
-        eventEndsAt="2027-06-01T20:00:00Z"
+        eventStartsAt="2026-06-01T12:00:00Z"
+        eventEndsAt="2026-06-01T20:00:00Z"
         courtCount={2}
         format="doubles"
         config={{
@@ -2658,13 +2939,14 @@ describe('tournament component coverage', () => {
     await user.type(screen.getByPlaceholderText('Team colour (e.g. all blacks)'), 'Red');
     await user.click(screen.getByRole('button', { name: 'Create team' }));
     await waitFor(() =>
-      expect(supabaseMocks.writes).toContainEqual(
-        expect.objectContaining({
-          table: 'tournament_teams',
-          operation: 'insert',
-          values: expect.objectContaining({ name: 'Team Three', color: 'Red' }),
+      expect(supabaseMocks.rpcArgs).toContainEqual({
+        name: 'admin_create_tournament_team',
+        args: expect.objectContaining({
+          p_event_id: 'event-team-admin',
+          p_name: 'Team Three',
+          p_color: 'Red',
         }),
-      ),
+      }),
     );
 
     window.dispatchEvent(
@@ -2705,7 +2987,7 @@ describe('tournament component coverage', () => {
     supabaseMocks.data.tournament_matches = [
       {
         id: 'unplayed-team-match',
-        category: 'team',
+        category: 'mixed',
         phase: 'team_round_robin',
         group_number: 1,
         round_number: 1,
@@ -2829,7 +3111,7 @@ describe('tournament component coverage', () => {
     supabaseMocks.data.tournament_matches = [
       {
         id: 'team-match',
-        category: 'team',
+        category: 'mixed',
         phase: 'team_round_robin',
         group_number: 1,
         round_number: 1,
@@ -2856,7 +3138,7 @@ describe('tournament component coverage', () => {
         eventEndsAt="2027-06-01T20:00:00Z"
         courtCount={2}
         format="team"
-        config={{ categories: ['team'], phases: { team_round_robin: true } }}
+        config={{ categories: ['mixed'], phases: { team_round_robin: true } }}
         priceCents={0}
       />,
     );
@@ -2871,7 +3153,7 @@ describe('tournament component coverage', () => {
     const playerTwo = screen.getAllByPlaceholderText('Choose player two')[0];
     await user.click(playerTwo);
     await user.click(screen.getByRole('option', { name: /^Blair Two/ }));
-    await user.click(screen.getAllByRole('button', { name: 'Save pairing' })[0]);
+    await user.click(screen.getAllByRole('button', { name: 'Save lineup' })[0]);
     await waitFor(() =>
       expect(supabaseMocks.writes).toContainEqual(
         expect.objectContaining({
@@ -5092,7 +5374,10 @@ describe('tournament component coverage', () => {
         team_two_id: 'public-team-two',
         scheduled_at: '2027-06-01T14:00:00Z',
         court_number: 2,
-        score_sets: [{ one: 7, two: 5 }],
+        score_sets: [
+          { one: 7, two: 5 },
+          { one: 6, two: 4 },
+        ],
         winner_side: 1,
         team_points_one: 3,
         team_points_two: 1,
@@ -5121,10 +5406,15 @@ describe('tournament component coverage', () => {
         eventId="public-team-event"
         eventSlug="club-team-cup"
         currentUserId="member-team"
+        currentUserEmail="alex@example.test"
+        currentUserPhone="604-555-0100"
+        currentUserGender="male"
+        currentUserSkillLevel="3.5"
         format="team"
         config={{
           categories: ['team'],
           group_count: 1,
+          scoring_template: 'team_two_sets_bonus_third',
           phases: { team_round_robin: true, team_knockout: true },
         }}
         rulesHtml={null}
@@ -5140,11 +5430,14 @@ describe('tournament component coverage', () => {
       />,
     );
 
+    expect(
+      await screen.findByText('alex@example.test · 604-555-0100 · Male · Rating 3.5'),
+    ).toBeInTheDocument();
     await user.click(await screen.findByRole('tab', { name: /Groups, Schedule & Results/i }));
-    expect(await screen.findByText('Group standings')).toBeInTheDocument();
+    expect(await screen.findAllByText('Standings')).toHaveLength(2);
     expect(screen.getAllByText('Baseline Crew').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Court Rockets').length).toBeGreaterThan(0);
-    expect(screen.getByText('Team standings points: 3 – 1')).toBeInTheDocument();
+    expect(screen.getByText('Team standings points: 3 – 0')).toBeInTheDocument();
     expect(screen.getAllByText('You').length).toBeGreaterThan(0);
   });
 
@@ -5243,6 +5536,7 @@ describe('tournament component coverage', () => {
     render(
       <TournamentPublicView
         adminContent={<div>Admin controls</div>}
+        isManager
         eventId="override-event"
         currentUserId="admin-1"
         format="doubles"
@@ -5381,6 +5675,7 @@ describe('tournament component coverage', () => {
     render(
       <TournamentPublicView
         adminContent={<div>Admin controls</div>}
+        isManager
         eventId="override-noop"
         currentUserId="admin-1"
         format="doubles"
@@ -5581,7 +5876,9 @@ describe('tournament component coverage', () => {
         currentUserId="member-payment-states"
         currentUserName="Alex Current Member"
         currentUserEmail="alex-current@example.test"
+        currentUserPhone="604-555-0140"
         currentUserGender="male"
+        currentUserSkillLevel="4.0"
         format="singles"
         config={{ categories: ['mixed'], registration_mode: 'individual' }}
         rulesHtml={null}
@@ -5605,9 +5902,9 @@ describe('tournament component coverage', () => {
     expect(screen.getByText('Payment pending')).toBeInTheDocument();
     expect(screen.getAllByText('Alex Current Member')).toHaveLength(5);
     expect(screen.getAllByText(/alex-current@example\.test/)).toHaveLength(5);
-    expect(screen.getAllByText(/Phone not provided/)).toHaveLength(5);
-    expect(screen.getAllByText(/Gender not specified/)).toHaveLength(5);
-    expect(screen.getAllByText(/Rating not specified/)).toHaveLength(5);
+    expect(screen.getAllByText(/604-555-0140/)).toHaveLength(5);
+    expect(screen.getAllByText(/Male/)).toHaveLength(5);
+    expect(screen.getAllByText(/Rating 4.0/)).toHaveLength(5);
     expect(screen.getAllByRole('button', { name: 'Pay' })).toHaveLength(3);
   });
 
@@ -6030,7 +6327,9 @@ describe('tournament component coverage', () => {
       />,
     );
     expect(await screen.findByText('Your next match')).toBeInTheDocument();
-    expect(screen.getByText('Alex + Jordan vs Casey + Drew')).toBeInTheDocument();
+    expect(screen.getByText('Your next match').parentElement).toHaveTextContent(
+      /Alex.*Jordan.*vs.*Casey \+ Drew/,
+    );
     expect(screen.getByText(/Court 2/)).toBeInTheDocument();
   });
 
@@ -6090,7 +6389,7 @@ describe('tournament component coverage', () => {
     );
   });
 
-  it('lets team captains submit both doubles pairings and save a team result', async () => {
+  it('lets a team captain use the Matches interface to save their lineup', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => ({ ok: true, json: async () => ({ data: [] }) })),
@@ -6111,8 +6410,8 @@ describe('tournament component coverage', () => {
         name: 'Rockets',
         color: 'Red',
         group_number: 1,
-        captain_user_id: 'member-1',
-        captain_name: 'Alex Captain',
+        captain_user_id: 'member-2',
+        captain_name: 'Casey Captain',
       },
     ];
     supabaseMocks.data.tournament_public_participants = [
@@ -6122,6 +6421,8 @@ describe('tournament component coverage', () => {
         team_id: 'team-a',
         category: 'team',
         display_name: 'Alex One',
+        user_id: 'member-1',
+        gender: 'male',
         status: 'registered',
         payment_status: 'paid',
       },
@@ -6131,6 +6432,7 @@ describe('tournament component coverage', () => {
         team_id: 'team-a',
         category: 'team',
         display_name: 'Blair Two',
+        gender: 'male',
         status: 'registered',
         payment_status: 'paid',
       },
@@ -6140,6 +6442,8 @@ describe('tournament component coverage', () => {
         team_id: 'team-b',
         category: 'team',
         display_name: 'Casey Three',
+        user_id: 'member-2',
+        gender: 'male',
         status: 'registered',
         payment_status: 'paid',
       },
@@ -6149,6 +6453,7 @@ describe('tournament component coverage', () => {
         team_id: 'team-b',
         category: 'team',
         display_name: 'Drew Four',
+        gender: 'male',
         status: 'registered',
         payment_status: 'paid',
       },
@@ -6157,7 +6462,7 @@ describe('tournament component coverage', () => {
       {
         id: 'captain-match',
         event_id: 'captain-event',
-        category: 'team',
+        category: 'men',
         phase: 'team_round_robin',
         group_number: 1,
         round_number: 1,
@@ -6176,63 +6481,114 @@ describe('tournament component coverage', () => {
         player_one_name: 'Aces',
         player_two_name: 'Rockets',
       },
+      {
+        id: 'unrelated-match',
+        event_id: 'captain-event',
+        category: 'men',
+        phase: 'team_round_robin',
+        group_number: 1,
+        round_number: 1,
+        match_number: 2,
+        pair_one_id: null,
+        pair_two_id: null,
+        team_one_id: 'team-c',
+        team_two_id: 'team-d',
+        scheduled_at: null,
+        court_number: 2,
+        score_sets: [],
+        winner_side: null,
+        team_points_one: 0,
+        team_points_two: 0,
+        status: 'scheduled',
+        player_one_name: 'Other Aces',
+        player_two_name: 'Other Rockets',
+      },
     ];
+    supabaseMocks.rpcData.event_tournament_visible_match_lineups = [];
     const user = userEvent.setup();
     render(
-      <TournamentPublicView
+      <TournamentManagement
         eventId="captain-event"
-        currentUserId="member-1"
+        eventStartsAt="2027-06-01T12:00:00Z"
+        eventEndsAt="2027-06-01T20:00:00Z"
+        courtCount={2}
         format="team"
         config={{
-          categories: ['team'],
+          categories: ['men'],
           phases: { team_round_robin: true },
           scoring_templates: { team_round_robin: 'one_set' },
         }}
-        rulesHtml="<p>Rules</p>"
-        detailsPublic
-        allowNonMemberRegistration={false}
-        eventStatus="published"
-        startsAt="2027-06-01T12:00:00Z"
-        endsAt="2027-06-01T20:00:00Z"
-        locationQuery="Port Coquitlam, BC"
-        registrationOpensAt="2026-01-01T00:00:00Z"
-        registrationClosesAt="2027-05-31T23:00:00Z"
+        priceCents={0}
+        captainMode
+        captainTeamId="team-a"
+      />,
+    );
+    expect(await screen.findByText(/Aces vs Rockets/)).toBeInTheDocument();
+    expect(screen.queryByText(/Other Aces vs Other Rockets/)).not.toBeInTheDocument();
+    expect(screen.getAllByPlaceholderText('Choose player one')).toHaveLength(1);
+    expect(screen.queryByPlaceholderText('Choose side one')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Suggest schedule' })).not.toBeInTheDocument();
+    expect(document.querySelector('input[type="datetime-local"]')).not.toBeInTheDocument();
+    expect(document.querySelector('select')).not.toBeInTheDocument();
+
+    await user.click(screen.getByPlaceholderText('Choose player one'));
+    await user.click(screen.getByRole('option', { name: /Alex One/ }));
+    await user.click(screen.getByPlaceholderText('Choose player two'));
+    await user.click(screen.getByRole('option', { name: /Blair Two/ }));
+    await user.click(screen.getByRole('button', { name: 'Save lineup' }));
+    await waitFor(() =>
+      expect(supabaseMocks.rpcArgs).toContainEqual({
+        name: 'save_tournament_captain_match_lineup',
+        args: expect.objectContaining({
+          p_match_id: 'captain-match',
+          p_team_id: 'team-a',
+          p_player_one: 'a1',
+          p_player_two: 'a2',
+        }),
+      }),
+    );
+
+    cleanup();
+    supabaseMocks.data.tournament_teams = supabaseMocks.data.tournament_public_teams;
+    supabaseMocks.data.tournament_participants = supabaseMocks.data.tournament_public_participants;
+    supabaseMocks.data.tournament_matches = (
+      supabaseMocks.data.tournament_public_matches as Array<{ id: string }>
+    ).filter((match) => match.id === 'captain-match');
+    supabaseMocks.data.tournament_match_players = [];
+    supabaseMocks.writes = [];
+    render(
+      <TournamentManagement
+        eventId="captain-event"
+        eventStartsAt="2027-06-01T12:00:00Z"
+        eventEndsAt="2027-06-01T20:00:00Z"
+        courtCount={2}
+        format="team"
+        config={{ categories: ['men'], phases: { team_round_robin: true } }}
         priceCents={0}
       />,
     );
-    await user.click(await screen.findByRole('tab', { name: /Groups, Schedule & Results/i }));
-    const selectFirstA = document.getElementById(
-      'captain-pair-captain-match-1-a',
-    ) as HTMLSelectElement;
-    const selectSecondA = document.getElementById(
-      'captain-pair-captain-match-1-b',
-    ) as HTMLSelectElement;
-    await user.selectOptions(selectFirstA, 'a1');
-    await user.selectOptions(selectSecondA, 'a2');
-    await user.click(screen.getAllByRole('button', { name: 'Save pairing' })[0]);
-    await waitFor(() =>
-      expect(supabaseMocks.writes).toContainEqual(
-        expect.objectContaining({ table: 'tournament_match_players', operation: 'insert' }),
-      ),
+    await screen.findByRole('heading', { name: 'Participants' });
+    window.dispatchEvent(
+      new CustomEvent('pctc-tournament-tab-change', { detail: { tab: 'matches' } }),
     );
-
-    await user.selectOptions(
-      document.getElementById('captain-pair-captain-match-2-a') as HTMLSelectElement,
-      'b1',
-    );
-    await user.selectOptions(
-      document.getElementById('captain-pair-captain-match-2-b') as HTMLSelectElement,
-      'b2',
-    );
-    await user.click(screen.getAllByRole('button', { name: 'Save pairing' })[1]);
-    await user.type(screen.getByPlaceholderText('6-4, 3-6, 10-8'), '6-2');
-    await user.click(screen.getByRole('button', { name: 'Save result' }));
+    await screen.findAllByText(/Aces vs Rockets/);
+    const firstPlayerSelectors = screen.getAllByPlaceholderText('Choose player one');
+    const secondPlayerSelectors = screen.getAllByPlaceholderText('Choose player two');
+    expect(firstPlayerSelectors).toHaveLength(2);
+    await user.click(firstPlayerSelectors[1]);
+    await user.click(screen.getByRole('option', { name: /Casey Three/ }));
+    await user.click(secondPlayerSelectors[1]);
+    await user.click(screen.getByRole('option', { name: /Drew Four/ }));
+    await user.click(screen.getAllByRole('button', { name: 'Save lineup' })[1]);
     await waitFor(() =>
       expect(supabaseMocks.writes).toContainEqual(
         expect.objectContaining({
-          table: 'tournament_matches',
-          operation: 'update',
-          values: expect.objectContaining({ score_sets: [{ one: 6, two: 2 }], winner_side: 1 }),
+          table: 'tournament_match_players',
+          operation: 'insert',
+          values: expect.arrayContaining([
+            expect.objectContaining({ participant_id: 'b1', team_id: 'team-b', side: 2 }),
+            expect.objectContaining({ participant_id: 'b2', team_id: 'team-b', side: 2 }),
+          ]),
         }),
       ),
     );
@@ -6244,6 +6600,7 @@ describe('shared tournament administration tabs', () => {
     render(
       <TournamentPublicView
         adminContent={<div data-testid="admin-slot">Admin content</div>}
+        isManager
         eventId="event-admin"
         currentUserId="admin-1"
         format="doubles"

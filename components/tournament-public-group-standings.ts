@@ -2,10 +2,13 @@ import type { TournamentConfig } from '@/lib/tournament-config';
 import {
   compareTournamentEntries,
   compareTournamentHeadToHead,
-  defaultRankingPriority,
+  tournamentRankingPriority,
   tournamentRankingMetric,
 } from '@/lib/tournament-standings';
 import type { GroupOverride, Match, Pair, Team } from '@/components/tournament-public-view-types';
+import { effectiveTournamentGroup } from '@/lib/tournament-groups';
+import { getTournamentScoringTemplate } from '@/lib/tournament-config';
+import { teamMatchPoints } from '@/lib/tournament-score';
 
 type StandingRow = {
   id: string;
@@ -26,6 +29,80 @@ export type GroupStanding = {
   rows: Map<string, Omit<StandingRow, 'automaticPosition'>>;
   standings: StandingRow[];
 };
+
+export function aggregateOverallTeamStandings(
+  groups: GroupStanding[],
+  config: TournamentConfig | null,
+  matches: Match[],
+): GroupStanding[] {
+  const groupsByNumber = new Map<number, Map<string, Omit<StandingRow, 'automaticPosition'>>>();
+  for (const group of groups) {
+    let rows = groupsByNumber.get(group.group);
+    if (!rows) {
+      rows = new Map();
+      groupsByNumber.set(group.group, rows);
+    }
+    for (const row of group.rows.values()) {
+      const current = rows.get(row.id);
+      if (current) {
+        current.played += row.played;
+        current.wins += row.wins;
+        current.points += row.points;
+        current.setsFor += row.setsFor;
+        current.setsAgainst += row.setsAgainst;
+        current.gamesFor += row.gamesFor;
+        current.gamesAgainst += row.gamesAgainst;
+      } else {
+        rows.set(row.id, { ...row });
+      }
+    }
+  }
+  const priority = tournamentRankingPriority(config, true);
+  return [...groupsByNumber.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([group, rows]) => {
+      const sorted = [...rows.values()].sort((a, b) =>
+        compareTournamentEntries(
+          a,
+          b,
+          priority,
+          tournamentRankingMetric,
+          (first, second) => {
+            let firstWins = 0;
+            let secondWins = 0;
+            for (const match of matches) {
+              if (
+                match.group_number !== group ||
+                match.status !== 'completed' ||
+                !match.winner_side
+              ) {
+                continue;
+              }
+              const firstTeamId = match.team_one_id;
+              const secondTeamId = match.team_two_id;
+              if (!(
+                (firstTeamId === first.id && secondTeamId === second.id) ||
+                (firstTeamId === second.id && secondTeamId === first.id)
+              )) {
+                continue;
+              }
+              const winnerId = match.winner_side === 1 ? firstTeamId : secondTeamId;
+              if (winnerId === first.id) firstWins += 1;
+              else if (winnerId === second.id) secondWins += 1;
+            }
+            return firstWins === secondWins ? null : firstWins > secondWins ? -1 : 1;
+          },
+          (row) => row.name,
+        ),
+      );
+      return {
+        category: 'overall',
+        group,
+        rows,
+        standings: sorted.map((row, index) => ({ ...row, automaticPosition: index + 1 })),
+      };
+    });
+}
 
 export function buildTournamentGroupStandings({
   visibleMatches,
@@ -72,26 +149,36 @@ export function buildTournamentGroupStandings({
     return rows.get(id)!;
   };
 
-  if (format === 'team')
-    teams
-      .filter((team) => team.group_number)
-      .forEach((team) => ensureEntry('team', team.group_number!, team.id, team.name));
-  else
+  if (format === 'team') {
+    const teamCategories = (config?.categories ?? ['mixed', 'men', 'women']).filter((category) =>
+      ['mixed', 'men', 'women'].includes(category),
+    );
+    teams.forEach((team) => {
+      const group = effectiveTournamentGroup(team.group_number, config);
+      if (group)
+        teamCategories.forEach((category) => ensureEntry(category, group, team.id, team.name));
+    });
+  } else {
     pairs
-      .filter((pair) => pair.group_number && pair.status !== 'withdrawn')
-      .forEach((pair) =>
-        ensureEntry(
-          pair.category,
-          pair.group_number!,
-          pair.id,
-          `${pair.player_one_name} + ${pair.player_two_name}`,
-        ),
-      );
+      .filter((pair) => pair.status !== 'withdrawn')
+      .forEach((pair) => {
+        const group = effectiveTournamentGroup(pair.group_number, config);
+        if (group)
+          ensureEntry(
+            pair.category,
+            group,
+            pair.id,
+            `${pair.player_one_name} + ${pair.player_two_name}`,
+          );
+      });
+  }
 
   visibleMatches
     .filter(
       (match) =>
-        match.group_number && match.status === 'completed' && match.phase.includes('round_robin'),
+        effectiveTournamentGroup(match.group_number, config) &&
+        match.status === 'completed' &&
+        match.phase.includes('round_robin'),
     )
     .forEach((match) => {
       const firstId = format === 'team' ? match.team_one_id : match.pair_one_id;
@@ -99,14 +186,21 @@ export function buildTournamentGroupStandings({
       const firstName = format === 'team' ? match.team_one_name : match.player_one_name || 'TBD';
       const secondName = format === 'team' ? match.team_two_name : match.opponent_one_name || 'TBD';
       if (!firstId || !secondId) return;
-      const one = ensureEntry(match.category, match.group_number!, firstId, firstName || 'TBD');
-      const two = ensureEntry(match.category, match.group_number!, secondId, secondName || 'TBD');
+      const group = effectiveTournamentGroup(match.group_number, config)!;
+      const one = ensureEntry(match.category, group, firstId, firstName || 'TBD');
+      const two = ensureEntry(match.category, group, secondId, secondName || 'TBD');
       one.played++;
       two.played++;
       if (match.winner_side === 1) one.wins++;
       if (match.winner_side === 2) two.wins++;
-      one.points += match.team_points_one;
-      two.points += match.team_points_two;
+      if (format === 'team') {
+        const points = teamMatchPoints(
+          match.score_sets ?? [],
+          getTournamentScoringTemplate(config, match.phase),
+        );
+        one.points += points.pointsOne;
+        two.points += points.pointsTwo;
+      }
       for (const set of match.score_sets ?? []) {
         one.setsFor += set.one > set.two ? 1 : 0;
         one.setsAgainst += set.two > set.one ? 1 : 0;
@@ -119,7 +213,7 @@ export function buildTournamentGroupStandings({
       }
     });
 
-  const priority = config?.ranking_priority ?? defaultRankingPriority(format === 'team');
+  const priority = tournamentRankingPriority(config, format === 'team');
   return [...groups.values()]
     .sort((a, b) => a.group - b.group || a.category.localeCompare(b.category))
     .map((group) => {

@@ -3,6 +3,7 @@ import type { TournamentConfig } from '@/lib/tournament-config';
 import { filterTournamentAuditRows } from '@/components/use-tournament-court-actions';
 import type { Match, Pair, Participant } from '@/components/tournament-management-types';
 import type { TournamentAuditRow } from '@/components/tournament-audit-log';
+import { tournamentGroupCount } from '@/lib/tournament-groups';
 
 export function getTournamentManagementUiSettings(config: TournamentConfig | null) {
   const phases = [
@@ -13,7 +14,7 @@ export function getTournamentManagementUiSettings(config: TournamentConfig | nul
     ['team_knockout', 'Team knockout'],
   ] as const;
   const groupOptions = Array.from(
-    { length: Math.max(1, Number(config?.group_count ?? 2)) },
+    { length: tournamentGroupCount(config) },
     (_, index) => index + 1,
   ).map((group) => (
     <option key={group} value={group}>

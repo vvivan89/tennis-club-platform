@@ -189,16 +189,27 @@ describe('tournament configuration controls', () => {
     expect(screen.getByRole('button', { name: 'Create event' })).toBeInTheDocument();
   });
 
-  it('keeps team points first in the group ranking criteria and exposes advancement only for knockout', async () => {
+  it('shows team points only for bonus scoring and exposes advancement only for knockout', async () => {
     const user = userEvent.setup();
     render(<EventManagementForm currentUserId="admin-1" />);
     await user.selectOptions(screen.getByLabelText('Event type'), 'team_tournament');
 
+    expect(screen.queryByText('Team registration capacity')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Team tournament')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Total tournament capacity (optional)')).toBeInTheDocument();
+
     const rankingList = screen.getByRole('list', { name: 'Group ranking priorities' });
+    expect(rankingList.querySelector('[data-ranking-key="points"]')).not.toBeInTheDocument();
+    expect(screen.queryByText('Points')).not.toBeInTheDocument();
+    expect(screen.getByText('Teams promoted from each group')).toBeInTheDocument();
+
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Team round robin' }),
+      'team_two_sets_bonus_third',
+    );
     expect(
       Array.from(rankingList.querySelectorAll('li')).map((item) => item.dataset.rankingKey)[0],
     ).toBe('points');
-    expect(screen.getByText('Teams promoted from each group')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Remove Points' })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Move Games won up' }));
@@ -313,11 +324,15 @@ describe('tournament configuration controls', () => {
     expect(screen.queryByText('Alphabetical fallback')).not.toBeInTheDocument();
 
     await user.selectOptions(screen.getByLabelText('Event type'), 'team_tournament');
-    expect(screen.getByText(/Points/)).toBeInTheDocument();
+    expect(screen.queryByText('Points')).not.toBeInTheDocument();
     expect(
-      screen.getAllByRole('option', { name: /third set awards team points/i }),
+      screen.getAllByRole('option', { name: /2–0 win earns 3 team points/i }),
     ).not.toHaveLength(0);
-    expect(screen.getByText(/Points/)).toBeInTheDocument();
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Team round robin' }),
+      'team_two_sets_bonus_third',
+    );
+    expect(screen.getByText('Points')).toBeInTheDocument();
   });
 
   it('generates rules for configured categories, phase scoring, eligibility, and advancement', async () => {

@@ -47,6 +47,8 @@ export function TournamentManagement({
   priceCents,
   leagueTournament = false,
   leagueGender = null,
+  captainMode = false,
+  captainTeamId = null,
 }: {
   eventId: string;
   leagueId?: string | null;
@@ -58,6 +60,8 @@ export function TournamentManagement({
   priceCents: number;
   leagueTournament?: boolean;
   leagueGender?: string | null;
+  captainMode?: boolean;
+  captainTeamId?: string | null;
 }) {
   const db = createSupabaseBrowserClient();
   const [teams, setTeams] = useState<Team[]>([]);
@@ -67,10 +71,12 @@ export function TournamentManagement({
   const [matchPlayers, setMatchPlayers] = useState<MatchPlayer[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [auditRows, setAuditRows] = useState<TournamentAuditRow[]>([]);
-  const [adminTab, setAdminTab] = useState<'participants' | 'matches' | 'audit'>('participants');
+  const [adminTab, setAdminTab] = useState<'participants' | 'matches' | 'audit'>(
+    captainMode ? 'matches' : 'participants',
+  );
   const [externalTab, setExternalTab] = useState<
     'overview' | 'rules' | 'competition' | 'participants' | 'matches' | 'audit'
-  >('participants');
+  >(captainMode ? 'matches' : 'participants');
   const [matchGrouping, setMatchGrouping] = useState<'group' | 'round'>('group');
   const [activeCategory, setActiveCategory] = useState<string>(
     (config?.categories ?? ['mixed', 'men', 'women'])[0] ?? 'mixed',
@@ -97,7 +103,7 @@ export function TournamentManagement({
   const { busy, setBusy, error, setError, message, setMessage } = useTimedFeedback();
   const [teamName, setTeamName] = useState('');
   const [teamColor, setTeamColor] = useState('');
-  const [teamLogo, setTeamLogo] = useState('');
+  const [teamLogo, setTeamLogo] = useState<File | null>(null);
   const [captain, setCaptain] = useState('');
   const [memberId, setMemberId] = useState('');
   const [replacementParticipantId, setReplacementParticipantId] = useState('');
@@ -115,7 +121,7 @@ export function TournamentManagement({
     {},
   );
   const [matchCategory, setMatchCategory] = useState(
-    format === 'team' ? 'team' : ((config?.categories ?? ['mixed'])[0] ?? 'mixed'),
+    (config?.categories ?? ['mixed', 'men', 'women'])[0] ?? 'mixed',
   );
   const [matchPhase, setMatchPhase] = useState(
     format === 'team' ? 'team_round_robin' : 'round_robin',
@@ -135,17 +141,26 @@ export function TournamentManagement({
       auditResult,
       leagueEligibilityResult,
     ] = await Promise.all([
-      db.from('tournament_teams').select('*').eq('event_id', eventId).order('name'),
-      db
-        .from('tournament_participants')
-        .select(
-          'id,user_id,team_id,category,payment_status,amount_cents,display_name,email,phone,gender,gender_override,status',
-        )
+      (captainMode ? db.from('tournament_public_teams') : db.from('tournament_teams'))
+        .select('*')
+        .eq('event_id', eventId)
+        .order('name'),
+      (captainMode
+        ? db.from('tournament_public_participants').select('*')
+        : db
+            .from('tournament_participants')
+            .select(
+              'id,user_id,team_id,category,payment_status,amount_cents,display_name,email,phone,gender,gender_override,status,captain_requested',
+            )
+      )
         .eq('event_id', eventId)
         .order('display_name'),
-      db.from('tournament_pairs').select('*').eq('event_id', eventId).order('category'),
+      (captainMode ? db.from('tournament_public_pairs') : db.from('tournament_pairs'))
+        .select('*')
+        .eq('event_id', eventId)
+        .order('category'),
       db
-        .from('tournament_matches')
+        .from(captainMode ? 'tournament_public_matches' : 'tournament_matches')
         .select('*')
         .eq('event_id', eventId)
         .order('scheduled_at', { ascending: true, nullsFirst: false })
@@ -168,7 +183,18 @@ export function TournamentManagement({
       return;
     }
     const nextTeams = (teamResult.data ?? []) as Team[];
-    const nextParticipants = (participantResult.data ?? []) as Participant[];
+    const nextMembers = (memberResult.data ?? []) as Member[];
+    const memberGenderById = new Map(nextMembers.map((member) => [member.id, member.gender]));
+    const nextParticipants = ((participantResult.data ?? []) as Participant[]).map(
+      (participant) => ({
+        ...participant,
+        gender:
+          participant.gender_override ??
+          participant.gender ??
+          (participant.user_id ? memberGenderById.get(participant.user_id) : null) ??
+          null,
+      }),
+    );
     const nextPairs = ((pairResult.data ?? []) as Pair[]).map((pair) => ({
       ...pair,
       player_one_name: participantResult.data?.find((p: Participant) => p.id === pair.player_one_id)
@@ -202,19 +228,22 @@ export function TournamentManagement({
       JSON.stringify(previous) === JSON.stringify(nextMatches) ? previous : nextMatches,
     );
     const matchIds = (matchResult.data ?? []).map((match: Match) => match.id);
-    const { data: playerRows, error: playerRowsError } = matchIds.length
-      ? await db
-          .from('tournament_match_players')
-          .select('match_id,participant_id,side,team_id')
-          .in('match_id', matchIds)
-      : { data: [], error: null };
+    const { data: playerRows, error: playerRowsError } = captainMode
+      ? await db.rpc('event_tournament_visible_match_lineups', { p_event_id: eventId })
+      : matchIds.length
+        ? await db
+            .from('tournament_match_players')
+            .select('match_id,participant_id,side,team_id')
+            .in('match_id', matchIds)
+        : { data: [], error: null };
     if (!playerRowsError) {
       const nextMatchPlayers = (playerRows ?? []) as MatchPlayer[];
       setMatchPlayers((previous) =>
         JSON.stringify(previous) === JSON.stringify(nextMatchPlayers) ? previous : nextMatchPlayers,
       );
+    } else if (captainMode) {
+      setError(`Could not load your saved match lineups: ${playerRowsError.message}`);
     }
-    const nextMembers = (memberResult.data ?? []) as Member[];
     const nextAuditRows = (auditResult.data ?? []) as TournamentAuditRow[];
     setMembers((previous) =>
       JSON.stringify(previous) === JSON.stringify(nextMembers) ? previous : nextMembers,
@@ -223,7 +252,7 @@ export function TournamentManagement({
       JSON.stringify(previous) === JSON.stringify(nextAuditRows) ? previous : nextAuditRows,
     );
     window.dispatchEvent(new CustomEvent('pctc-tournament-data-refresh', { detail: { eventId } }));
-  }, [db, eventId, leagueTournament, setError]);
+  }, [captainMode, db, eventId, leagueTournament, setError]);
 
   useEffect(() => {
     const closeOutsideMenus = (event: PointerEvent) => {
@@ -304,7 +333,7 @@ export function TournamentManagement({
       if (category) {
         setActiveCategory(category);
         setPairCategory(category);
-        setMatchCategory(category);
+        if (category !== 'overall') setMatchCategory(category);
         setPairOne('');
         setPairTwo('');
         setMatchOne('');
@@ -404,6 +433,53 @@ export function TournamentManagement({
     matchCategory,
     matchPhase,
   });
+  const saveCaptainPairing = async (
+    match: Match,
+    teamId: string,
+    side: 1 | 2,
+    first: string,
+    second: string,
+    visibleToPublic: boolean,
+  ) => {
+    if (!first || !second || first === second) {
+      setError('Choose two different players for your lineup.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      const { error: saveError } = await db.rpc('save_tournament_captain_match_lineup', {
+        p_match_id: match.id,
+        p_team_id: teamId,
+        p_player_one: first,
+        p_player_two: second,
+        p_visible_to_public: visibleToPublic,
+      });
+      if (saveError) throw new Error(saveError.message);
+      setMatchPlayers((current) => [
+        ...current.filter((player) => !(player.match_id === match.id && player.team_id === teamId)),
+        { match_id: match.id, participant_id: first, side, team_id: teamId },
+        { match_id: match.id, participant_id: second, side, team_id: teamId },
+      ]);
+      setMatches((current) =>
+        current.map((item) =>
+          item.id === match.id
+            ? {
+                ...item,
+                team_one_lineup_public: side === 1 ? visibleToPublic : item.team_one_lineup_public,
+                team_two_lineup_public: side === 2 ? visibleToPublic : item.team_two_lineup_public,
+              }
+            : item,
+        ),
+      );
+      setMessage('Your lineup was saved.');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Could not save your lineup.');
+    } finally {
+      setBusy(false);
+    }
+  };
   const matchActions = useTournamentMatchActions({
     db,
     eventId,
@@ -506,6 +582,7 @@ export function TournamentManagement({
     phases,
     isTeam,
     activeCategory,
+    matchCategory,
     matchPhase,
     teams,
     participants,
@@ -559,6 +636,7 @@ export function TournamentManagement({
       <FloatingFeedback error={error} message={message} />
       {externalTab !== 'competition' && adminTab === 'participants' && (
         <TournamentParticipantManagementPanel
+          eventId={eventId}
           isTeam={isTeam}
           leagueTournament={leagueTournament}
           activeCategory={activeCategory}
@@ -566,6 +644,7 @@ export function TournamentManagement({
           participants={participants}
           pairs={pairs}
           teams={teams}
+          groupCount={Math.max(1, Number(config?.group_count ?? 2))}
           availablePairPlayers={availablePairPlayers}
           leagueMemberEligibility={leagueMemberEligibility}
           groupOptions={groupOptions}
@@ -614,11 +693,22 @@ export function TournamentManagement({
       {externalTab !== 'competition' && adminTab === 'matches' && (
         <TournamentMatchManagementPanel
           isTeam={isTeam}
+          captainMode={captainMode}
+          captainTeamId={captainTeamId}
           busy={busy}
           config={config}
           courtCount={courtCount}
           activeParticipants={activeParticipants}
-          adminMatchList={adminMatchList}
+          adminMatchList={
+            captainMode
+              ? matches
+                  .filter(
+                    (match) =>
+                      match.team_one_id === captainTeamId || match.team_two_id === captainTeamId,
+                  )
+                  .sort((a, b) => (a.scheduled_at ?? '').localeCompare(b.scheduled_at ?? ''))
+              : adminMatchList
+          }
           adminRoundByMatch={adminRoundByMatch}
           availableMatchPhases={availableMatchPhases}
           bracketNeedsRedraw={bracketNeedsRedraw}
@@ -654,6 +744,7 @@ export function TournamentManagement({
           saveScore={saveScore}
           saveMatch={saveMatch}
           saveTeamPairing={saveTeamPairing}
+          saveCaptainPairing={saveCaptainPairing}
           setMatchCourt={setMatchCourt}
           setMatchGrouping={setMatchGrouping}
           setMatchOne={setMatchOne}

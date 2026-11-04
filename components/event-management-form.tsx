@@ -185,10 +185,14 @@ export function EventManagementForm({
         if (!v.is_league_tournament) throw new Error('Tournament events cannot be recurring.');
       if (
         v.event_type === 'tournament' &&
-        v.tournament_format !== 'team' &&
+        !v.is_league_tournament &&
         !(v.tournament_config.categories ?? []).length
       )
-        throw new Error('Enable at least one doubles category.');
+        throw new Error(
+          v.tournament_format === 'team'
+            ? 'Enable at least one team match category.'
+            : 'Enable at least one doubles category.',
+        );
       if (
         v.event_type === 'tournament' &&
         v.tournament_config.phases?.preliminary_knockout &&
@@ -236,7 +240,7 @@ export function EventManagementForm({
       }
       if (v.event_type !== 'tournament' && v.capacity < 1)
         throw new Error('Maximum attendees must be at least 1.');
-      if (v.event_type === 'tournament') {
+      if (v.event_type === 'tournament' && v.tournament_format !== 'team') {
         for (const [category, limit] of Object.entries(
           v.tournament_config.category_capacities ?? {},
         )) {
@@ -274,6 +278,15 @@ export function EventManagementForm({
           v.event_type === 'tournament'
             ? {
                 ...v.tournament_config,
+                ...(v.tournament_format === 'team'
+                  ? {
+                      category_capacities: Object.fromEntries(
+                        Object.entries(v.tournament_config.category_capacities ?? {}).filter(
+                          ([category]) => category !== 'team',
+                        ),
+                      ),
+                    }
+                  : {}),
                 total_capacity:
                   Number(v.capacity) > 0 && Number(v.capacity) < 1000000
                     ? Number(v.capacity)

@@ -6,6 +6,7 @@ export const categoryLabel = (value: string) =>
     men: "Men's doubles",
     women: "Women's doubles",
     team: 'Team tournament',
+    overall: 'Overall',
   })[value] || value;
 
 export const phaseLabel = (value: string) =>

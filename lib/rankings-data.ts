@@ -10,6 +10,9 @@ type ProfileRow = {
   gender: 'male' | 'female' | null;
   application_status: string;
   role: string | null;
+  avatar_url: string | null;
+  show_birthday_emoji: boolean;
+  date_of_birth: string | null;
 };
 type ScoreRow = {
   id: string;
@@ -88,7 +91,9 @@ export async function getRankingsData(): Promise<RankingsData> {
   ] = await Promise.all([
     admin
       .from('profiles')
-      .select('id,full_name,email,tennis_skill_level,gender,application_status,role')
+      .select(
+        'id,full_name,email,tennis_skill_level,gender,application_status,role,avatar_url,show_birthday_emoji,date_of_birth',
+      )
       .eq('application_status', 'approved')
       .eq('account_kind', 'member'),
     admin.from('memberships').select('id,user_id,status,payment_status'),
@@ -233,6 +238,20 @@ export async function getRankingsData(): Promise<RankingsData> {
       name: p.full_name?.trim() || p.email || 'Player',
       gender: p.gender ?? null,
       skillRating: p.tennis_skill_level ? Number(p.tennis_skill_level) : null,
+      avatarUrl: p.avatar_url,
+      birthdayVisible:
+        p.show_birthday_emoji &&
+        !!p.date_of_birth &&
+        new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'America/Vancouver',
+          month: '2-digit',
+          day: '2-digit',
+        }).format(new Date(`${p.date_of_birth}T12:00:00Z`)) ===
+          new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'America/Vancouver',
+            month: '2-digit',
+            day: '2-digit',
+          }).format(new Date()),
     })),
     games,
   );

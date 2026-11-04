@@ -131,6 +131,16 @@ export default async function EventDetailsPage({
     profile?.application_status === 'approved' &&
     (profile?.role === 'admin' ||
       (profile?.role === 'organizer' && (event.organizer_id ?? event.created_by) === user?.id));
+  const { data: captainTeam } =
+    user && event.tournament_format === 'team' && !isManager
+      ? await db
+          .from('tournament_public_teams')
+          .select('id')
+          .eq('event_id', event.id)
+          .eq('captain_user_id', user.id)
+          .maybeSingle()
+      : { data: null };
+  const isTeamCaptain = !!captainTeam;
   let hasPaidMembership = false;
   if (user) {
     const { data: paidMembership, error: paidMembershipError } = await db.rpc(
@@ -152,7 +162,7 @@ export default async function EventDetailsPage({
       ? db
           .from('event_roster')
           .select(
-            'registration_id,user_id,status,payment_status,queue_position,full_name,avatar_url,tennis_skill_level',
+            'registration_id,user_id,status,payment_status,queue_position,full_name,avatar_url,tennis_skill_level,birthday_emoji_visible',
           )
           .eq('event_id', event.id)
       : Promise.resolve({ data: [] }),
@@ -181,6 +191,12 @@ export default async function EventDetailsPage({
     );
     rosterRows = rosterRows.map((r) => ({ ...r, ...(contactById.get(r.user_id) ?? {}) }));
   }
+  const leagueStandingsBefore = Array.isArray(leagueSnapshot?.standings)
+    ? (leagueSnapshot.standings as Array<Record<string, unknown>>)
+    : [];
+  const leagueStandingsAfter = Array.isArray(leagueSnapshot?.standings_after)
+    ? (leagueSnapshot.standings_after as Array<Record<string, unknown>>)
+    : [];
   const publicOrganizerRows = (publicOrganizerContacts ?? []) as Array<{
     organizer_name?: string | null;
   }>;
@@ -274,7 +290,7 @@ export default async function EventDetailsPage({
           <>
             <TournamentPublicView
               adminContent={
-                isManager ? (
+                isManager || isTeamCaptain ? (
                   <TournamentManagement
                     eventId={event.id}
                     leagueId={event.social_doubles_ladder_id ?? null}
@@ -286,10 +302,13 @@ export default async function EventDetailsPage({
                     priceCents={event.price_cents ?? 0}
                     leagueTournament={isLeagueTournament}
                     leagueGender={league?.gender ?? null}
+                    captainMode={!isManager && isTeamCaptain}
+                    captainTeamId={captainTeam?.id ?? null}
                   />
                 ) : null
               }
               eventTitle={eventTitle}
+              isManager={isManager}
               eventSlug={event.slug || params.slug}
               eventDescription={event.description ?? ''}
               genderRestriction={event.gender_restriction ?? null}
@@ -297,6 +316,9 @@ export default async function EventDetailsPage({
               currentUserId={user?.id ?? null}
               currentUserEmail={profile?.email ?? user?.email ?? null}
               currentUserAccountKind={profile?.account_kind ?? 'member'}
+              currentUserIsApprovedMember={
+                profile?.application_status === 'approved' && profile?.account_kind === 'member'
+              }
               currentUserName={profile?.full_name ?? ''}
               currentUserPhone={profile?.phone ?? ''}
               currentUserSkillLevel={profile?.tennis_skill_level ?? null}
@@ -318,20 +340,14 @@ export default async function EventDetailsPage({
               leagueId={event.social_doubles_ladder_id ?? null}
               leagueGender={league?.gender ?? null}
               courtCount={event.court_count ?? 4}
-              leagueStandingsBefore={
-                Array.isArray(leagueSnapshot?.standings)
-                  ? (leagueSnapshot.standings as Array<Record<string, unknown>>)
-                  : []
-              }
-              leagueStandingsAfter={
-                Array.isArray(leagueSnapshot?.standings_after)
-                  ? (leagueSnapshot.standings_after as Array<Record<string, unknown>>)
-                  : []
-              }
+              leagueStandingsBefore={leagueStandingsBefore}
+              leagueStandingsAfter={leagueStandingsAfter}
               leagueHasResults={
                 Array.isArray(leagueEventMatches) &&
                 leagueEventMatches.some((match) => ['completed', 'bye'].includes(match.status))
               }
+              winnersAnnounced={event.tournament_winners_announced === true}
+              announcedWinners={event.tournament_winners ?? []}
             />
           </>
         ) : (

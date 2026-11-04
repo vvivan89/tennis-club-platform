@@ -1,6 +1,6 @@
 'use client';
 import { TennisLoader } from '@/components/tennis-loader';
-import { FormFeedback } from '@/components/form-feedback';
+import { FloatingFeedback } from '@/components/floating-feedback';
 import { AdminSectionTabs } from '@/components/admin-section-tabs';
 import { SiteFooter } from '@/components/site-footer';
 import { useEffect, useState, type FormEvent } from 'react';
@@ -160,6 +160,7 @@ export default function WebsiteAdminPage() {
       return;
     }
     setItems(items.filter((x) => x.id !== id));
+    setMessage('Publication deleted.');
   }
   async function postAnnouncement(extra: Record<string, unknown>) {
     const response = await fetch('/api/admin/send-email', {
@@ -220,11 +221,11 @@ export default function WebsiteAdminPage() {
   return (
     <main className="flex min-h-screen flex-col bg-background text-foreground">
       <AdminNav />
+      <FloatingFeedback error={error} message={message} />
       <div className="page-container flex-1 py-10">
         <AdminSectionTabs section="publications" />
         <p className="eyebrow">Website content management</p>
         <h1 className="section-title">Publications</h1>
-        <FormFeedback error={error} message={message} className="mb-4" />
         {activeTab === 'news' && (
           <section>
             <Card>

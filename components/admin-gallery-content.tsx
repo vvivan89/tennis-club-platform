@@ -1,7 +1,7 @@
 'use client';
 import Image from 'next/image';
 import { TennisLoader } from '@/components/tennis-loader';
-import { FormFeedback } from '@/components/form-feedback';
+import { FloatingFeedback } from '@/components/floating-feedback';
 import { AdminSectionTabs } from '@/components/admin-section-tabs';
 import { useEffect, useState, type FormEvent } from 'react';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
@@ -193,6 +193,7 @@ export function AdminGalleryContent({ embedded = false }: { embedded?: boolean }
   return (
     <main className="flex min-h-screen flex-col bg-background text-foreground">
       {!embedded && <AdminNav />}
+      <FloatingFeedback error={error} message={message} />
       <div className="page-container flex-1 py-10">
         {!embedded && <AdminSectionTabs section="publications" />}
         <p className="eyebrow">Website content</p>
@@ -246,7 +247,6 @@ export function AdminGalleryContent({ embedded = false }: { embedded?: boolean }
             />{' '}
             Publish album immediately
           </label>
-          <FormFeedback error={error} message={message} />
           <Button disabled={busy}>
             {busy ? <TennisLoader compact label="Saving" /> : 'Create album'}
           </Button>

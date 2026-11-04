@@ -8,6 +8,7 @@ import type {
   PairPaymentStatus,
   OwnTournamentEntry,
   Pair,
+  Team,
 } from '@/components/tournament-public-view-types';
 import type { TournamentConfig } from '@/lib/tournament-config';
 import { categoryLabel, formatMoney } from '@/components/tournament-public-view-format';
@@ -19,8 +20,15 @@ export function TournamentOwnRegistrationList({
   currentUserId,
   currentUserName,
   currentUserEmail,
+  currentUserPhone,
+  currentUserGender,
+  currentUserSkillLevel,
   isEventGuest,
   ownEntries,
+  teams,
+  canRequestCaptain,
+  captainRequestBusy,
+  requestCaptain,
   pairs,
   pairPaymentStatuses,
   registrationClosesAt,
@@ -74,8 +82,15 @@ export function TournamentOwnRegistrationList({
   currentUserId: string | null;
   currentUserName: string;
   currentUserEmail: string | null;
+  currentUserPhone: string;
+  currentUserGender: string | null;
+  currentUserSkillLevel: string | null;
   isEventGuest: boolean;
   ownEntries: OwnTournamentEntry[];
+  teams: Team[];
+  canRequestCaptain: boolean;
+  captainRequestBusy: boolean;
+  requestCaptain: (participantId: string) => Promise<void>;
   pairs: Pair[];
   pairPaymentStatuses: PairPaymentStatus[];
   registrationClosesAt: string | null;
@@ -247,9 +262,13 @@ export function TournamentOwnRegistrationList({
                   <p className="font-medium">{categoryLabel(entry.category)}</p>
                   <p className="mt-1 text-sm">{entry.display_name || currentUserName}</p>
                   <p className="text-xs text-muted-foreground">
-                    {entry.email || currentUserEmail} · {entry.phone || 'Phone not provided'} ·{' '}
-                    {entry.gender || 'Gender not specified'} · Rating{' '}
-                    {entry.tennis_skill_level ?? 'not specified'}
+                    {entry.email || currentUserEmail} ·{' '}
+                    {entry.phone || currentUserPhone || 'Phone not provided'} ·{' '}
+                    {(entry.gender || currentUserGender || 'Gender not specified').replace(
+                      /^./,
+                      (character) => character.toUpperCase(),
+                    )}{' '}
+                    · Rating {entry.tennis_skill_level ?? currentUserSkillLevel ?? 'not specified'}
                   </p>
                   <p className="text-sm text-muted-foreground">
                     {entry.confirmation_status === 'pending'
@@ -293,6 +312,30 @@ export function TournamentOwnRegistrationList({
                       disabled={paymentBusy}
                       className="h-9 border border-primary px-3 text-sm"
                     />
+                  )}
+                  {format === 'team' && canRequestCaptain && (
+                    <button
+                      type="button"
+                      disabled={
+                        captainRequestBusy ||
+                        !!entry.captain_requested ||
+                        teams.some(
+                          (team) =>
+                            team.id === entry.team_id && team.captain_user_id === currentUserId,
+                        )
+                      }
+                      onClick={() => void requestCaptain(entry.id)}
+                      className="h-9 rounded-md border border-border px-3 text-sm"
+                    >
+                      {teams.some(
+                        (team) =>
+                          team.id === entry.team_id && team.captain_user_id === currentUserId,
+                      )
+                        ? 'Captain confirmed'
+                        : entry.captain_requested
+                          ? 'Captain request sent'
+                          : 'I want to be a captain'}
+                    </button>
                   )}
                   {entry.confirmation_status === 'pending' && entry.partner_id && (
                     <button

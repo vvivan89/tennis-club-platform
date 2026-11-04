@@ -1,6 +1,6 @@
 'use client';
 import { TennisLoader } from '@/components/tennis-loader';
-import { FormFeedback } from '@/components/form-feedback';
+import { FloatingFeedback } from '@/components/floating-feedback';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
@@ -311,7 +311,7 @@ export function MemberEditModal({
               <p className="mt-2 text-sm text-muted-foreground">No previous suspensions.</p>
             )}
           </div>
-          <FormFeedback error={error} message={message} />
+          <FloatingFeedback error={error} message={message} />
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
               Cancel
