@@ -46,6 +46,19 @@ export function PriorityBuckets({
     event.preventDefault();
     callback(dragKey(event));
   };
+  const rowDragProps = (key: string, onDrop: (source: string) => void) => ({
+    draggable: true,
+    onDragStart: (event: DragEvent<HTMLLIElement>) => {
+      event.dataTransfer.setData('text/plain', key);
+      event.dataTransfer.effectAllowed = 'move';
+    },
+    onDragOver: (event: DragEvent<HTMLLIElement>) => event.preventDefault(),
+    onDrop: (event: DragEvent<HTMLLIElement>) => {
+      event.preventDefault();
+      onDrop(dragKey(event));
+      if (stopRowDropPropagation) event.stopPropagation();
+    },
+  });
   const itemDataAttribute = (key: string) =>
     dataAttribute === 'ladder-ranking'
       ? { 'data-ladder-ranking-key': key }
@@ -66,18 +79,9 @@ export function PriorityBuckets({
             return (
               <li
                 key={key}
-                draggable
-                onDragStart={(event) => {
-                  event.dataTransfer.setData('text/plain', key);
-                  event.dataTransfer.effectAllowed = 'move';
-                }}
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  const source = dragKey(event);
+                {...rowDragProps(key, (source) => {
                   if (source && source !== key) onDropSelectedItem(source, key, index);
-                  if (stopRowDropPropagation) event.stopPropagation();
-                }}
+                })}
                 className="flex items-center gap-2 rounded-md border border-border bg-background p-2 text-sm"
                 {...itemDataAttribute(key)}
               >
@@ -133,17 +137,7 @@ export function PriorityBuckets({
           {availableOptions.map(([key, label]) => (
             <li
               key={key}
-              draggable
-              onDragStart={(event) => {
-                event.dataTransfer.setData('text/plain', key);
-                event.dataTransfer.effectAllowed = 'move';
-              }}
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={(event) => {
-                event.preventDefault();
-                onDropAvailableItem(dragKey(event), key);
-                if (stopRowDropPropagation) event.stopPropagation();
-              }}
+              {...rowDragProps(key, (source) => onDropAvailableItem(source, key))}
               className="flex items-center justify-between rounded-md bg-secondary/40 p-2 text-sm"
               {...itemDataAttribute(key)}
             >

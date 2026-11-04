@@ -8,7 +8,7 @@ describe('Help guide route access', () => {
     expect(canAccessHelpGuide('member', 'member', true)).toBe(true);
     expect(canAccessHelpGuide('organizer', 'member', true)).toBe(false);
     expect(canAccessHelpGuide('organizer', 'organizer', false)).toBe(true);
-    expect(canAccessHelpGuide('organizer', 'admin', false)).toBe(true);
+    expect(canAccessHelpGuide('organizer', 'admin', false)).toBe(false);
     expect(canAccessHelpGuide('admin', 'organizer', true)).toBe(false);
     expect(canAccessHelpGuide('admin', 'admin', true)).toBe(true);
   });

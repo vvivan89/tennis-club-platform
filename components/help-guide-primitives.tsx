@@ -1,3 +1,6 @@
+'use client';
+
+import { useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight, Info } from 'lucide-react';
 
@@ -69,19 +72,45 @@ export function Callout({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function SectionNav({ links }: { links: Array<{ href: string; label: string }> }) {
+export function SectionNav({
+  links,
+  ariaLabel = 'Help guide contents',
+  collapsible = false,
+}: {
+  links: Array<{ href: string; label: string }>;
+  ariaLabel?: string;
+  collapsible?: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const canCollapse = collapsible && links.length > 8;
+
   return (
-    <nav aria-label="Help guide contents" className="flex flex-wrap gap-2">
-      {links.map((link) => (
-        <a
-          key={link.href}
-          href={link.href}
-          className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted"
+    <div>
+      <nav
+        aria-label={ariaLabel}
+        className={`flex flex-wrap gap-2 overflow-hidden ${canCollapse && !expanded ? 'max-h-[4.5rem]' : ''}`}
+      >
+        {links.map((link) => (
+          <a
+            key={link.href}
+            href={link.href}
+            className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted"
+          >
+            {link.label}
+          </a>
+        ))}
+      </nav>
+      {canCollapse && (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+          className="mt-2 text-sm font-medium text-primary hover:underline"
         >
-          {link.label}
-        </a>
-      ))}
-    </nav>
+          {expanded ? 'View less' : 'View all'}
+        </button>
+      )}
+    </div>
   );
 }
 

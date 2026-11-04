@@ -2,9 +2,12 @@ import { CircleHelp } from 'lucide-react';
 import type { HelpGuide } from '@/lib/help-access';
 import { LinkButton, SectionNav } from '@/components/help-guide-primitives';
 import { PublicHelpGuide } from '@/components/help-guides/public-guide';
-import { OrganizerHelpGuide } from '@/components/help-guides/organizer-guide';
-import { AdminHelpGuide } from '@/components/help-guides/admin-guide';
-import { MemberHelpGuide } from '@/components/help-guides/member-guide';
+import {
+  OrganizerHelpGuide,
+  OrganizerHelpTopicNav,
+} from '@/components/help-guides/organizer-guide';
+import { AdminHelpGuide, AdminHelpTopicNav } from '@/components/help-guides/admin-guide';
+import { MemberHelpGuide, MemberHelpTopicNav } from '@/components/help-guides/member-guide';
 
 type HelpCenterProps = { guide: HelpGuide };
 
@@ -30,31 +33,9 @@ export function HelpCenter({ guide }: HelpCenterProps) {
       { href: '#visitor-events', label: 'Browse events and eligibility' },
       { href: '#visitor-tournament', label: 'Public tournament registration' },
     ],
-    member: [
-      { href: '#member-profile', label: 'Profile and eligibility' },
-      { href: '#member-events', label: 'Event registration' },
-      { href: '#member-competitions', label: 'Tournament, League, ladder entry' },
-      { href: '#member-payments', label: 'Membership and payments' },
-      { href: '#member-results', label: 'Results and match scores' },
-      { href: '#member-rankings', label: 'Club rankings' },
-      { href: '#member-resources', label: 'Gallery and documents' },
-      { href: '#member-chat', label: 'Member chat' },
-    ],
-    organizer: [
-      { href: '#organizer-dashboard', label: 'Organizer dashboard' },
-      { href: '#organizer-event-setup', label: 'Event form: every input' },
-      { href: '#organizer-competitions', label: 'Tournament, League, ladder setup' },
-      { href: '#organizer-running', label: 'Participants, courts, and results' },
-    ],
-    admin: [
-      { href: '#admin-dashboard', label: 'Admin dashboard' },
-      { href: '#admin-event-setup', label: 'Event ownership and assignment' },
-      { href: '#admin-competition-setup', label: 'Competition oversight' },
-      { href: '#admin-ranking-controls', label: 'How standings are maintained' },
-      { href: '#admin-payments', label: 'Payments and refunds' },
-      { href: '#admin-members', label: 'Applications and membership' },
-      { href: '#admin-publishing', label: 'Website and documents' },
-    ],
+    member: [],
+    organizer: [],
+    admin: [],
   };
 
   return (
@@ -65,9 +46,26 @@ export function HelpCenter({ guide }: HelpCenterProps) {
         <p className="mt-4 max-w-3xl text-sm leading-7 text-muted-foreground">
           {descriptions[guide]}
         </p>
-        <div className="mt-6">
-          <SectionNav links={sectionLinks[guide]} />
-        </div>
+        {!!sectionLinks[guide].length && (
+          <div className="mt-6">
+            <SectionNav links={sectionLinks[guide]} />
+          </div>
+        )}
+        {guide === 'admin' && (
+          <div className="mt-6">
+            <AdminHelpTopicNav />
+          </div>
+        )}
+        {guide === 'organizer' && (
+          <div className="mt-6">
+            <OrganizerHelpTopicNav />
+          </div>
+        )}
+        {guide === 'member' && (
+          <div className="mt-6">
+            <MemberHelpTopicNav />
+          </div>
+        )}
       </header>
 
       {guide === 'public' && <PublicHelpGuide />}
@@ -75,19 +73,21 @@ export function HelpCenter({ guide }: HelpCenterProps) {
       {guide === 'admin' && <AdminHelpGuide />}
       {guide === 'member' && <MemberHelpGuide />}
 
-      <aside className="mt-12 flex items-start gap-3 rounded-xl border border-border bg-muted/30 p-5">
-        <CircleHelp className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
-        <div>
-          <h2 className="font-semibold">Need help with a specific entry?</h2>
-          <p className="mt-1 text-sm leading-6 text-muted-foreground">
-            Include the event name, the player/partner involved, the payment reference if
-            applicable, and what status the page shows. Do not send card details.
-          </p>
-          <p className="mt-2">
-            <LinkButton href="/contacts">Club contact information</LinkButton>
-          </p>
-        </div>
-      </aside>
+      {guide !== 'admin' && (
+        <aside className="mt-12 flex items-start gap-3 rounded-xl border border-border bg-muted/30 p-5">
+          <CircleHelp className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+          <div>
+            <h2 className="font-semibold">Need help with a specific entry?</h2>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+              Include the event name, the player/partner involved, the payment reference if
+              applicable, and what status the page shows. Do not send card details.
+            </p>
+            <p className="mt-2">
+              <LinkButton href="/contacts">Club contact information</LinkButton>
+            </p>
+          </div>
+        </aside>
+      )}
     </div>
   );
 }

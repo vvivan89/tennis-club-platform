@@ -7,6 +7,6 @@ export function canAccessHelpGuide(
 ): boolean {
   if (guide === 'public') return true;
   if (guide === 'member') return approved;
-  if (guide === 'organizer') return role === 'organizer' || role === 'admin';
+  if (guide === 'organizer') return role === 'organizer';
   return role === 'admin';
 }

@@ -86,5 +86,6 @@ describe('help pages', () => {
     mocks.user = { id: 'admin-1' };
     mocks.profile = { role: 'admin', application_status: 'approved' };
     expect(await HelpPage({ guide: 'admin' })).toBeTruthy();
+    await expect(HelpPage({ guide: 'organizer' })).rejects.toThrow('redirect:/help/public');
   });
 });

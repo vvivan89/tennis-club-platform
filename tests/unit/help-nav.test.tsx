@@ -31,9 +31,9 @@ describe('Help navigation', () => {
     expect(screen.queryByRole('link', { name: 'Admin guide' })).not.toBeInTheDocument();
 
     rerender(<HelpNav role="admin" approved />);
-    expect(screen.getAllByRole('link')).toHaveLength(4);
+    expect(screen.getAllByRole('link')).toHaveLength(3);
     expect(screen.getByRole('link', { name: 'Admin guide' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Organizer guide' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Organizer guide' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Member guide' })).toBeInTheDocument();
   });
 });

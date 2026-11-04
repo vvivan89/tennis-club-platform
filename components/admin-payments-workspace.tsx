@@ -454,12 +454,6 @@ export function AdminPaymentsWorkspace({
                 </p>
               )}
             </div>
-            <button
-              onClick={() => downloadCsv(reportRows, `report-${reportYear}`)}
-              className="mt-5 inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm"
-            >
-              <Download size={16} /> Export report
-            </button>
           </section>
         </section>
       ) : (

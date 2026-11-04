@@ -13,7 +13,7 @@ export function HelpNav({ role, approved }: HelpNavProps) {
   const guides = [
     { href: '/help/public', label: 'Public guide', Icon: Globe2 },
     ...(isAdmin ? [{ href: '/help/admin', label: 'Admin guide', Icon: ShieldCheck }] : []),
-    ...(isAdmin || isOrganizer
+    ...(isOrganizer
       ? [{ href: '/help/organizer', label: 'Organizer guide', Icon: CalendarDays }]
       : []),
     ...(approved ? [{ href: '/help/member', label: 'Member guide', Icon: UserRound }] : []),

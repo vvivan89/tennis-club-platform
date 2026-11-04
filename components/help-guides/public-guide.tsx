@@ -3,14 +3,6 @@ import { FieldTable, LinkButton, Steps, Topic } from '@/components/help-guide-pr
 export function PublicHelpGuide() {
   return (
     <section id="public-guide" className="scroll-mt-24 space-y-4">
-      <div className="max-w-3xl">
-        <p className="eyebrow">For everyone</p>
-        <h2 className="text-2xl font-semibold tracking-tight">Public and event visitors</h2>
-        <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          Public event pages show the published event information, registration window, cost,
-          restrictions, and any tournament details the organizer has chosen to publish.
-        </p>
-      </div>
       <div className="space-y-4">
         <Topic
           id="visitor-events"

@@ -1,299 +1,574 @@
-import { FieldTable, LinkButton, Steps, Topic } from '@/components/help-guide-primitives';
+'use client';
+
+import {
+  Callout,
+  FieldTable,
+  LinkButton,
+  SectionNav,
+  Steps,
+  Topic,
+} from '@/components/help-guide-primitives';
+import { helpTopicLinks, useHelpGuideNavigation } from '@/components/help-guides/navigation';
+
+const tabs = [
+  ['dashboard', 'Dashboard'],
+  ['profile', 'Profile'],
+  ['membership', 'Membership'],
+  ['events', 'Events'],
+  ['competitions', 'Competitions'],
+  ['results', 'Results & rankings'],
+  ['resources', 'Resources & chat'],
+] as const;
+
+const topics = [
+  ['dashboard', 'member-dashboard', 'Dashboard and activity'],
+  ['profile', 'member-profile', 'Profile and eligibility'],
+  ['membership', 'member-membership', 'Season membership and waiver'],
+  ['membership', 'member-family', 'Set up or leave a family'],
+  ['membership', 'member-membership-payment', 'Pay membership fees'],
+  ['membership', 'member-payment-history', 'Payment history'],
+  ['events', 'member-event-registration', 'Register and withdraw'],
+  ['events', 'member-event-payments', 'Pay event fees'],
+  ['events', 'member-event-scores', 'Report event scores'],
+  ['competitions', 'member-tournament-entry', 'Tournament registration'],
+  ['competitions', 'member-pair-registration', 'Register and pay with a partner'],
+  ['competitions', 'member-league-entry', 'League registration'],
+  ['competitions', 'member-ladder-entry', 'Social Doubles Ladder'],
+  ['competitions', 'member-team-captain', 'Team tournament captain workflow'],
+  ['results', 'member-results', 'Results'],
+  ['results', 'member-rankings', 'Rankings and standings'],
+  ['resources', 'member-gallery-documents', 'Gallery and Documents'],
+  ['resources', 'member-chat', 'Member chat'],
+] as const;
+
+export function MemberHelpTopicNav() {
+  return <SectionNav ariaLabel="Member help topics" collapsible links={helpTopicLinks(topics)} />;
+}
 
 export function MemberHelpGuide() {
+  const { activeTab, selectTab } = useHelpGuideNavigation(tabs, topics, 'dashboard');
+
   return (
-    <section id="member-guide" className="mt-14 scroll-mt-24 space-y-4">
-      <div className="max-w-3xl">
-        <p className="eyebrow">Approved members</p>
-        <h2 className="text-2xl font-semibold tracking-tight">
-          Your account, entries, and payments
-        </h2>
-        <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          Use Member Portal for profile, Membership, Payments, Results, and eligible member tools.
-        </p>
+    <section id="member-guide" className="scroll-mt-24 space-y-6">
+      <div role="tablist" aria-label="Member help sections" className="flex flex-wrap gap-2">
+        {tabs.map(([id, label]) => (
+          <button
+            key={id}
+            id={`member-help-tab-${id}`}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === id}
+            aria-controls="member-help-panel"
+            onClick={() => selectTab(id)}
+            className={`rounded-md border px-4 py-2 text-sm ${activeTab === id ? 'border-primary bg-secondary font-medium text-foreground' : 'border-border text-muted-foreground hover:bg-muted'}`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
-      <Topic id="member-profile" title="Set profile information that affects event entry">
-        <FieldTable
-          rows={[
-            {
-              field: 'Tennis skill rating',
-              value:
-                'Choose the rating that reflects your current play. The profile requires a rating.',
-              effect:
-                'Your selected rating is shown next to your name in participant lists for events you are registered in when that roster is available, and in tournament participant/pair displays.',
-            },
-            {
-              field: 'Gender',
-              value: 'Male or female (optional)',
-              effect:
-                'This is used to check Men’s/Women’s eligibility and mixed doubles pairing. Mixed-pair validation requires opposite genders when both are stated.',
-            },
-            {
-              field: 'Name, email and phone',
-              value: 'Keep the name players recognize and a working contact number and email.',
-              effect:
-                'Your contacts are visible to registered members and will only be used for club and event communications.',
-            },
-            {
-              field: 'Email preferences',
-              value:
-                'Choose which event registration, waitlist, cancellation, reminder, new-event, and newsletter emails you want.',
-              effect:
-                'These control automated emails sent by this website. Admins may choose to override preferences for important announcements.',
-            },
-            {
-              field: 'Birthday visibility, playing hand, avatar, chat notifications',
-              value: 'Set only the details you want used/displayed.',
-              effect:
-                'Birthday display and chat notification preferences control those respective optional features.',
-            },
-          ]}
-        />
+      <div
+        id="member-help-panel"
+        role="tabpanel"
+        aria-labelledby={`member-help-tab-${activeTab}`}
+        className="space-y-5"
+      >
+        {activeTab === 'dashboard' && <DashboardTopic />}
+        {activeTab === 'profile' && <ProfileTopic />}
+        {activeTab === 'membership' && <MembershipTopics />}
+        {activeTab === 'events' && <EventTopics />}
+        {activeTab === 'competitions' && <CompetitionTopics />}
+        {activeTab === 'results' && <ResultsTopics />}
+        {activeTab === 'resources' && <ResourceTopics />}
+      </div>
+    </section>
+  );
+}
+
+function DashboardTopic() {
+  return (
+    <Topic id="member-dashboard" title="Dashboard and activity overview">
+      <p>
+        The Member dashboard summarizes your account and club activity. Membership overview shows
+        the current season, your membership type, and payment state. My activity overview counts
+        upcoming registrations, confirmed events, and recorded results; My event registrations lists
+        upcoming sessions with their current registration status. Open an event from its link to
+        review details or take an available action.
+      </p>
+      <p>
+        An account whose membership application is not approved sees its application state and
+        relevant next steps instead of the full member dashboard. Approval is separate from paying
+        dues. A suspension notice, if present, explains that account restriction.
+      </p>
+      <p>
+        <LinkButton href="/member/dashboard">Open Member dashboard</LinkButton>
+      </p>
+    </Topic>
+  );
+}
+
+function ProfileTopic() {
+  return (
+    <Topic id="member-profile" title="Profile information and eligibility">
+      <FieldTable
+        rows={[
+          {
+            field: 'Name, phone, birthday, and gender',
+            value: 'Keep contact details current; phone and name are required profile fields.',
+            effect:
+              'Name and contact information identify you to club organizers. Gender affects eligibility for gender-specific events and category checks in competitions. Birthday and its visibility option support the club birthday display.',
+          },
+          {
+            field: 'Tennis skill rating',
+            value: 'Choose the rating that best reflects your current level.',
+            effect:
+              'Your selected skill rating appears with your name in participant and results displays that show player details.',
+          },
+          {
+            field: 'Avatar and playing hand',
+            value: 'Upload an avatar and choose your playing hand if desired.',
+            effect:
+              'The avatar identifies you in player lists; playing hand just is profile information not used anywhere.',
+          },
+          {
+            field: 'Email preferences and chat notifications',
+            value: 'Choose the automated event and club email categories you want.',
+            effect:
+              'Preferences control routine notification emails. Administrators can still send important club-wide announcements regardless of these settings.',
+          },
+          {
+            field: 'Show birthday emoji',
+            value: 'Enable or disable the profile option.',
+            effect:
+              'When enabled, the cake indicator is shown beside your player identity on all pages.',
+          },
+        ]}
+      />
+      <p>
+        <LinkButton href="/member/profile">Edit my profile</LinkButton>
+      </p>
+    </Topic>
+  );
+}
+
+function MembershipTopics() {
+  return (
+    <>
+      <Topic id="member-membership" title="Season membership and your waiver">
         <p>
-          <LinkButton href="/member/profile">Edit my profile</LinkButton>
+          Membership is managed by club season. The page shows the configured season dates, your
+          individual or family plan, current status, and the applicable fee. Account approval and
+          payment are separate: approval gives member access, while payment satisfies the season
+          dues requirement for features that require paid membership.
+        </p>
+        <p>
+          Read the current waiver and press{' '}
+          <strong>I have read and accept the current membership waiver</strong> to record your
+          individual acceptance. The page then shows the acceptance date. Waiver acceptance is saved
+          independently from checkout, so it remains recorded if you pay later. Each adult family
+          member accepts their own waiver; there is no family-wide waiver.
+        </p>
+        <Callout>
+          The Membership menu shows a warning badge while your membership is unpaid. Once payment is
+          confirmed, the page and badge update to the paid state.
+        </Callout>
+        <p>
+          <LinkButton href="/member/membership">Open Membership</LinkButton>
         </p>
       </Topic>
-      <Topic id="member-events" title="Register for ordinary club events">
+      <Topic id="member-family" title="Invite members to a family plan">
         <Steps>
           <li>
-            Open the event and confirm it is published, registration is open, and you meet any
-            gender restriction or active paid membership requirement.
+            In Membership, use the family section to invite an existing approved member. If you do
+            not yet have a family, creating it sends the first invitation; otherwise invite the
+            additional eligible member from the current family.
           </li>
           <li>
-            Press Register. The event procedure records a confirmed place or waitlist status. For a
-            paid event, follow the payment action shown on the event page.
+            The invited member signs in, accepts the invitation, and accepts their own current
+            membership waiver. Until the invitation and individual waiver are complete, family
+            membership is shown as pending and family checkout is unavailable.
           </li>
           <li>
-            If a waitlist is enabled and the event is full, your place remains waitlisted until
-            promoted; waitlisted entries are not charged by ordinary event checkout.
+            Once all family confirmations and waivers are complete, an eligible family member can
+            pay the family fee. The family becomes paid after Stripe confirms the card payment or an
+            administrator confirms the Interac transfer.
           </li>
           <li>
-            To leave, choose Withdraw and read the event-specific confirmation. The app may promote
-            a waitlisted member after a confirmed place is released.
+            Use the family controls to review membership, send an available invitation, or leave /
+            remove a member. If a paid family member schedules departure, the page explains when it
+            takes effect; an active paid season remains in force through its end date.
           </li>
         </Steps>
         <p>
-          <LinkButton href="/events">Find an event</LinkButton>
+          <LinkButton href="/member/membership">Manage family membership</LinkButton>
         </p>
       </Topic>
-      <Topic id="member-competitions" title="Enter a tournament, Ladder session, or League event">
-        <h4 className="font-semibold">Doubles tournaments</h4>
-        <Steps>
-          <li>
-            Choose an enabled category (Mixed, Men’s, or Women’s) if the tournament offers more than
-            one. The selected category determines the eligibility check and the entry’s category
-            capacity.
-          </li>
-          <li>
-            If the organizer allows both modes, select register individually or with a partner.
-            Individual means the organizer can pair you later; pair means select another active
-            member or, if guests are allowed, add a non-member partner.
-          </li>
-          <li>
-            Your profile gender is used for a signed-in entry. A new partner needs name/email;
-            phone, gender, and skill are optional as displayed. Category checks apply to both
-            players; when both genders are known in Mixed, they must be one male and one female.
-          </li>
-          <li>
-            Submit once. If payment is due, choose Pay for myself or Pay for both partners. Both
-            partner entries can be paid in a single Stripe checkout; do not assume your partner is
-            paid unless the page reports team payment complete.
-          </li>
-        </Steps>
-        <h4 className="font-semibold">Social Doubles Ladder</h4>
+      <Topic id="member-membership-payment" title="Pay membership fees by card or Interac">
+        <h4 className="font-semibold">Stripe card payment</h4>
         <p>
-          Register for each published Ladder session like an event. The Ladder gender setting makes
-          the session Men’s or Women’s and checks profile gender for eligibility. Players are
-          assigned to courts/subsessions; results rank players by the Ladder’s selected metrics and
-          award the configured position points.
+          Choose the available membership payment option. Stripe opens its hosted checkout; the app
+          marks payment complete only after it receives and verifies Stripe confirmation. If
+          checkout is cancelled or still processing, check the displayed status or payment history
+          before starting another attempt.
         </p>
-        <h4 className="font-semibold">League</h4>
+        <h4 className="font-semibold">Interac e-Transfer</h4>
         <p>
-          A League uses fixed teams throughout the season. A player with a confirmed League team
-          sees <strong>Register my team</strong>; either partner can press it, and both teammates
-          are entered together. If you are a new League player with no team yet, either register
-          your team for the next available event, or use the single-player registration offered on
-          the event page; an organizer can assign your partner later. Withdrawing from an
-          established team entry withdraws both partners after confirmation.
+          Choose the applicable Interac option to submit a payment request, then use{' '}
+          <strong>View Interac instructions</strong> to see the recipient, amount, and reference.
+          Send the exact amount with that reference. Interac is not automatically confirmed:
+          membership remains unpaid until the club reviews and confirms receipt. Reopening the
+          instructions does not create another request.
         </p>
         <p>
-          Payment status is shown per entry and for the team. Pay for both players only when both
-          are unpaid; a prior paid partner is not charged twice.
+          For a family plan, the family price is charged once. For an individual plan, use the
+          individual amount shown on screen. Always check the amount and payment status before
+          transferring funds.
         </p>
       </Topic>
-      <Topic id="member-payments" title="Membership, Stripe, and Interac payments">
-        <h4 className="font-semibold">Individual membership</h4>
-        <Steps>
-          <li>
-            Open Membership and read the current waiver. Select its acceptance before starting
-            payment; checkout records which waiver version you accepted.
-          </li>
-          <li>
-            Review the season dates and single-membership price shown. Choose Stripe card checkout
-            or Interac if that option is enabled.
-          </li>
-          <li>
-            For Stripe, complete the hosted checkout. The return page checks Stripe’s confirmation
-            and only then activates/marks the membership paid. If the page says processing, wait and
-            check Payment History before trying again.
-          </li>
-          <li>
-            For Interac, send the exact amount to the shown recipient using the unique reference and
-            administrator instructions. This is a manual transfer; your membership remains pending
-            until an administrator confirms receipt.
-          </li>
-        </Steps>
-        <h4 className="font-semibold">Family membership</h4>
-        <Steps>
-          <li>
-            Invite each intended family member from Membership. They must accept the invitation and
-            have an approved account before they are a confirmed family member.
-          </li>
-          <li>
-            Every confirmed family member must accept the current waiver. Check the family member
-            list for the waiver-accepted status before checkout.
-          </li>
-          <li>
-            The payer chooses family Stripe checkout or, when enabled, family Interac. The family is
-            not marked paid until Stripe confirms or an administrator confirms the transfer.
-          </li>
-        </Steps>
-        <h4 className="font-semibold">Read a payment record</h4>
+      <Topic id="member-payment-history" title="Review payment history">
         <p>
-          Member → Payments lists purpose, amount, method, status, date, and refund information.
-          “Pending” means no final payment confirmation; “Succeeded” is the processor confirmation;
-          “Refunded” and “Partially refunded” reflect a recorded refund. For Interac, the reference
-          shown in the instructions identifies the transfer to the club.
+          Payments lists recorded charges and requests with purpose, related event or membership,
+          amount, method, status, and dates. Pending Interac means the club has not confirmed the
+          transfer. Succeeded indicates confirmation; refunded or partially refunded indicates a
+          recorded refund. A refunded membership payment returns that membership to unpaid.
         </p>
         <p>
-          <LinkButton href="/member/membership">Membership and family plan</LinkButton>
-          <span className="mx-2 text-muted-foreground">·</span>
-          <LinkButton href="/member/payments">Payment history</LinkButton>
+          <LinkButton href="/member/payments">Open payment history</LinkButton>
         </p>
       </Topic>
+    </>
+  );
+}
+
+function EventTopics() {
+  return (
+    <>
+      <Topic id="member-event-registration" title="Register for an event or withdraw">
+        <Steps>
+          <li>
+            Browse Events and open the event page to check its date, registration window, fee, and
+            eligibility.
+          </li>
+          <li>
+            Register using the available choices. Depending on event configuration, the form may ask
+            for a category, individual / partner entry, or party +1 choice. Provide the requested
+            partner details accurately; a partner confirmation may be required before a team becomes
+            eligible for payment.
+          </li>
+          <li>
+            Review the resulting status. A full event may place you on its waitlist if enabled;
+            payment options appear when payment is due. Registration confirmation and payment are
+            separate statuses.
+          </li>
+          <li>
+            To leave, use Withdraw on the event page and confirm in the app dialog. For a paid,
+            confirmed pair/team entry, withdrawal may apply to the whole team as stated in the
+            confirmation. A released place may promote a waitlisted player.
+          </li>
+        </Steps>
+        <p>
+          <LinkButton href="/events">Browse events</LinkButton>
+        </p>
+      </Topic>
+      <Topic id="member-event-payments" title="Pay event fees by card or Interac">
+        <p>
+          After your registration is confirmed, the event page shows <strong>Pay</strong> when a
+          balance is due. The amount is based on your registration: a party may add the configured
+          guest fee for +1, while a free member place can still have a charge for the guest. Check
+          the amount shown beside the event and in the payment choice before paying.
+        </p>
+        <h4 className="font-semibold">Stripe card payment</h4>
+        <p>
+          Select the card option to open Stripe’s hosted checkout. The app marks the event payment
+          paid after Stripe confirms and the registration is fulfilled. If a prior card attempt is
+          still pending, the option lets you check its status; if it was cancelled or failed, you
+          can start another attempt. The event page shows a pending state while payment is
+          unresolved, and warns that an unpaid place may be removed.
+        </p>
+        <h4 className="font-semibold">Interac e-Transfer</h4>
+        <p>
+          Select Interac to create a payment request, then review the instructions dialog for the
+          exact amount, recipient, and unique reference. Send the transfer using that reference.
+          Your registration remains unpaid and the page shows that the request is awaiting club
+          confirmation. Use <strong>View Interac instructions</strong> to reopen the existing
+          instructions; it does not create a second request. The club must confirm receipt before
+          the payment is marked paid.
+        </p>
+        <Callout>
+          Event fees are separate from annual membership dues. A paid membership does not
+          automatically pay an event fee; pay only the amount shown for the event registration.
+        </Callout>
+      </Topic>
+      <Topic id="member-event-scores" title="Report scores for a club event">
+        <Steps>
+          <li>Open the event page and locate its Scores section after the match has started.</li>
+          <li>
+            Select the court or session and the match participants requested by the form. In a
+            doubles event, select your partner; the opponent side is determined from the event
+            registrations.
+          </li>
+          <li>
+            Enter the score in the displayed format and save it. The result is used in event results
+            and eligible player rankings.
+          </li>
+          <li>
+            The person who submitted a result or an event manager can make permitted corrections. If
+            score entry is unavailable, check the event start time, your confirmed registration, and
+            whether score entry has been locked.
+          </li>
+        </Steps>
+        <Callout>
+          Only enter a score agreed by the players. A saved score changes recorded results and
+          standings.
+        </Callout>
+      </Topic>
+    </>
+  );
+}
+
+function CompetitionTopics() {
+  return (
+    <>
+      <Topic id="member-tournament-entry" title="Register for a tournament">
+        <p>
+          Tournament registration choices depend on its format and the organizer’s settings. A
+          doubles event may offer enabled gender categories and individual or partner registration.
+          A team tournament normally registers each player once; organizers or captains then assign
+          players to teams. Public guest registration is available only on tournaments configured to
+          accept it.
+        </p>
+        <p>
+          For a partner entry, select an existing member or provide the guest details the form
+          requests. The invited partner may need to confirm participation before the team can pay.
+          Once payment options are available, each partner may pay their share or one partner may
+          pay for both; the page shows the available choices and outstanding amount. A category,
+          partner, or other required choice may send the Register button to the event page form.
+        </p>
+        <p>
+          Tournament pages can show groups, draws, schedules, results, standings, and published
+          lineups as they become available. Event details marked private are visible to members
+          according to the event’s publication settings.
+        </p>
+      </Topic>
+      <Topic id="member-pair-registration" title="Register and pay with a partner">
+        <h4 className="font-semibold">Create a pair entry</h4>
+        <Steps>
+          <li>
+            Open the tournament and choose an enabled category. Select{' '}
+            <strong>Register with a partner</strong> when the form offers that mode; category and
+            gender eligibility checks apply to both players.
+          </li>
+          <li>
+            Choose an existing member from the partner selector, or choose to add a non-member and
+            enter their name and email (plus any other fields requested). If the email belongs to a
+            member, they are notified to confirm; a non-member receives a one-time sign-in link to
+            review their details and confirm. The team cannot pay until the partner confirms.
+          </li>
+          <li>
+            After submitting, check your registration card for the partner’s name and whether their
+            confirmation is pending or complete. While confirmation is pending, you can change the
+            partner, or switch to a single entry if the tournament permits it and the registration
+            window is still open.
+          </li>
+        </Steps>
+        <h4 className="font-semibold">Accept an invitation</h4>
+        <Steps>
+          <li>
+            Open Events and find the “Tournament invitations awaiting your confirmation” block. A
+            pending-invitation badge also appears in the Events menu. Follow the link for the
+            tournament that invited you.
+          </li>
+          <li>
+            Review the displayed name, email, phone, gender, skill rating, and the name of the
+            player who invited you. Press <strong>Confirm participation</strong> to accept the
+            partner entry. This confirms your place in the pair; it does not pay the fee.
+          </li>
+          <li>
+            Once confirmed, either partner can use the registration’s <strong>Pay</strong> menu.
+            Choose the option for yourself to pay your share, or for both partners to pay the
+            combined amount in one transaction. “For both” is available only when both shares are
+            unpaid; if one partner has already paid, the other is not charged for that share again.
+          </li>
+        </Steps>
+        <p>
+          The available payment methods depend on event settings. Card opens Stripe checkout;
+          Interac creates a request with instructions and remains pending until the club confirms
+          receipt. See{' '}
+          <a
+            className="font-medium text-primary underline"
+            href="?tab=events#member-event-payments"
+          >
+            Pay event fees
+          </a>{' '}
+          for the full payment status and instruction flow.
+        </p>
+        <Callout>
+          A fixed League team registering for a later League event follows the League rule instead:
+          either teammate registers both players, and the partner does not need to confirm that
+          later-event entry.
+        </Callout>
+      </Topic>
+      <Topic id="member-league-entry" title="Register for League events">
+        <p>
+          A League uses fixed partners across its later events. A confirmed team sees{' '}
+          <strong>Register my team</strong>; either teammate can register the whole team, and the
+          second player does not need to confirm the later-event entry. Withdrawing from that entry
+          withdraws the team.
+        </p>
+        <p>
+          A player without a fixed team can register as a new player under the choices allowed by
+          the League. An organizer can assign a partner/team; once assigned, subsequent League
+          events use the fixed-team registration rule. The League’s configured gender determines its
+          category, so there is no category selection on the registration form.
+        </p>
+        <p>
+          Review the event’s registration, payment, schedule, and standings sections for your
+          current status. League match results contribute to event and League standings after they
+          are recorded.
+        </p>
+      </Topic>
+      <Topic id="member-ladder-entry" title="Join and play a Social Doubles Ladder">
+        <p>
+          Register for each published Ladder session during its registration window. The session
+          category checks your profile gender. Once entries are set, players are allocated to courts
+          and subsessions according to the Ladder’s setup; automatic court assignment groups players
+          for that session. Play the scheduled matches and report scores on the session page where
+          score entry is available.
+        </p>
+        <p>
+          Ladder standings use the configured ranking metrics and points for session positions.
+          Season views may carry forward seeded positions or prior points as shown by the
+          competition rules.
+        </p>
+      </Topic>
+      <CaptainTopic />
+    </>
+  );
+}
+
+function CaptainTopic() {
+  return (
+    <Topic id="member-team-captain" title="Team tournament: captain match workflow">
+      <p>
+        A captain is also a registered player. In the tournament’s Matches tab, captains see only
+        matches involving their team. They can review the match list and schedule, but cannot create
+        matches or change the teams, court, or date/time assigned by the organizer.
+      </p>
+      <Steps>
+        <li>
+          For each match, choose two eligible registered players from your own assigned team,
+          including yourself if you are playing. The tournament category constrains the lineup; for
+          example, a mixed match requires the configured gender combination. The same player cannot
+          fill both positions.
+        </li>
+        <li>
+          Optionally check{' '}
+          <strong>Show this lineup to everyone on the public tournament page</strong>
+          before saving. If it is not published, your team’s members can still see the lineup. The
+          opposing side is shown to other viewers only when its visibility is enabled; lineups are
+          revealed to permitted viewers once the match start time has passed.
+        </li>
+        <li>
+          When the match is ready for scoring, enter the agreed result in its result area and save.
+          A successful save confirms the result and updates tournament results, team points where
+          the selected scoring template awards them, and standings. Use the pencil control on a
+          saved result to edit it when permitted.
+        </li>
+      </Steps>
+      <Callout>
+        Captains can set their own team’s lineup only. The organizer controls match creation,
+        scheduling, courts, and the opposing team’s lineup.
+      </Callout>
+    </Topic>
+  );
+}
+
+function ResultsTopics() {
+  return (
+    <>
       <Topic id="member-results" title="Read your Results page">
         <p>
-          Results summarizes your recorded match performance for a selected membership season or all
-          time. The top cards show your overall rank and, when your profile has a gender set, your
-          rank among players of that gender. The Sets and Games cards show won/lost totals and win
-          percentages for the chosen period.
+          Results summarizes recorded performance for a selected season or All time. Summary cards
+          show overall and, when gender is on your profile, gender ranking, plus sets and games won
+          and lost and win percentages. The match list shows date, event, partner/opponents, score,
+          and outcome. Future-dated scores are excluded.
         </p>
         <p>
-          The score list is newest first and shows the event, date, partner, opponents, score, and
-          whether the recorded result is a win, loss, or draw. It includes recorded event scores and
-          tournament set results; future-dated scores are excluded. If no eligible results are
-          available for the period, the page reports that instead of inventing a rank.
+          The season selector follows the club’s configured membership seasons and includes All
+          time. Only seasons and events with available data are offered. Results require an approved
+          member with paid membership on record; administrators retain access.
         </p>
         <p>
-          Use the season selector to compare a season with All time. The season boundary comes from
-          the club’s membership-season settings. Results and rankings require an approved account
-          with a paid membership on record; approved administrators do not need a paid membership
-          for access.
-        </p>
-        <p>
-          <LinkButton href="/member/results">Open my Results</LinkButton>
+          <LinkButton href="/member/results">Open Results</LinkButton>
         </p>
       </Topic>
-      <Topic id="member-rankings" title="Explore Club rankings and competition standings">
+      <Topic id="member-rankings" title="Use Rankings and competition standings">
         <p>
-          Club rankings is the broader comparison view. Choose a full season or all time, a Social
-          Doubles Ladder, a League, or a tournament from the Competition selector. The selected view
-          changes the table because each competition has its own ranking rules.
-        </p>
-        <FieldTable
-          rows={[
-            {
-              field: 'Season or All time',
-              value: 'Use the configured membership season or include every recorded result.',
-              effect:
-                'Players with scores rank by games-won percentage; ties use total games won, number of recorded results, then player name. Players with no scores are listed separately without a rank.',
-            },
-            {
-              field: 'Social Doubles Ladder',
-              value: 'Select the named men’s or women’s Ladder.',
-              effect:
-                'The points column uses the configured points for session positions. The Ladder’s selected metrics break ties; the season may carry forward seeded positions or previous points.',
-            },
-            {
-              field: 'League',
-              value: 'Select the League name.',
-              effect:
-                'The table shows cumulative team standings across completed events associated with that League: rank, team, played, wins, points, sets, and games.',
-            },
-            {
-              field: 'Doubles tournament',
-              value: 'Select a tournament that has recorded results.',
-              effect:
-                'The result view shows available group standings and knockout brackets for that event.',
-            },
-            {
-              field: 'Gender filter and sortable columns',
-              value:
-                'In the player-ranking table, choose All players, Male, or Female; sort by a column heading.',
-              effect:
-                'The filter changes the displayed comparison group. The “You” marker highlights your row; sorting changes display order, not the calculated rank.',
-            },
-          ]}
-        />
-        <p>
-          The club rankings page is available to approved members with a paid membership on record
-          and to administrators. A competition without scored results may not appear as an option
-          yet.
+          Rankings compares players and competition entries using each format’s rules. Choose a
+          season or All time, then a player ranking, Ladder, League, or tournament where available.
+          Player rankings can be filtered by gender and sorted by table columns; sorting changes
+          display order, not the calculated rank. Your row is highlighted.
         </p>
         <p>
-          <LinkButton href="/rankings">Open Club rankings</LinkButton>
+          Ladder tables use their configured performance metrics and position points. League and
+          tournament standings are based on their recorded match outcomes, scoring rules, and
+          configured tie-breaks. A standings table may be absent until the competition has results.
+        </p>
+        <p>
+          <LinkButton href="/rankings">Open Rankings</LinkButton>
         </p>
       </Topic>
-      <Topic id="member-resources" title="Use the Gallery and Documents sections">
+    </>
+  );
+}
+
+function ResourceTopics() {
+  return (
+    <>
+      <Topic id="member-gallery-documents" title="Gallery and Documents">
         <p>
-          Gallery contains published photo albums. Public albums are available to everyone;
-          members-only albums appear to approved members with a paid membership on record and to
-          administrators. Select a photo to open the larger viewer and move through the album.
+          Gallery contains published albums. Public albums are open to visitors; members-only albums
+          require the applicable member access. Select an image to open the viewer and move through
+          the album.
         </p>
         <p>
-          Documents contains club bylaws, minutes, and other uploaded member resources. It requires
-          an approved paid member account or administrator access. Search by document name, choose
-          newest-first or alphabetical sorting, then use Download PDF. If a file is unavailable, try
-          again later or contact the club with the document title.
+          Documents contains club resources such as bylaws and meeting minutes. Search by document
+          name, change the sort order, and download the available PDF. Access to member documents
+          requires an approved account with paid membership or administrator access.
         </p>
         <p className="flex flex-wrap gap-4">
           <LinkButton href="/gallery">Open Gallery</LinkButton>
           <LinkButton href="/documents">Open Documents</LinkButton>
         </p>
       </Topic>
-      <Topic id="member-chat" title="Member chat: image, mention, and message controls">
+      <Topic id="member-chat" title="Member chat">
         <p>
-          The member chat is a shared space for approved members. Use it for club coordination and
-          include enough event context that other members can understand what you mean.
+          Chat is available to approved members. It is a shared club coordination space; mentions
+          can notify a named member according to their notification settings. The unread-count badge
+          appears in the portal navigation and updates as messages are read.
         </p>
         <FieldTable
           rows={[
             {
-              field: 'Message text',
-              value: 'Type a message; Enter sends it and Ctrl+Enter inserts a new line.',
-              effect:
-                'Messages are visible to approved members. Mention suggestions can notify a named member according to that member’s notification settings.',
+              field: 'Compose a message',
+              value: 'Enter the message; Enter sends and Ctrl+Enter inserts a line break.',
+              effect: 'The message is shared with the members who can access the chat.',
             },
             {
-              field: 'Image attachment',
-              value: 'Attach a JPEG, PNG, GIF, or WebP image no larger than 1 MB.',
-              effect:
-                'The image is uploaded with the message and displayed in chat. Unsupported formats or oversized files are rejected.',
+              field: 'Attach an image',
+              value: 'Use a supported JPEG, PNG, GIF, or WebP image up to 1 MB.',
+              effect: 'The uploaded image is displayed with the message.',
             },
             {
-              field: 'Edit or delete',
-              value: 'Use the message menu on your own recent message.',
-              effect: 'Your message can be edited or deleted only within five minutes of posting.',
-            },
-            {
-              field: 'Chat notification preference',
-              value: 'Change the chat notification setting in your member profile.',
-              effect:
-                'This controls chat email notifications; it does not remove your access to the chat.',
+              field: 'Edit or delete your message',
+              value: 'Use the message menu within five minutes of posting.',
+              effect: 'Only your own recent message can be changed or removed by you.',
             },
           ]}
         />
+        <p>
+          <LinkButton href="/member/chat">Open Member chat</LinkButton>
+        </p>
       </Topic>
-    </section>
+    </>
   );
 }
