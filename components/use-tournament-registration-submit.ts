@@ -221,6 +221,20 @@ export function useTournamentRegistrationSubmit({
         } catch (error) {
           statusMessage += ` The entry is saved, but the partner confirmation email could not be sent: ${error instanceof Error ? error.message : 'please retry'}.`;
         }
+      } else if (result.participantId) {
+        try {
+          const response = await fetch('/api/events/tournament-registration-confirmation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ participantId: result.participantId }),
+          });
+          if (!response.ok)
+            statusMessage +=
+              ' The registration was saved, but its confirmation email could not be sent.';
+        } catch {
+          statusMessage +=
+            ' The registration was saved, but its confirmation email could not be sent.';
+        }
       }
       setRegistrationMessage(statusMessage);
       const selectedPartnerAlreadyPaid =
