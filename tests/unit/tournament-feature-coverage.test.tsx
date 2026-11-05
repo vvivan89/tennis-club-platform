@@ -486,6 +486,7 @@ describe('tournament component coverage', () => {
         participantId: 'guest-entry-1',
         amountCents: 0,
       };
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
       const user = userEvent.setup();
       render(
         <TournamentPublicView
@@ -531,6 +532,7 @@ describe('tournament component coverage', () => {
       supabaseMocks.rpcData.register_event_guest_tournament_entry = {
         participantId: 'guest-entry-no-profile',
       };
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
       const user = userEvent.setup();
       render(
         <TournamentPublicView
