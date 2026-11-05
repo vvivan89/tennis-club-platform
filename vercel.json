@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/notifications/reminders",
-      "schedule": "* * * * *"
+      "schedule": "1 3 * * *"
     },
     {
       "path": "/api/notifications/membership-reminders",
@@ -10,7 +10,7 @@
     },
     {
       "path": "/api/notifications/pending-event-payments",
-      "schedule": "* * * * *"
+      "schedule": "1 3 * * *"
     }
   ]
 }
