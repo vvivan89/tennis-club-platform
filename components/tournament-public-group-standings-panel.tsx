@@ -189,13 +189,13 @@ export function TournamentPublicGroupStandingsPanel({
                           rankingOverride.override_value !== row.automaticPosition && (
                             <span
                               title={rankingOverride.reason}
-                              className="ml-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-amber-500/15 text-xs font-bold text-amber-800 dark:text-amber-300"
+                              className="ml-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-warning/15 text-xs font-bold text-warning-foreground dark:text-warning-foreground"
                             >
                               !
                             </span>
                           )}
                         {promotionOverride?.override_value !== 0 && promoted && (
-                          <span className="ml-2 inline-flex rounded-full bg-emerald-600/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+                          <span className="ml-2 inline-flex rounded-full bg-success/10 px-2 py-0.5 text-[11px] font-semibold text-success-foreground dark:text-success-foreground">
                             {promotionOverride?.override_value === 1 || !pendingPromotion
                               ? 'Promoted'
                               : 'Pending promotion'}

@@ -45,7 +45,7 @@ export function TournamentCourtScheduleBoard<T extends CourtScheduleMatch>({
       {conflicts.length > 0 && (
         <div className="mt-3 space-y-2" role="status" aria-live="polite">
           {conflictsFor('danger').length > 0 && (
-            <div className="rounded-md border border-red-500/50 bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-300">
+            <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
               <p className="font-semibold">Scheduling conflicts — immediate overlap</p>
               {conflictsFor('danger').map((item) => (
                 <p key={item.key} className="mt-1">
@@ -56,7 +56,7 @@ export function TournamentCourtScheduleBoard<T extends CourtScheduleMatch>({
             </div>
           )}
           {conflictsFor('warning').length > 0 && (
-            <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-300">
+            <div className="rounded-md border border-warning/50 bg-warning/10 p-3 text-sm text-warning-foreground dark:text-warning-foreground">
               <p className="font-semibold">Scheduling warnings — insufficient break</p>
               {conflictsFor('warning').map((item) => (
                 <p key={item.key} className="mt-1">

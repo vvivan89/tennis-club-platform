@@ -295,9 +295,9 @@ export function MemberNav() {
                   <span
                     aria-label="Membership payment is unpaid for the current season"
                     title="Membership payment is unpaid for the current season"
-                    className="inline-flex text-amber-500"
+                    className="inline-flex text-warning-foreground"
                   >
-                    <AlertTriangle className="h-4 w-4 fill-amber-100 dark:fill-amber-950" />
+                    <AlertTriangle className="h-4 w-4 fill-warning dark:fill-warning" />
                   </span>
                 )}
                 {item.href === '/member/chat' && pathname !== '/member/chat' && (

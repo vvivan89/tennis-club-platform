@@ -156,7 +156,7 @@ export function EventsBrowser({
                   </h2>
                   {new Date(event.starts_at).getTime() <= current &&
                     new Date(event.ends_at || event.starts_at).getTime() >= current && (
-                      <span className="mt-2 inline-flex rounded-full bg-emerald-600/15 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                      <span className="mt-2 inline-flex rounded-full bg-success/15 px-2.5 py-1 text-xs font-medium text-success-foreground dark:text-success-foreground">
                         In progress
                       </span>
                     )}
@@ -357,27 +357,27 @@ export function EventsBrowser({
           <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 border-b border-border px-3 py-3 text-xs">
             <span className="font-semibold text-muted-foreground">Legend</span>
             <span className="flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-sm bg-gray-500" />
+              <span className="h-2.5 w-2.5 rounded-sm bg-muted" />
               Past
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-sm bg-slate-300" />
+              <span className="h-2.5 w-2.5 rounded-sm bg-muted/40" />
               Not open
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-sm bg-green-600" />
+              <span className="h-2.5 w-2.5 rounded-sm bg-success" />
               Spots available
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-sm bg-amber-500" />
+              <span className="h-2.5 w-2.5 rounded-sm bg-warning" />
               Full / waitlist
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-sm bg-blue-600" />
+              <span className="h-2.5 w-2.5 rounded-sm bg-info" />
               You’re confirmed
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-sm bg-violet-600" />
+              <span className="h-2.5 w-2.5 rounded-sm bg-accent" />
               You’re waitlisted
             </span>
           </div>
@@ -432,18 +432,18 @@ export function EventsBrowser({
                           now < new Date(e.registration_closes_at).getTime());
                       const isFull = countFor(e.id) >= e.capacity;
                       const color = isPast
-                        ? 'bg-gray-500/20 text-gray-600 dark:text-gray-400'
+                        ? 'bg-muted/20 text-muted-foreground dark:text-muted-foreground'
                         : e.status === 'cancelled'
-                          ? 'bg-red-600/15 text-red-700 dark:text-red-300'
+                          ? 'bg-destructive/15 text-destructive dark:text-destructive'
                           : registration === 'confirmed'
-                            ? 'bg-blue-600/15 text-blue-700 dark:text-blue-300'
+                            ? 'bg-info/15 text-info-foreground dark:text-info-foreground'
                             : registration === 'waitlisted'
-                              ? 'bg-violet-600/15 text-violet-700 dark:text-violet-300'
+                              ? 'bg-accent/15 text-accent-foreground dark:text-accent-foreground'
                               : isOpen && isFull
-                                ? 'bg-amber-500/20 text-amber-800 dark:text-amber-200'
+                                ? 'bg-warning/20 text-warning-foreground dark:text-warning-foreground'
                                 : isOpen
-                                  ? 'bg-green-600/15 text-green-700 dark:text-green-300'
-                                  : 'bg-slate-300/45 text-slate-700 dark:bg-slate-700/50 dark:text-slate-300';
+                                  ? 'bg-success/15 text-success-foreground dark:text-success-foreground'
+                                  : 'bg-muted/45 text-muted-foreground dark:bg-muted/50 dark:text-muted-foreground';
                       const registrationLabel = registration
                         ? registration === 'confirmed'
                           ? 'You are confirmed'

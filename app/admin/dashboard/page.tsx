@@ -277,7 +277,7 @@ export default async function AdminPage() {
                 Within capacity
               </span>
               <span className="flex items-center gap-2">
-                <span className="h-3 w-3 rounded-sm bg-amber-500" />
+                <span className="h-3 w-3 rounded-sm bg-warning" />
                 Waitlisted above capacity
               </span>
             </div>
@@ -311,7 +311,7 @@ export default async function AdminPage() {
                           }}
                         />
                         <div
-                          className="h-full rounded-r-md bg-amber-500"
+                          className="h-full rounded-r-md bg-warning"
                           style={{
                             width: row.registered
                               ? `${(row.excess / row.registered) * 100}%`

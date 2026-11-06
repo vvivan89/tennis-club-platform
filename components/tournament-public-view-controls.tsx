@@ -70,16 +70,16 @@ export function TournamentPublicViewControls({
       {!resultsOnly && isManager && (allScheduledMatchesPlayed || winnersAnnounced) && (
         <section
           aria-label="Tournament winner announcement"
-          className="space-y-4 rounded-2xl border-2 border-amber-500 bg-gradient-to-br from-amber-100 via-yellow-50 to-orange-100 p-5 shadow-lg ring-2 ring-amber-400/40 dark:border-amber-700 dark:from-amber-950 dark:via-yellow-950 dark:to-orange-950 dark:ring-amber-800/60"
+          className="space-y-4 rounded-2xl border-2 border-warning bg-gradient-to-br from-warning/10 via-card to-warning/10 p-5 shadow-lg ring-2 ring-warning/20 dark:border-warning dark:from-warning/10 dark:via-card dark:to-warning/10 dark:ring-warning/20"
         >
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="text-lg font-bold text-amber-950 dark:text-amber-100">
+              <h2 className="text-lg font-bold text-warning-foreground dark:text-warning-foreground">
                 {winnersAnnounced
                   ? 'Tournament winners announced'
                   : 'Tournament results are complete'}
               </h2>
-              <p className="mt-1 text-sm text-amber-900/90 dark:text-amber-200">
+              <p className="mt-1 text-sm text-warning-foreground/90 dark:text-warning-foreground">
                 {allScheduledMatchesPlayed
                   ? 'Results of all matches are recorded.'
                   : 'Winners have been announced.'}
@@ -89,7 +89,7 @@ export function TournamentPublicViewControls({
               type="button"
               onClick={onToggleWinnersAnnouncement}
               disabled={announcementBusy || (!allScheduledMatchesPlayed && !winnersAnnounced)}
-              className="h-10 shrink-0 rounded-md bg-amber-950 px-4 text-sm font-semibold text-white shadow hover:bg-amber-900 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-amber-100 dark:text-amber-950 dark:hover:bg-amber-200"
+              className="h-10 shrink-0 rounded-md bg-warning/20 px-4 text-sm font-semibold text-warning-foreground shadow hover:bg-warning/30 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-warning/15 dark:text-warning-foreground dark:hover:bg-warning/25"
             >
               {announcementBusy
                 ? 'Saving…'
@@ -99,28 +99,28 @@ export function TournamentPublicViewControls({
             </button>
           </div>
           {!winnersAnnounced && reviewWinners.length > 0 && (
-            <p className="border-t border-amber-500/40 pt-4 text-sm font-medium text-amber-900 dark:text-amber-200">
+            <p className="border-t border-warning/40 pt-4 text-sm font-medium text-warning-foreground dark:text-warning-foreground">
               Review the winners below. They will appear publicly after you announce them.
             </p>
           )}
           {reviewWinners.length > 0 && (
             <ul
               aria-label={winnersAnnounced ? 'Announced winners' : 'Winner preview'}
-              className="grid gap-3 border-t border-amber-500/40 pt-4 sm:grid-cols-2 lg:grid-cols-3"
+              className="grid gap-3 border-t border-warning/40 pt-4 sm:grid-cols-2 lg:grid-cols-3"
             >
               {reviewWinners.map((summary) => (
                 <li
                   key={summary.category}
-                  className="rounded-lg border border-amber-500/40 bg-white/70 p-3 shadow-sm dark:border-amber-700 dark:bg-black/20"
+                  className="rounded-lg border border-warning/40 bg-card/70 p-3 shadow-sm dark:border-warning dark:bg-overlay/20"
                 >
-                  <p className="text-xs font-bold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+                  <p className="text-xs font-bold uppercase tracking-wide text-warning-foreground dark:text-warning-foreground">
                     {winnerCategoryLabel(summary.category)}
                   </p>
-                  <p className="mt-1 font-semibold text-amber-950 dark:text-amber-50">
+                  <p className="mt-1 font-semibold text-warning-foreground dark:text-warning-foreground">
                     {summary.winners.join(' / ')}
                   </p>
                   {summary.winners.length > 1 && (
-                    <p className="mt-1 text-xs font-medium text-amber-800 dark:text-amber-300">
+                    <p className="mt-1 text-xs font-medium text-warning-foreground dark:text-warning-foreground">
                       Tie
                     </p>
                   )}
@@ -136,10 +136,10 @@ export function TournamentPublicViewControls({
             {winnerSummaries.map((summary) => (
               <div
                 key={summary.category}
-                className="min-w-52 rounded-xl border border-amber-300/80 bg-gradient-to-br from-amber-100 via-yellow-50 to-orange-100 p-4 text-center shadow-md ring-1 ring-amber-200/60 dark:border-amber-800 dark:from-amber-950/70 dark:via-yellow-950/45 dark:to-orange-950/70 dark:ring-amber-900/70"
+                className="min-w-52 rounded-xl border border-warning/40 bg-gradient-to-br from-warning/10 via-card to-warning/10 p-4 text-center shadow-md ring-1 ring-warning/20 dark:border-warning/40 dark:from-warning/10 dark:via-card dark:to-warning/10 dark:ring-warning/20"
               >
                 <div
-                  className="mb-3 flex items-center justify-center gap-2 text-amber-600"
+                  className="mb-3 flex items-center justify-center gap-2 text-warning-foreground"
                   aria-hidden="true"
                 >
                   <Sparkles className="h-4 w-4" />
@@ -159,7 +159,7 @@ export function TournamentPublicViewControls({
                 </p>
                 <p className="mt-2 font-semibold">{summary.winners.join(' / ')}</p>
                 {summary.winners.length > 1 && (
-                  <span className="mt-1 inline-block text-xs font-medium text-amber-700 dark:text-amber-400">
+                  <span className="mt-1 inline-block text-xs font-medium text-warning-foreground dark:text-warning-foreground">
                     Tie
                   </span>
                 )}

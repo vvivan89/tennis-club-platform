@@ -24,6 +24,22 @@ const config: Config = {
           DEFAULT: 'rgb(from var(--destructive) r g b / <alpha-value>)',
           foreground: 'rgb(from var(--destructive-foreground) r g b / <alpha-value>)',
         },
+        success: {
+          DEFAULT: 'rgb(from var(--success) r g b / <alpha-value>)',
+          foreground: 'rgb(from var(--success-foreground) r g b / <alpha-value>)',
+        },
+        warning: {
+          DEFAULT: 'rgb(from var(--warning) r g b / <alpha-value>)',
+          foreground: 'rgb(from var(--warning-foreground) r g b / <alpha-value>)',
+        },
+        info: {
+          DEFAULT: 'rgb(from var(--info) r g b / <alpha-value>)',
+          foreground: 'rgb(from var(--info-foreground) r g b / <alpha-value>)',
+        },
+        overlay: {
+          DEFAULT: 'rgb(from var(--overlay) r g b / <alpha-value>)',
+          foreground: 'rgb(from var(--overlay-foreground) r g b / <alpha-value>)',
+        },
         muted: {
           DEFAULT: 'rgb(from var(--muted) r g b / <alpha-value>)',
           foreground: 'rgb(from var(--muted-foreground) r g b / <alpha-value>)',

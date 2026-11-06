@@ -373,7 +373,7 @@ export default async function MemberStatsPage({ searchParams: searchParamsPromis
                       {g.wonScore}–{g.lostScore}
                     </td>
                     <td
-                      className={`px-4 py-3 font-medium ${g.won ? 'text-green-700' : 'text-muted-foreground'}`}
+                      className={`px-4 py-3 font-medium ${g.won ? 'text-success-foreground' : 'text-muted-foreground'}`}
                     >
                       {g.won ? 'Won' : g.wonScore === g.lostScore ? 'Draw' : 'Lost'}
                     </td>

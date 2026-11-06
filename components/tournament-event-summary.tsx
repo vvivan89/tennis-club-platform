@@ -35,7 +35,7 @@ export function TournamentEventSummary({
         {leagueTournament &&
           Date.now() >= new Date(startsAt).getTime() &&
           Date.now() <= new Date(endsAt || startsAt).getTime() && (
-            <span className="rounded-full bg-emerald-600/15 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+            <span className="rounded-full bg-success/15 px-2.5 py-1 text-xs font-medium text-success-foreground dark:text-success-foreground">
               In progress
             </span>
           )}

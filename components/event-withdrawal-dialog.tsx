@@ -22,7 +22,7 @@ export function EventWithdrawalDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/50 p-4"
       onClick={(event) => {
         if (stopPropagation) {
           event.preventDefault();
@@ -56,7 +56,7 @@ export function EventWithdrawalDialog({
           <Button
             type="button"
             variant="outline"
-            className="border-red-500/70 text-red-700 hover:bg-red-50 hover:text-red-800 dark:text-red-300 dark:hover:bg-red-950/40"
+            className="border-destructive/70 text-destructive hover:bg-destructive/10 hover:text-destructive dark:text-destructive dark:hover:bg-destructive/40"
             disabled={busy}
             onClick={onConfirm}
           >

@@ -564,7 +564,7 @@ export function EventDetailClient({
         </span>
         {Date.now() >= new Date(event.starts_at).getTime() &&
           Date.now() <= new Date(event.ends_at || event.starts_at).getTime() && (
-            <span className="rounded-full bg-emerald-600/15 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+            <span className="rounded-full bg-success/15 px-2.5 py-1 text-xs font-medium text-success-foreground dark:text-success-foreground">
               In progress
             </span>
           )}
@@ -673,7 +673,7 @@ export function EventDetailClient({
                 {canWithdraw && (
                   <Button
                     variant="outline"
-                    className="border-red-500/70 text-red-700 hover:border-red-600 hover:bg-red-50 hover:text-red-800 dark:text-red-300 dark:hover:bg-red-950/40"
+                    className="border-destructive/70 text-destructive hover:border-destructive hover:bg-destructive/10 hover:text-destructive dark:text-destructive dark:hover:bg-destructive/40"
                     disabled={busy}
                     onClick={() => setConfirmWithdraw(true)}
                   >

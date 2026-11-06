@@ -326,10 +326,7 @@ export function MemberChat({ userId }: { userId: string }) {
             <span>Online now:</span>
             {online.map((id) => (
               <span key={id} className="inline-flex items-center gap-1.5">
-                <span
-                  aria-hidden="true"
-                  className="inline-block h-2 w-2 rounded-full bg-green-500"
-                />
+                <span aria-hidden="true" className="inline-block h-2 w-2 rounded-full bg-success" />
                 {memberNames.find((member) => member.id === id)?.full_name ||
                   (id === userId ? 'You' : 'Member')}
               </span>
@@ -400,7 +397,7 @@ export function MemberChat({ userId }: { userId: string }) {
                       <span
                         aria-label={`${message.author_name} is online`}
                         title="Online"
-                        className="inline-block h-2 w-2 rounded-full bg-green-500"
+                        className="inline-block h-2 w-2 rounded-full bg-success"
                       />
                     )}
                     <time dateTime={message.created_at}>

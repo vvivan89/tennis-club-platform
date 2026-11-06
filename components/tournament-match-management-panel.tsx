@@ -316,7 +316,7 @@ export function TournamentMatchManagementPanel(props: Props) {
                 {m.status === 'bye' && (
                   <div
                     role="status"
-                    className="rounded-md border-2 border-amber-500 bg-amber-500/10 px-4 py-3 text-sm"
+                    className="rounded-md border-2 border-warning bg-warning/10 px-4 py-3 text-sm"
                   >
                     <p className="font-bold tracking-wide">BYE — AUTOMATIC ADVANCEMENT</p>
                     <p className="mt-1">
@@ -632,7 +632,7 @@ export function TournamentMatchManagementPanel(props: Props) {
                     return isWalkoverNote ? (
                       <div
                         role="status"
-                        className="mt-2 rounded-md border border-amber-500/60 bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-950 dark:bg-amber-950/40 dark:text-amber-100"
+                        className="mt-2 rounded-md border border-warning/60 bg-warning/15 px-3 py-2 text-sm font-semibold text-warning-foreground dark:bg-warning/40 dark:text-warning-foreground"
                       >
                         {m.notes}
                       </div>

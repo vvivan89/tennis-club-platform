@@ -56,15 +56,15 @@ export function EventWeather({
 
   const Icon = forecast ? weatherIconForCode(forecast.code) : CloudSun;
   return (
-    <section className="relative overflow-hidden rounded-2xl border border-sky-200/70 bg-gradient-to-br from-sky-50 via-white to-emerald-50 p-5 shadow-sm sm:p-6">
-      <div className="pointer-events-none absolute -right-12 -top-14 h-48 w-48 rounded-full bg-sky-100/70 blur-3xl" />
+    <section className="relative overflow-hidden rounded-2xl border border-info/30 bg-gradient-to-br from-info/10 via-card to-success/10 p-5 shadow-sm sm:p-6">
+      <div className="pointer-events-none absolute -right-12 -top-14 h-48 w-48 rounded-full bg-info/10 blur-3xl" />
       <div className="relative flex flex-wrap items-start justify-between gap-5">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-800/70">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-info-foreground/70">
             On-court conditions
           </p>
-          <h2 className="mt-1 text-xl font-semibold text-slate-900">Weather forecast</h2>
-          <p className="mt-1 text-sm text-slate-600">
+          <h2 className="mt-1 text-xl font-semibold text-foreground">Weather forecast</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
             {hasStarted ? 'Forecast for the next hour' : `For the hour the ${eventLabel} starts`}
           </p>
         </div>
@@ -73,12 +73,16 @@ export function EventWeather({
         ) : (
           forecast && (
             <div className="flex items-center gap-4">
-              <Icon className="h-14 w-14 text-sky-700" strokeWidth={1.5} aria-hidden="true" />
+              <Icon
+                className="h-14 w-14 text-info-foreground"
+                strokeWidth={1.5}
+                aria-hidden="true"
+              />
               <div>
-                <p className="text-2xl font-semibold tracking-tight text-slate-900">
+                <p className="text-2xl font-semibold tracking-tight text-foreground">
                   {Math.round(forecast.temperature)}°C
                 </p>
-                <p className="text-sm font-medium text-slate-700">
+                <p className="text-sm font-medium text-muted-foreground">
                   {weatherLabelForCode(forecast.code, 'Fog')}
                 </p>
               </div>
@@ -86,7 +90,7 @@ export function EventWeather({
           )
         )}
         {!loading && !forecast && (
-          <p className="max-w-sm text-sm text-slate-600">
+          <p className="max-w-sm text-sm text-muted-foreground">
             A forecast is not available for this time. Hourly forecasts are usually available closer
             to the event.
           </p>
@@ -94,14 +98,14 @@ export function EventWeather({
         <button
           type="button"
           onClick={() => void showHourlyDetails()}
-          className="rounded-md border border-sky-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-sky-50"
+          className="rounded-md border border-info bg-card px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-info/10"
         >
           Details
         </button>
       </div>
       {detailsOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/50 p-4"
           role="presentation"
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) setDetailsOpen(false);
@@ -190,39 +194,41 @@ export function EventWeather({
       )}
       {forecast && (
         <div className="relative mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <div className="rounded-xl border border-white/80 bg-white/75 p-3">
-            <div className="flex items-center gap-2 text-xs text-slate-500">
+          <div className="rounded-xl border border-border/80 bg-card/75 p-3">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Droplets className="h-4 w-4" />
               Chance of precipitation
             </div>
-            <p className="mt-2 text-lg font-semibold text-slate-900">
+            <p className="mt-2 text-lg font-semibold text-muted-foreground">
               {forecast.precipitation == null ? '—' : `${forecast.precipitation}%`}
             </p>
           </div>
-          <div className="rounded-xl border border-white/80 bg-white/75 p-3">
-            <div className="flex items-center gap-2 text-xs text-slate-500">
+          <div className="rounded-xl border border-border/80 bg-card/75 p-3">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Wind className="h-4 w-4" />
               Wind
             </div>
-            <p className="mt-2 text-lg font-semibold text-slate-900">
+            <p className="mt-2 text-lg font-semibold text-muted-foreground">
               {forecast.windSpeed == null ? '—' : `${Math.round(forecast.windSpeed)} km/h`}
             </p>
             {forecast.windDirection != null && (
-              <p className="text-xs text-slate-500">{compass(forecast.windDirection)} direction</p>
+              <p className="text-xs text-muted-foreground">
+                {compass(forecast.windDirection)} direction
+              </p>
             )}
           </div>
-          <div className="col-span-2 rounded-xl border border-white/80 bg-white/75 p-3 sm:col-span-1">
-            <div className="flex items-center gap-2 text-xs text-slate-500">
+          <div className="col-span-2 rounded-xl border border-border/80 bg-card/75 p-3 sm:col-span-1">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Thermometer className="h-4 w-4" />
               Forecast time
             </div>
-            <p className="mt-2 text-lg font-semibold text-slate-900">
+            <p className="mt-2 text-lg font-semibold text-muted-foreground">
               {formatTime(forecastTarget)}
             </p>
           </div>
         </div>
       )}
-      <p className="relative mt-4 text-xs text-slate-500">
+      <p className="relative mt-4 text-xs text-muted-foreground">
         Forecasts are estimates and may change. Weather data by Open-Meteo.
       </p>
     </section>

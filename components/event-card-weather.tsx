@@ -19,15 +19,15 @@ export function EventCardWeather({
   if (hasEnded) return null;
   const Icon = forecast ? weatherIconForCode(forecast.code) : null;
   const palettes = [
-    'from-emerald-100 via-teal-50 to-sky-100 text-emerald-950',
-    'from-amber-100 via-orange-50 to-rose-100 text-amber-950',
-    'from-slate-200 via-sky-100 to-indigo-100 text-slate-900',
+    'from-success/15 via-info/10 to-info/20 text-foreground',
+    'from-warning/15 via-warning/10 to-destructive/10 text-foreground',
+    'from-muted via-info/10 to-accent/30 text-foreground',
   ];
   return (
     <div
       className={`relative flex h-32 w-full items-center justify-between overflow-hidden bg-gradient-to-br ${palettes[index % palettes.length]} p-5`}
     >
-      <div className="pointer-events-none absolute -right-4 -top-10 h-36 w-36 rounded-full bg-white/30 blur-2xl" />
+      <div className="pointer-events-none absolute -right-4 -top-10 h-36 w-36 rounded-full bg-card/30 blur-2xl" />
       <div className="relative z-10 min-w-0">
         {status === 'cancelled' && (
           <Badge variant="destructive" className="mb-2">

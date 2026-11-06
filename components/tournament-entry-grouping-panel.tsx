@@ -75,10 +75,7 @@ export function TournamentEntryGroupingPanel(props: Props) {
           )}
         </div>
         {isTeam && unevenTeams && (
-          <p
-            role="alert"
-            className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm"
-          >
+          <p role="alert" className="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">
             Team rosters are uneven by more than one player. Try to distribute players evenly; a
             difference of one is acceptable.
           </p>
@@ -363,7 +360,7 @@ export function TournamentEntryGroupingPanel(props: Props) {
                 return men !== women ? (
                   <p
                     role="status"
-                    className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm"
+                    className="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm"
                   >
                     Mixed doubles registrations are currently unbalanced: {women} women and {men}{' '}
                     men. Players with unspecified gender are not included in this count.

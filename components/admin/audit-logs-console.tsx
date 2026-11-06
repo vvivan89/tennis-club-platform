@@ -452,7 +452,7 @@ export function AuditLogsConsole() {
                     </td>
                     <td className="px-4 py-3">
                       <span
-                        className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${status === 'success' ? 'bg-emerald-100 text-emerald-800' : ['critical', 'failure', 'denied'].includes(status) ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}
+                        className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${status === 'success' ? 'bg-success/15 text-success-foreground' : ['critical', 'failure', 'denied'].includes(status) ? 'bg-destructive/15 text-destructive' : 'bg-warning/15 text-warning-foreground'}`}
                       >
                         {status}
                       </span>
@@ -468,7 +468,7 @@ export function AuditLogsConsole() {
                       </Button>
                       {expanded === id && (
                         <div
-                          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+                          className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/40 p-4"
                           role="presentation"
                           onMouseDown={(e) => {
                             if (e.target === e.currentTarget) setExpanded(null);

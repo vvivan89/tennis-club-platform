@@ -84,7 +84,7 @@ describe('tournament regression fixes', () => {
   });
   it('shows walkover awards prominently in the match editor', () => {
     expect(matchManagement).toContain(
-      'bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-950',
+      'bg-warning/15 px-3 py-2 text-sm font-semibold text-warning-foreground',
     );
     expect(drawActions).toContain('Walkover / retirement awarded to side one');
     expect(drawActions).toContain('Walkover / retirement awarded to side two');

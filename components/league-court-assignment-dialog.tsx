@@ -48,7 +48,7 @@ export function LeagueCourtAssignmentDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-overlay/60 p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="league-assign-courts-title"

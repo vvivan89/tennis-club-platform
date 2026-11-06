@@ -126,7 +126,7 @@ export function TournamentKnockoutBracket({
                                     return (
                                       <div
                                         key={`${match.id}-side-${side}`}
-                                        className={`grid items-center gap-1 ${isOne ? 'mb-1' : ''} ${winner ? 'rounded bg-emerald-600/10 font-semibold' : ''}`}
+                                        className={`grid items-center gap-1 ${isOne ? 'mb-1' : ''} ${winner ? 'rounded bg-success/10 font-semibold' : ''}`}
                                         style={{
                                           gridTemplateColumns: `repeat(${scoreSets.length || 1}, 1.75rem) minmax(0,1fr)`,
                                         }}

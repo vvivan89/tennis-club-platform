@@ -13,10 +13,10 @@ export function PendingTournamentInvitations() {
   return (
     <section
       aria-labelledby="pending-tournament-invitations-title"
-      className="mb-8 rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 sm:p-5"
+      className="mb-8 rounded-xl border border-warning/40 bg-warning/5 p-4 sm:p-5"
     >
       <div className="flex items-start gap-3">
-        <CalendarDays className="mt-0.5 h-5 w-5 shrink-0 text-amber-700 dark:text-amber-400" />
+        <CalendarDays className="mt-0.5 h-5 w-5 shrink-0 text-warning-foreground dark:text-warning-foreground" />
         <div className="min-w-0 flex-1">
           <h2 id="pending-tournament-invitations-title" className="font-semibold">
             Tournament invitations awaiting your confirmation

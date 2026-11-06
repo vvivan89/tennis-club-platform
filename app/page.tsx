@@ -260,7 +260,7 @@ export default function Home() {
                 sizes="(max-width: 640px) 9rem, 12rem"
                 className="object-cover"
               />
-              <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-2 pb-2 pt-6 text-[10px] font-medium text-white sm:text-xs">
+              <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-overlay/75 to-transparent px-2 pb-2 pt-6 text-[10px] font-medium text-overlay-foreground sm:text-xs">
                 Gates Park at dusk
               </span>
             </div>
@@ -411,7 +411,7 @@ export default function Home() {
                     {hydrated &&
                       new Date(event.starts_at).getTime() <= Date.now() &&
                       new Date(event.ends_at || event.starts_at).getTime() >= Date.now() && (
-                        <span className="mt-2 inline-flex rounded-full bg-emerald-600/15 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                        <span className="mt-2 inline-flex rounded-full bg-success/15 px-2.5 py-1 text-xs font-medium text-success-foreground dark:text-success-foreground">
                           In progress
                         </span>
                       )}

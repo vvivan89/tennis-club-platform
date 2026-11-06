@@ -17,7 +17,7 @@ export function FloatingFeedback({ error, message }: { error?: string; message?:
       {message && (
         <p
           role="status"
-          className="pointer-events-auto rounded-md border border-emerald-600/30 bg-background p-3 text-sm shadow-lg"
+          className="pointer-events-auto rounded-md border border-success/30 bg-background p-3 text-sm shadow-lg"
         >
           {message}
         </p>

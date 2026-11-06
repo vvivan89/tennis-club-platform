@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const mocks = vi.hoisted(() => ({
@@ -101,6 +101,25 @@ describe('site navigation authorization and session actions', () => {
     expect(mocks.signOut).toHaveBeenCalledOnce();
     expect(mocks.replace).toHaveBeenCalledWith('/');
     expect(mocks.refresh).toHaveBeenCalledOnce();
+  });
+
+  it('keeps portal links open when focus moves from the trigger into the menu', async () => {
+    mocks.state = {
+      ...mocks.state,
+      signedIn: true,
+      authReady: true,
+      approved: true,
+      isAdmin: true,
+    };
+    render(<MemberMenu />);
+    const trigger = screen.getByRole('button', { name: 'Member menu' });
+    fireEvent.click(trigger);
+    const adminLink = screen.getByRole('link', { name: 'Admin Portal' });
+
+    fireEvent.blur(trigger, { relatedTarget: adminLink });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(screen.getByRole('link', { name: 'Admin Portal' })).toBeInTheDocument();
   });
 
   it('exposes private navigation only when the access state allows it and marks current paths', () => {
