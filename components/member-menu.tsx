@@ -45,11 +45,20 @@ export const MemberMenu = memo(function MemberMenu() {
     router.refresh();
   }
   return (
-    <div className="relative">
+    <div
+      className="relative"
+      onBlur={(event) => {
+        const nextFocusedElement = event.relatedTarget;
+        if (
+          !(nextFocusedElement instanceof Node) ||
+          !event.currentTarget.contains(nextFocusedElement)
+        )
+          setOpen(false);
+      }}
+    >
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
         aria-expanded={open}
         aria-label="Member menu"
         className="flex items-center gap-2 rounded-full border border-border bg-card py-1 pl-1 pr-3 text-sm font-medium hover:bg-accent"

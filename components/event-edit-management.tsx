@@ -619,7 +619,7 @@ export function EventEditManagement({
       {!assignmentOnly && warnings.length > 0 && (
         <div
           role="status"
-          className="rounded-lg border border-amber-500/40 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:bg-amber-950/20 dark:text-amber-100"
+          className="rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning-foreground dark:bg-warning/20 dark:text-warning-foreground"
         >
           <p className="font-semibold">Court assignment warnings</p>
           <ul className="mt-1 list-inside list-disc space-y-1">

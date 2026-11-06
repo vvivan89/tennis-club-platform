@@ -229,7 +229,7 @@ export function MembersTable({ initialMembers }: { initialMembers: MemberRow[] }
                           title="Membership is unpaid"
                           aria-label="Membership is unpaid"
                         >
-                          <AlertCircle className="h-4 w-4 text-red-600" />
+                          <AlertCircle className="h-4 w-4 text-destructive" />
                         </span>
                       )}
                     </div>

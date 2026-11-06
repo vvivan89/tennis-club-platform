@@ -227,7 +227,7 @@ export function EventCardActions({ eventId }: { eventId: string }) {
             type="button"
             aria-label="Suspension information"
             title="Suspension prevents registration"
-            className="inline-flex items-center gap-1 text-xs font-medium text-red-600"
+            className="inline-flex items-center gap-1 text-xs font-medium text-destructive"
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -238,8 +238,8 @@ export function EventCardActions({ eventId }: { eventId: string }) {
             Suspended
           </button>
           {showSuspension && (
-            <div className="absolute right-0 top-6 z-20 w-64 rounded-md border border-red-300 bg-background p-3 text-left text-xs shadow-lg">
-              <strong className="text-red-600">Registration blocked</strong>
+            <div className="absolute right-0 top-6 z-20 w-64 rounded-md border border-destructive bg-background p-3 text-left text-xs shadow-lg">
+              <strong className="text-destructive">Registration blocked</strong>
               <p className="mt-1">
                 Suspension: {suspension.starts_on} – {suspension.ends_on}
               </p>
@@ -251,7 +251,7 @@ export function EventCardActions({ eventId }: { eventId: string }) {
       {statusLabel && (
         <span
           role="status"
-          className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusLabel === 'Waitlisted' ? 'bg-violet-600/10 text-violet-700 dark:text-violet-300' : statusLabel === 'Pending payment' ? 'bg-amber-600/10 text-amber-700 dark:text-amber-300' : 'bg-blue-600/10 text-blue-700 dark:text-blue-300'}`}
+          className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusLabel === 'Waitlisted' ? 'bg-accent/10 text-accent-foreground dark:text-accent-foreground' : statusLabel === 'Pending payment' ? 'bg-warning/10 text-warning-foreground dark:text-warning-foreground' : 'bg-info/10 text-info-foreground dark:text-info-foreground'}`}
         >
           {statusLabel}
         </span>
@@ -273,7 +273,7 @@ export function EventCardActions({ eventId }: { eventId: string }) {
           <Button
             size="sm"
             variant="outline"
-            className="border-red-500/70 text-red-700 hover:border-red-600 hover:bg-red-50 hover:text-red-800 dark:text-red-300 dark:hover:bg-red-950/40"
+            className="border-destructive/70 text-destructive hover:border-destructive hover:bg-destructive/10 hover:text-destructive dark:text-destructive dark:hover:bg-destructive/40"
             disabled={busy}
             onClick={(e) => {
               e.preventDefault();

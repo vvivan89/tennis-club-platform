@@ -133,7 +133,7 @@ export function TournamentAuditLog({
                     </div>
                   )}
                   {after && (
-                    <div className="rounded-md bg-emerald-600/5 p-2">
+                    <div className="rounded-md bg-success/5 p-2">
                       <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         After
                       </p>

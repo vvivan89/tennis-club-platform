@@ -511,7 +511,7 @@ export default function MembershipPortal() {
                     </p>
                   </div>
                   <span
-                    className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${paid ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200' : 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200'}`}
+                    className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${paid ? 'bg-success/15 text-success-foreground dark:bg-success/20 dark:text-success-foreground' : 'bg-warning/15 text-warning-foreground dark:bg-warning/20 dark:text-warning-foreground'}`}
                   >
                     {paid ? (
                       <CheckCircle2 className="h-3.5 w-3.5" />
@@ -564,7 +564,7 @@ export default function MembershipPortal() {
                 {interacPendingPayment && (
                   <p
                     role="status"
-                    className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100"
+                    className="mt-4 rounded-md border border-warning bg-warning/10 p-3 text-sm text-warning-foreground dark:border-warning dark:bg-warning/30 dark:text-warning-foreground"
                   >
                     Your Interac membership payment has been requested and is awaiting club
                     confirmation.

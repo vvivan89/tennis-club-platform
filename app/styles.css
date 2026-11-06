@@ -87,7 +87,7 @@
   flex-direction: column;
   align-items: center;
   gap: 13px;
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   font-size: 13px;
 }
 .tennis-loader-track {
@@ -95,7 +95,7 @@
   display: block;
   width: 76px;
   height: 36px;
-  border-bottom: 2px solid hsl(var(--border));
+  border-bottom: 2px solid var(--border);
 }
 .tennis-loader-track::after {
   content: '';
@@ -104,7 +104,7 @@
   right: 0;
   bottom: -2px;
   height: 1px;
-  background: repeating-linear-gradient(90deg, hsl(var(--border)) 0 5px, transparent 5px 9px);
+  background: repeating-linear-gradient(90deg, var(--border) 0 5px, transparent 5px 9px);
   opacity: 0.6;
 }
 .tennis-loader-ball {
@@ -114,10 +114,15 @@
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: radial-gradient(circle at 30% 25%, #f4ff9b 0, #c7e83d 42%, #9ab51d 100%);
+  background: radial-gradient(
+    circle at 30% 25%,
+    var(--accent) 0,
+    var(--brand-lime) 42%,
+    var(--brand-court) 100%
+  );
   box-shadow:
-    inset -2px -2px 0 rgb(0 0 0 / 15%),
-    0 3px 5px rgb(0 0 0 / 18%);
+    inset -2px -2px 0 rgb(from var(--foreground) r g b / 15%),
+    0 3px 5px rgb(from var(--foreground) r g b / 18%);
   animation: tennis-flight 1.15s cubic-bezier(0.35, 0.02, 0.6, 1) infinite alternate;
 }
 .tennis-loader-ball::before,
@@ -128,7 +133,7 @@
   left: 4px;
   width: 6px;
   height: 12px;
-  border: 1.5px solid rgb(255 255 255 / 95%);
+  border: 1.5px solid rgb(from var(--primary-foreground) r g b / 95%);
   border-top-color: transparent;
   border-bottom-color: transparent;
   border-radius: 50%;

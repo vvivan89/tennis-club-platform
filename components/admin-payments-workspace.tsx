@@ -698,7 +698,7 @@ export function AdminPaymentsWorkspace({
                               aria-label="Confirm payment"
                               disabled={busyId === row.id}
                               onClick={() => void review(row, 'confirm')}
-                              className="rounded-md border border-green-600 p-2 text-green-700 disabled:opacity-50"
+                              className="rounded-md border border-success p-2 text-success-foreground disabled:opacity-50"
                             >
                               <Check size={16} />
                             </button>

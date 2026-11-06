@@ -33,7 +33,7 @@ export function TournamentGroupOverrideDialog({
   if (!editor) return null;
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-overlay/50 p-4"
       role="presentation"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && !saving) setEditor(null);

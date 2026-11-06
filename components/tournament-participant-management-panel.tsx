@@ -290,7 +290,7 @@ export function TournamentParticipantManagementPanel(props: Props) {
                         · {priceCents > 0 && p.payment_status === 'pending' ? 'Pending' : p.status}
                       </p>
                       {priceCents > 0 && p.payment_status === 'pending' && (
-                        <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                        <p className="mt-1 text-xs text-warning-foreground dark:text-warning-foreground">
                           Pending payment — registration is awaiting payment confirmation.
                         </p>
                       )}

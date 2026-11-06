@@ -214,19 +214,19 @@ export default function GalleryPage() {
           role="dialog"
           aria-modal="true"
           aria-label="Photo viewer"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/90 p-4"
           onClick={() => setSelected(null)}
         >
           <button
             aria-label="Close photo"
-            className="absolute right-5 top-4 text-3xl text-white"
+            className="absolute right-5 top-4 text-3xl text-overlay-foreground"
             onClick={() => setSelected(null)}
           >
             ×
           </button>
           <button
             aria-label="Previous photo"
-            className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-black/50 px-3 py-2 text-2xl text-white"
+            className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-overlay/50 px-3 py-2 text-2xl text-overlay-foreground"
             onClick={(e) => {
               e.stopPropagation();
               move(-1);
@@ -247,7 +247,7 @@ export default function GalleryPage() {
           )}
           <button
             aria-label="Next photo"
-            className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-black/50 px-3 py-2 text-2xl text-white"
+            className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-overlay/50 px-3 py-2 text-2xl text-overlay-foreground"
             onClick={(e) => {
               e.stopPropagation();
               move(1);
@@ -256,7 +256,7 @@ export default function GalleryPage() {
             ›
           </button>
           {selected.caption && (
-            <p className="absolute bottom-4 max-w-[80vw] text-center text-sm text-white">
+            <p className="absolute bottom-4 max-w-[80vw] text-center text-sm text-overlay-foreground">
               {selected.caption}
             </p>
           )}

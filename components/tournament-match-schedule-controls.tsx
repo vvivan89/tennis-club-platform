@@ -165,10 +165,7 @@ export function TournamentMatchScheduleControls(props: Props) {
         </div>
       )}
       {!captainMode && bracketNeedsRedraw && (
-        <p
-          role="status"
-          className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm"
-        >
+        <p role="status" className="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">
           The participant count has changed since this knockout bracket was generated.{' '}
           {knockoutBracketHasResults
             ? 'Results exist, so the bracket cannot be regenerated; edit it manually.'

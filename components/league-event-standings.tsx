@@ -135,7 +135,7 @@ export function LeagueEventStandings({
                       <span
                         aria-label={movement}
                         title={movement}
-                        className={`ml-2 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-semibold ${delta > 0 ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100' : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100'}`}
+                        className={`ml-2 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-semibold ${delta > 0 ? 'bg-success/15 text-success-foreground dark:bg-success/30 dark:text-success-foreground' : 'bg-destructive/15 text-destructive dark:bg-destructive/30 dark:text-destructive'}`}
                       >
                         <Triangle
                           aria-hidden="true"
