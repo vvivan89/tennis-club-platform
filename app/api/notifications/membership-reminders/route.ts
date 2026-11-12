@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { isCronAuthorized } from '@/lib/api-helpers';
 import { createServiceRoleClient } from '@/lib/supabase-service';
 import { escapeHtml as esc, sendResendEmail } from '@/lib/resend';
+import { createEmailUnsubscribeUrl } from '@/lib/email-unsubscribe';
 import { getSiteOrigin } from '@/lib/site-url';
 import { fetchAllRows } from '@/lib/fetch-all-rows';
 const SEND_CONCURRENCY = 10;
@@ -64,10 +65,15 @@ export async function GET(request: Request) {
   const year = season.year;
   const endDate = season.end.toISOString().slice(0, 10);
   const [profiles, logs, familyRows, memberships, payments] = await Promise.all([
-    fetchAllRows<{ id: string; email: string | null; full_name: string | null }>((from, to) =>
+    fetchAllRows<{
+      id: string;
+      email: string | null;
+      full_name: string | null;
+      email_membership_reminders: boolean | null;
+    }>((from, to) =>
       db
         .from('profiles')
-        .select('id,email,full_name')
+        .select('id,email,full_name,email_membership_reminders')
         .eq('application_status', 'approved')
         .order('id')
         .range(from, to),
@@ -141,7 +147,11 @@ export async function GET(request: Request) {
       .map((m) => m.user_id),
   );
   const due = profiles.rows.filter(
-    (p) => !alreadyReminded.has(p.id) && !coveredByFamily.has(p.id) && !paidMembers.has(p.id),
+    (p) =>
+      p.email_membership_reminders !== false &&
+      !alreadyReminded.has(p.id) &&
+      !coveredByFamily.has(p.id) &&
+      !paidMembers.has(p.id),
   );
 
   const subject =
@@ -174,6 +184,7 @@ export async function GET(request: Request) {
         to: p.email,
         subject,
         html: `<p>Hello ${esc(p.full_name || 'member')},</p><p>${esc(text)}</p><p><a href="${portalUrl}">View your member portal</a></p>`,
+        unsubscribeUrl: await createEmailUnsubscribeUrl(db, request, p.id, 'membership_reminders'),
         idempotencyKey: `membership-reminder:${year}:${type}:${p.id}`,
       });
       if (resp.ok) return true;

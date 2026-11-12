@@ -54,6 +54,7 @@ describe('sendResendEmail', () => {
       to: 'a@example.com',
       subject: 'S',
       html: '<p>x</p>',
+      unsubscribeUrl: 'https://demo.example.test/email-preferences/unsubscribe?token=abc',
       apiKey: 'k',
       from: 'f@example.com',
     });
@@ -62,6 +63,7 @@ describe('sendResendEmail', () => {
       to: 'a@example.com',
       subject: 'S',
       html: '<p>x</p>',
+      unsubscribeUrl: 'https://demo.example.test/email-preferences/unsubscribe?token=def',
       apiKey: 'k',
       from: 'f@example.com',
       idempotencyKey: 'key-1',
@@ -70,29 +72,44 @@ describe('sendResendEmail', () => {
     expect(fetchMock.mock.calls[1][1].headers['Idempotency-Key']).toBe('key-1');
     const firstMessage = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(firstMessage.html).toContain(
-      '<a href="https://demo.example.test/member/profile">profile</a>',
+      '<a href="https://demo.example.test/email-preferences/unsubscribe?token=abc">Unsubscribe from these emails</a>',
     );
-    expect(firstMessage.html).toContain('To unsubscribe from these emails');
+    expect(firstMessage.html).not.toContain('/member/profile');
   });
 
-  it('adds a linked HTML footer and a URL text footer to text-only emails', async () => {
+  it('adds an unsubscribe link to text-only emails while preserving the message text', async () => {
     fetchMock.mockResolvedValue(new Response('{}', { status: 200 }));
     await sendResendEmail({
       request: new Request('https://tenant.example.test/api/email'),
       to: 'a@example.com',
       subject: 'S',
       text: 'Plain text message',
+      unsubscribeUrl: 'https://tenant.example.test/email-preferences/unsubscribe?token=token-1',
       apiKey: 'k',
       from: 'f@example.com',
     });
 
     const message = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(message.html).toContain(
-      '<a href="https://tenant.example.test/member/profile">profile</a>',
+      '<a href="https://tenant.example.test/email-preferences/unsubscribe?token=token-1">Unsubscribe from these emails</a>',
     );
     expect(message.text).toContain(
-      'To unsubscribe from these emails, visit your club member profile: https://tenant.example.test/member/profile',
+      'Unsubscribe from these emails: https://tenant.example.test/email-preferences/unsubscribe?token=token-1',
     );
+  });
+
+  it('rejects unsubscribe links that point to another host', async () => {
+    expect(() =>
+      sendResendEmail({
+        request: new Request('https://tenant.example.test/api/email'),
+        to: 'a@example.com',
+        subject: 'S',
+        html: '<p>x</p>',
+        unsubscribeUrl: 'https://attacker.example/email-preferences/unsubscribe?token=x',
+        apiKey: 'k',
+        from: 'f@example.com',
+      }),
+    ).toThrow('Email unsubscribe links must use the sending site origin.');
   });
 });
 

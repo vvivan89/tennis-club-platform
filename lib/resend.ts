@@ -12,6 +12,7 @@ type ResendEmail = {
   subject: string;
   html?: string;
   text?: string;
+  unsubscribeUrl?: string;
   apiKey?: string;
   /** Resend drops repeat sends with the same key for 24 hours. */
   idempotencyKey?: string;
@@ -24,19 +25,22 @@ export function sendResendEmail({
   subject,
   html,
   text,
+  unsubscribeUrl,
   apiKey = process.env.RESEND_API_KEY,
   idempotencyKey,
 }: ResendEmail) {
-  const profileUrl = new URL('/member/profile', new URL(request.url).origin).toString();
-  const footerHtml = `<p>To unsubscribe from these emails, visit your club member <a href="${escapeHtml(profileUrl)}">profile</a>.</p>`;
+  if (unsubscribeUrl && new URL(unsubscribeUrl).origin !== new URL(request.url).origin)
+    throw new Error('Email unsubscribe links must use the sending site origin.');
+  const footerHtml = unsubscribeUrl
+    ? `<p><a href="${escapeHtml(unsubscribeUrl)}">Unsubscribe from these emails</a>.</p>`
+    : '';
   const htmlWithFooter = html
     ? `${html}${footerHtml}`
-    : text
+    : text && unsubscribeUrl
       ? `<p>${escapeHtml(text).replace(/\r?\n/g, '<br>')}</p>${footerHtml}`
-      : undefined;
-  const textWithFooter = text
-    ? `${text}\n\nTo unsubscribe from these emails, visit your club member profile: ${profileUrl}`
-    : text;
+      : html;
+  const textWithFooter =
+    text && unsubscribeUrl ? `${text}\n\nUnsubscribe from these emails: ${unsubscribeUrl}` : text;
 
   return fetch('https://api.resend.com/emails', {
     method: 'POST',

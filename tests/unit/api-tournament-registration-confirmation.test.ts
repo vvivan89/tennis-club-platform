@@ -21,6 +21,7 @@ vi.mock('@/lib/supabase-service', () => ({
         select: () => query,
         eq: () => query,
         or: () => query,
+        insert: async () => ({ error: null }),
         maybeSingle: async () => ({ data: mocks.singles[table]?.shift() ?? null, error: null }),
       };
       return query;

@@ -142,7 +142,7 @@ function ProfileTopic({ shortName }: { shortName: string }) {
             field: 'Email preferences and chat notifications',
             value: 'Choose the automated event and club email categories you want.',
             effect:
-              'Preferences control routine notification emails. Administrators can still send important club-wide announcements regardless of these settings.',
+              'Preferences control routine notification emails. You can also unsubscribe from a category directly from its email without signing in. Administrators can still send important club-wide announcements regardless of these settings.',
           },
           {
             field: 'Show birthday emoji',
@@ -171,9 +171,14 @@ function ProfileTopic({ shortName }: { shortName: string }) {
             <strong>Event cancellation notifications:</strong> “{shortName} — Event cancelled”.
           </li>
           <li>
-            <strong>Registration reminders:</strong> {'“Registration is open: {event title}”'};{' '}
+            <strong>Event registration and payment reminders:</strong>{' '}
+            {'“Registration is open: {event title}”'};{' '}
             {'“Payment required to keep your place: {event title}”'}; and{' '}
             {'“Final reminder: event payment due soon — {event title}”'}.
+          </li>
+          <li>
+            <strong>Membership renewal and payment reminders:</strong> “{shortName} membership
+            renewal is coming up” and “{shortName} membership fee reminder”.
           </li>
           <li>
             <strong>New event announcements:</strong> “{shortName} — New event announced”.
@@ -183,6 +188,10 @@ function ProfileTopic({ shortName }: { shortName: string }) {
             Newsletter subscribers audience.
           </li>
         </ul>
+        <p className="text-sm text-muted-foreground">
+          To unsubscribe from one of these categories, use its email link and confirm on the page.
+          No sign-in is required. The matching preference on your profile will be turned off.
+        </p>
       </div>
       <div className="space-y-3">
         <h4 className="font-semibold">Other emails are not controlled by these preferences</h4>
@@ -198,11 +207,6 @@ function ProfileTopic({ shortName }: { shortName: string }) {
           <li>
             <strong>Family membership invitation:</strong> “{shortName} family membership
             invitation”.
-          </li>
-          <li>
-            <strong>Membership renewal:</strong> “{shortName} membership renewal is coming up” and “
-            {shortName}
-            membership fee reminder”.
           </li>
           <li>
             <strong>Interac payment messages:</strong> “{shortName} Interac payment instructions”, “

@@ -39,6 +39,7 @@
   --brand-sand: #e8daca;
   --overlay: #000000;
   --overlay-foreground: #ffffff;
+  --toast-shadow: 0 8px 22px rgb(23 38 56 / 16%);
 }
 
 .dark {
@@ -75,6 +76,7 @@
   --brand-sand: #564839;
   --overlay: #000000;
   --overlay-foreground: #ffffff;
+  --toast-shadow: 0 8px 22px rgb(237 244 252 / 12%);
 }
 
 :root[data-accent='green'] {

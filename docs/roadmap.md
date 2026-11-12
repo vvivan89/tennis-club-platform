@@ -6,10 +6,10 @@ Updated November 6, 2026. These items are planned work. This file is the persist
 
 ### 1. Email unsubscribe
 
-- [ ] Define which email types follow profile preferences and which are essential account or security messages.
-- [ ] Add secure unsubscribe links to preference-controlled emails.
-- [ ] Allow users to unsubscribe from that email type without signing in.
-- [ ] Save changes to the same preferences shown in the profile and show confirmation.
+- [x] Define which email types follow profile preferences and which are essential account or security messages.
+- [x] Add secure unsubscribe links to preference-controlled emails.
+- [x] Allow users to unsubscribe from that email type without signing in.
+- [x] Save changes to the same preferences shown in the profile and show confirmation.
 
 ### 2. Chat push notifications
 

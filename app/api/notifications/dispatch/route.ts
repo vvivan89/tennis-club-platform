@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSignedInUser, getConfiguredServiceClient } from '@/lib/api-helpers';
 import { escapeHtml as esc, sendResendEmail } from '@/lib/resend';
+import { createEmailUnsubscribeUrl, type EmailPreferenceType } from '@/lib/email-unsubscribe';
 import { getSiteOrigin } from '@/lib/site-url';
 import { mapInChunks } from '@/lib/async';
 
@@ -202,12 +203,27 @@ export async function POST(request: Request) {
       if (!registrationByKey.has(registrationKey)) registrationByKey.set(registrationKey, reg);
     }
 
-    const preferenceKey: Record<string, string> = {
-      registration_created: 'email_registration_updates',
-      registration_cancelled: 'email_registration_updates',
-      event_cancelled: 'email_event_cancellations',
-      waitlist_confirmed: 'email_waitlist_updates',
-      new_event_created: 'email_new_events',
+    const preferenceForNotification: Record<
+      string,
+      { column: string; emailType: EmailPreferenceType }
+    > = {
+      registration_created: {
+        column: 'email_registration_updates',
+        emailType: 'registration_updates',
+      },
+      registration_cancelled: {
+        column: 'email_registration_updates',
+        emailType: 'registration_updates',
+      },
+      event_cancelled: {
+        column: 'email_event_cancellations',
+        emailType: 'event_cancellations',
+      },
+      waitlist_confirmed: {
+        column: 'email_waitlist_updates',
+        emailType: 'waitlist_updates',
+      },
+      new_event_created: { column: 'email_new_events', emailType: 'new_events' },
     };
 
     type Outcome =
@@ -224,8 +240,12 @@ export async function POST(request: Request) {
       const event = seriesId ? nextEventBySeries.get(seriesId) || queuedEvent : queuedEvent;
       const series = seriesId ? seriesById.get(seriesId) : null;
       const reg = registrationByKey.get(`${item.event_id}:${item.user_id}`);
-      const pref = preferenceKey[item.notification_type];
-      if (pref && recipient && recipient[pref as keyof typeof recipient] === false) {
+      const preference = preferenceForNotification[item.notification_type];
+      if (
+        preference &&
+        recipient &&
+        recipient[preference.column as keyof typeof recipient] === false
+      ) {
         await admin
           .from('event_notification_queue')
           .update({
@@ -309,6 +329,21 @@ export async function POST(request: Request) {
               : template.subject
           : template.subject);
       const html = `<p>Hello ${name},</p><p>${template.intro}</p><h2>${title}</h2>${schedule ? `<p><strong>Schedule:</strong> ${esc(schedule)}.</p>` : ''}<p><strong>${schedule ? 'Next session:' : 'Date:'}</strong> ${esc(new Date(event.starts_at).toLocaleString('en-CA'))}${event.location ? ` · ${esc(event.location)}` : ''}</p>${status ? `<p><strong>Registration status:</strong> ${esc(status)}</p>` : ''}<p><a href="${esc(eventUrl)}">View event details</a></p><p>${esc(shortName)}</p>`;
+      let unsubscribeUrl: string | undefined;
+      if (preference) {
+        try {
+          unsubscribeUrl = await createEmailUnsubscribeUrl(
+            admin,
+            request,
+            item.user_id,
+            preference.emailType,
+          );
+        } catch (error) {
+          return fail(
+            error instanceof Error ? error.message : 'Could not create unsubscribe link.',
+          );
+        }
+      }
       try {
         const response = await sendResendEmail({
           request,
@@ -317,6 +352,7 @@ export async function POST(request: Request) {
           to: recipient.email,
           subject,
           html,
+          unsubscribeUrl,
           idempotencyKey: `event-notification:${item.id}`,
         });
         if (!response.ok) {

@@ -44,6 +44,11 @@ export function AdminEmailsGuide() {
         HTML layout. Braced values are filled in when the message is sent. The subjects and wording
         are based on the current <code>EMAILS.md</code> inventory.
       </p>
+      <p>
+        Routine messages controlled by member email preferences include a category-specific
+        unsubscribe link. Recipients confirm on the linked page without signing in. Account,
+        security, and required transaction messages do not include that link.
+      </p>
 
       <EmailSection title="Event registration and event updates">
         <p>
@@ -378,7 +383,7 @@ export function AdminEmailsGuide() {
         <p>
           Administrators initiate these messages by choosing a recipient group and entering the
           subject and sanitized HTML body. Broad audiences ignore profile preferences; Newsletter
-          subscribers respect the newsletter preference.
+          subscribers respect the newsletter preference and receive a newsletter unsubscribe link.
         </p>
         <EmailPreview subject="{administrator-entered subject}">
           <p>

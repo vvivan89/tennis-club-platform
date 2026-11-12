@@ -46,6 +46,7 @@ export default function ProfilePage() {
     waitlist: true,
     cancellations: true,
     reminders: true,
+    membershipReminders: true,
     newEvents: true,
     newsletter: true,
   });
@@ -89,7 +90,7 @@ export default function ProfilePage() {
       const { data, error: queryError } = await supabase
         .from('profiles')
         .select(
-          'full_name,phone,date_of_birth,show_birthday_emoji,tennis_skill_level,avatar_url,application_status,gender,playing_hand,email_registration_updates,email_waitlist_updates,email_event_cancellations,email_registration_reminders,email_new_events,email_newsletter,chat_notification_preference',
+          'full_name,phone,date_of_birth,show_birthday_emoji,tennis_skill_level,avatar_url,application_status,gender,playing_hand,email_registration_updates,email_waitlist_updates,email_event_cancellations,email_registration_reminders,email_membership_reminders,email_new_events,email_newsletter,chat_notification_preference',
         )
         .eq('id', user.id)
         .maybeSingle();
@@ -117,6 +118,7 @@ export default function ProfilePage() {
           waitlist: data.email_waitlist_updates ?? true,
           cancellations: data.email_event_cancellations ?? true,
           reminders: data.email_registration_reminders ?? true,
+          membershipReminders: data.email_membership_reminders ?? true,
           newEvents: data.email_new_events ?? true,
           newsletter: data.email_newsletter ?? true,
         });
@@ -188,6 +190,7 @@ export default function ProfilePage() {
           email_waitlist_updates: emailPreferences.waitlist,
           email_event_cancellations: emailPreferences.cancellations,
           email_registration_reminders: emailPreferences.reminders,
+          email_membership_reminders: emailPreferences.membershipReminders,
           email_new_events: emailPreferences.newEvents,
           email_newsletter: emailPreferences.newsletter,
           updated_at: new Date().toISOString(),
@@ -456,7 +459,11 @@ export default function ProfilePage() {
                             },
                             { key: 'waitlist', label: 'Waitlist promotion confirmations' },
                             { key: 'cancellations', label: 'Event cancellation notifications' },
-                            { key: 'reminders', label: 'Reminders when registration opens' },
+                            { key: 'reminders', label: 'Event registration and payment reminders' },
+                            {
+                              key: 'membershipReminders',
+                              label: 'Membership renewal and payment reminders',
+                            },
                             { key: 'newEvents', label: 'New event announcements' },
                             { key: 'newsletter', label: 'Newsletter and club news' },
                           ] as const

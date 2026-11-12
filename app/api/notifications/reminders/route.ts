@@ -4,6 +4,7 @@ import { mapInChunks } from '@/lib/async';
 import { fetchAllRows } from '@/lib/fetch-all-rows';
 import { createServiceRoleClient } from '@/lib/supabase-service';
 import { escapeHtml as esc, sendResendEmail } from '@/lib/resend';
+import { createEmailUnsubscribeUrl } from '@/lib/email-unsubscribe';
 import { getSiteOrigin } from '@/lib/site-url';
 
 const SEND_CONCURRENCY = 10;
@@ -86,6 +87,12 @@ export async function GET(request: Request) {
           to: p.email!,
           subject: `Registration is open: ${ev.title}`,
           html: `<p>Hello ${esc(p.full_name || 'member')},</p><p>Registration is now open for <strong>${esc(ev.title)}</strong>.</p><p>${esc(new Date(ev.starts_at).toLocaleString('en-CA'))} · ${esc(ev.location || '')}</p><p><a href="${esc(eventUrl)}">View event and register</a></p>`,
+          unsubscribeUrl: await createEmailUnsubscribeUrl(
+            db,
+            request,
+            p.id,
+            'registration_reminders',
+          ),
           idempotencyKey: `registration-reminder:${ev.id}:${p.id}`,
         });
         if (!response.ok) return false;

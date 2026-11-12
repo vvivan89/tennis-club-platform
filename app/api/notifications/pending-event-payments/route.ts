@@ -4,6 +4,7 @@ import { createPaymentServiceClient } from '@/lib/payments/server';
 import { markPaymentSucceeded } from '@/lib/payments/checkout-cleanup';
 import { getStripeClient } from '@/lib/payments/stripe';
 import { escapeHtml, sendResendEmail } from '@/lib/resend';
+import { createEmailUnsubscribeUrl } from '@/lib/email-unsubscribe';
 import { isCronAuthorized } from '@/lib/api-helpers';
 import { getSiteOrigin } from '@/lib/site-url';
 
@@ -250,6 +251,12 @@ async function sendReminder(
       to: recipient.email,
       subject,
       html,
+      unsubscribeUrl: await createEmailUnsubscribeUrl(
+        db,
+        request,
+        registration.user_id,
+        'registration_reminders',
+      ),
     });
     if (!response.ok) {
       await db.from('event_registration_payment_reminders').delete().eq('id', claimId);

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSignedInUser, isUuid } from '@/lib/api-helpers';
 import { createServiceRoleClient } from '@/lib/supabase-service';
 import { escapeHtml, sendResendEmail } from '@/lib/resend';
+import { createEmailUnsubscribeUrl } from '@/lib/email-unsubscribe';
 import { getSiteOrigin } from '@/lib/site-url';
 
 export const runtime = 'nodejs';
@@ -80,6 +81,7 @@ export async function POST(request: Request) {
       to: participant.email,
       subject: `Registration confirmed: ${eventTitle}`,
       html: `<p>Hello ${escapeHtml(participant.display_name || 'player')},</p><p>Your registration has been recorded. Your current registration status is shown below.</p><h2>${escapeHtml(eventTitle)}</h2><p><strong>Date:</strong> ${escapeHtml(eventDate)}${location}</p><p><strong>Registration status:</strong> Your registration is confirmed.</p><p><a href="${escapeHtml(eventUrl)}">View event details</a></p><p>Port Coquitlam Tennis Club</p>`,
+      unsubscribeUrl: await createEmailUnsubscribeUrl(db, request, user.id, 'registration_updates'),
       idempotencyKey: `tournament-registration-confirmation:${participant.id}`,
     });
     if (!result.ok) {

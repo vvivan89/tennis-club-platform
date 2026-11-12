@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
     email_waitlist_updates: true,
     email_event_cancellations: true,
     email_registration_reminders: true,
+    email_membership_reminders: true,
     email_new_events: true,
     email_newsletter: true,
   } as Record<string, unknown>,
@@ -107,6 +108,7 @@ beforeEach(() => {
     email_waitlist_updates: true,
     email_event_cancellations: true,
     email_registration_reminders: true,
+    email_membership_reminders: true,
     email_new_events: true,
     email_newsletter: true,
   };
@@ -166,6 +168,7 @@ describe('Member profile page', () => {
       email_waitlist_updates: null,
       email_event_cancellations: null,
       email_registration_reminders: null,
+      email_membership_reminders: null,
       email_new_events: null,
       email_newsletter: null,
     };
@@ -180,7 +183,8 @@ describe('Member profile page', () => {
       'Registration and withdrawal confirmations',
       'Waitlist promotion confirmations',
       'Event cancellation notifications',
-      'Reminders when registration opens',
+      'Event registration and payment reminders',
+      'Membership renewal and payment reminders',
       'New event announcements',
       'Newsletter and club news',
     ])
@@ -224,13 +228,20 @@ describe('Member profile page', () => {
     );
 
     fireEvent.click(screen.getByLabelText('New event announcements'));
+    fireEvent.click(screen.getByLabelText('Membership renewal and payment reminders'));
     const emailPreferencesForm = screen
       .getByRole('button', { name: 'Save email preferences' })
       .closest('form');
     expect(emailPreferencesForm).not.toBeNull();
     fireEvent.submit(emailPreferencesForm!);
     await waitFor(() =>
-      expect(mocks.updates.some((item) => item.values.email_new_events === false)).toBe(true),
+      expect(
+        mocks.updates.some(
+          (item) =>
+            item.values.email_new_events === false &&
+            item.values.email_membership_reminders === false,
+        ),
+      ).toBe(true),
     );
     expect(screen.getByRole('status')).toHaveTextContent('Email preferences saved');
   });
