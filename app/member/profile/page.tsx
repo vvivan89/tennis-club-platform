@@ -502,7 +502,7 @@ export default function ProfilePage() {
                       Choose which new chat messages trigger in-app or browser notifications.
                     </CardDescription>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="space-y-4">
                     <form onSubmit={saveChatNotificationPreference} className="space-y-4">
                       {(
                         [
@@ -530,9 +530,9 @@ export default function ProfilePage() {
                         )}
                       </Button>
                     </form>
+                    <MemberChatPushSettings />
                   </CardContent>
                 </Card>
-                <MemberChatPushSettings />
                 <ProfileAppearanceSettings
                   onSaved={(savedMessage) => {
                     setError('');

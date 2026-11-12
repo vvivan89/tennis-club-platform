@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { TennisLoader } from '@/components/tennis-loader';
 import {
   decodeVapidPublicKey,
@@ -121,60 +120,55 @@ export function MemberChatPushSettings() {
   const enabled = status === 'enabled';
   const unavailable = status === 'unsupported' || status === 'denied';
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Chat push notifications</CardTitle>
-        <CardDescription>
-          Receive a browser notification for new chat messages when this site is not open. Your Show
-          all / mentions / don’t show chat preference still applies. This setting applies to this
-          device only.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <Button
-          type="button"
-          role="switch"
-          aria-checked={enabled}
-          disabled={busy || status === 'loading' || unavailable}
-          variant={enabled ? 'default' : 'outline'}
-          onClick={() => void togglePush()}
-        >
-          {busy || status === 'loading' ? (
-            <TennisLoader compact label={busy ? 'Updating' : 'Loading'} />
-          ) : enabled ? (
-            'Disable on this device'
-          ) : (
-            'Enable push notifications'
-          )}
-        </Button>
-        {status === 'unsupported' && (
-          <p className="text-sm text-muted-foreground" role="status">
-            This browser does not support push notifications. Try an up-to-date browser on a secure
-            connection.
-          </p>
+    <div className="space-y-3 border-t border-border pt-4">
+      <p className="text-sm text-muted-foreground">
+        Browser alerts can notify you about new chat messages when this site is closed. Your Show
+        all / mentions / don’t show preference still applies. This enables push notifications on
+        this device only.
+      </p>
+      <Button
+        type="button"
+        role="switch"
+        aria-checked={enabled}
+        disabled={busy || status === 'loading' || unavailable}
+        variant={enabled ? 'default' : 'outline'}
+        onClick={() => void togglePush()}
+      >
+        {busy || status === 'loading' ? (
+          <TennisLoader compact label={busy ? 'Updating' : 'Loading'} />
+        ) : enabled ? (
+          'Disable on this device'
+        ) : (
+          'Enable on this device'
         )}
-        {status === 'denied' && (
-          <p className="text-sm text-muted-foreground" role="status">
-            Notifications are blocked by your browser. Change this site’s notification permission in
-            browser settings, then reload this page.
-          </p>
-        )}
-        {status === 'failed' && !error && (
-          <p className="text-sm text-muted-foreground" role="status">
-            Could not read this device’s push settings. Try reloading the page.
-          </p>
-        )}
-        {notice && (
-          <p className="text-sm text-muted-foreground" role="status">
-            {notice}
-          </p>
-        )}
-        {error && (
-          <p className="text-sm text-destructive" role="alert">
-            {error}
-          </p>
-        )}
-      </CardContent>
-    </Card>
+      </Button>
+      {status === 'unsupported' && (
+        <p className="text-sm text-muted-foreground" role="status">
+          This browser does not support push notifications. Try an up-to-date browser on a secure
+          connection.
+        </p>
+      )}
+      {status === 'denied' && (
+        <p className="text-sm text-muted-foreground" role="status">
+          Notifications are blocked by your browser. Change this site’s notification permission in
+          browser settings, then reload this page.
+        </p>
+      )}
+      {status === 'failed' && !error && (
+        <p className="text-sm text-muted-foreground" role="status">
+          Could not read this device’s push settings. Try reloading the page.
+        </p>
+      )}
+      {notice && (
+        <p className="text-sm text-muted-foreground" role="status">
+          {notice}
+        </p>
+      )}
+      {error && (
+        <p className="text-sm text-destructive" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }

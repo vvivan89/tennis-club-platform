@@ -49,7 +49,7 @@ export async function POST(request: Request) {
       db.from('profiles').select('application_status').eq('id', user.id).maybeSingle(),
       db
         .from('member_chat_messages')
-        .select('id,user_id,mentions,deleted_at')
+        .select('id,user_id,body,image_path,mentions,deleted_at')
         .eq('id', messageId)
         .maybeSingle(),
     ]);
@@ -156,9 +156,16 @@ export async function POST(request: Request) {
   webpush.setVapidDetails(subject, publicKey, privateKey);
   let sent = 0;
   let failed = 0;
+  const messageText =
+    typeof message.body === 'string' ? message.body.replace(/\s+/g, ' ').trim() : '';
+  const notificationBody =
+    messageText || (message.image_path ? 'Sent an image.' : 'New chat message.');
   const payload = JSON.stringify({
     title: 'New club chat message',
-    body: 'There is a new message in member chat.',
+    body:
+      notificationBody.length > 240
+        ? `${notificationBody.slice(0, 237).trimEnd()}...`
+        : notificationBody,
     url: '/member/chat',
     tag: `pctc-chat-${messageId}`,
   });

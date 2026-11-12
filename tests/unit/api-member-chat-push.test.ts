@@ -6,9 +6,18 @@ const mocks = vi.hoisted(() => ({
   message: {
     id: '00000000-0000-4000-8000-000000000010',
     user_id: '00000000-0000-4000-8000-000000000001',
+    body: 'Hello from the chat',
+    image_path: null,
     mentions: ['00000000-0000-4000-8000-000000000003'],
     deleted_at: null,
-  } as null | { id: string; user_id: string; mentions: string[]; deleted_at: string | null },
+  } as null | {
+    id: string;
+    user_id: string;
+    body: string;
+    image_path: string | null;
+    mentions: string[];
+    deleted_at: string | null;
+  },
   profiles: [] as Array<{ id: string; chat_notification_preference: 'all' | 'mentions' | 'none' }>,
   subscriptions: [] as Array<{
     id: string;
@@ -128,7 +137,14 @@ function request() {
 beforeEach(() => {
   mocks.user = { id: senderId };
   mocks.profile = { application_status: 'approved' };
-  mocks.message = { id: messageId, user_id: senderId, mentions: [mentionedId], deleted_at: null };
+  mocks.message = {
+    id: messageId,
+    user_id: senderId,
+    body: 'Hello from the chat',
+    image_path: null,
+    mentions: [mentionedId],
+    deleted_at: null,
+  };
   mocks.profiles = [
     { id: senderId, chat_notification_preference: 'all' },
     { id: '00000000-0000-4000-8000-000000000002', chat_notification_preference: 'all' },
@@ -166,7 +182,7 @@ afterEach(() => {
 });
 
 describe('POST /api/member/chat/push', () => {
-  it('notifies only eligible recipients, excludes the sender, and sends generic content', async () => {
+  it('notifies eligible recipients, excludes the sender, and includes the chat message text', async () => {
     mocks.subscriptions.push({
       id: 'subscription-extra-device',
       user_id: '00000000-0000-4000-8000-000000000002',
@@ -182,9 +198,35 @@ describe('POST /api/member/chat/push', () => {
       `https://fcm.googleapis.com/${mentionedId}`,
       'https://fcm.googleapis.com/second-device',
     ]);
-    expect(mocks.sent[0].payload).toContain('There is a new message in member chat.');
-    expect(mocks.sent[0].payload).not.toContain('Hello');
+    expect(JSON.parse(mocks.sent[0].payload)).toMatchObject({ body: 'Hello from the chat' });
     expect(mocks.setVapidDetails).toHaveBeenCalledOnce();
+  });
+
+  it('uses a short image notice for image-only posts and limits long notification text', async () => {
+    mocks.message = {
+      id: messageId,
+      user_id: senderId,
+      body: '',
+      image_path: 'chat/image.jpg',
+      mentions: [],
+      deleted_at: null,
+    };
+    await POST(request());
+    expect(JSON.parse(mocks.sent[0].payload).body).toBe('Sent an image.');
+
+    mocks.sent = [];
+    mocks.message = {
+      id: messageId,
+      user_id: senderId,
+      body: 'A'.repeat(4000),
+      image_path: null,
+      mentions: [],
+      deleted_at: null,
+    };
+    mocks.claimedDeliveries = new Set();
+    await POST(request());
+    expect(JSON.parse(mocks.sent[0].payload).body).toBe(`${'A'.repeat(237)}...`);
+    expect(JSON.parse(mocks.sent[0].payload).body).toHaveLength(240);
   });
 
   it('does not resend a job or a device delivery that was already claimed', async () => {
@@ -204,9 +246,23 @@ describe('POST /api/member/chat/push', () => {
   });
 
   it('requires the signed-in approved sender of the message', async () => {
-    mocks.message = { id: messageId, user_id: 'another-member', mentions: [], deleted_at: null };
+    mocks.message = {
+      id: messageId,
+      user_id: 'another-member',
+      body: 'Hello',
+      image_path: null,
+      mentions: [],
+      deleted_at: null,
+    };
     expect((await POST(request())).status).toBe(403);
-    mocks.message = { id: messageId, user_id: senderId, mentions: [], deleted_at: null };
+    mocks.message = {
+      id: messageId,
+      user_id: senderId,
+      body: 'Hello',
+      image_path: null,
+      mentions: [],
+      deleted_at: null,
+    };
     mocks.profile = { application_status: 'pending' };
     expect((await POST(request())).status).toBe(403);
     expect(mocks.sendNotification).not.toHaveBeenCalled();

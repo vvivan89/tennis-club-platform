@@ -13,14 +13,14 @@ Updated November 6, 2026. These items are planned work. This file is the persist
 
 ### 2. Chat push notifications
 
-- [ ] Add **Enable push notifications** to the profile.
-- [ ] Request browser permission and save each device's subscription.
-- [ ] Allow users to disable push notifications and remove saved subscriptions.
-- [ ] Send push notifications only for new chat messages, respecting both the existing chat notification preference and the push-enabled setting.
-- [ ] Prevent duplicate notifications and exclude the message sender.
-- [ ] Stop using expired or revoked subscriptions.
-- [ ] Verify permission denial, multiple devices, preference changes, and revoked subscriptions.
-- [ ] Document notification settings and behavior for users and admins.
+- [x] Add **Enable push notifications** to the profile.
+- [x] Request browser permission and save each device's subscription.
+- [x] Allow users to disable push notifications and remove saved subscriptions.
+- [x] Send push notifications only for new chat messages, respecting both the existing chat notification preference and the push-enabled setting.
+- [x] Prevent duplicate notifications and exclude the message sender.
+- [x] Stop using expired or revoked subscriptions.
+- [x] Verify permission denial, multiple devices, preference changes, and revoked subscriptions.
+- [x] Document notification settings and behavior for users and admins.
 
 ### 3. Beta notice
 

@@ -106,7 +106,7 @@ describe('MemberChatPushSettings', () => {
 
     const user = userEvent.setup();
     const view = render(<MemberChatPushSettings />);
-    const enable = await screen.findByRole('switch', { name: 'Enable push notifications' });
+    const enable = await screen.findByRole('switch', { name: 'Enable on this device' });
     await user.click(enable);
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(

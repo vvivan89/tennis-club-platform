@@ -127,6 +127,18 @@ afterEach(() => {
 });
 
 describe('Member profile page', () => {
+  it('places the device push control inside the Chat notifications card', async () => {
+    render(<ProfilePage />);
+    const heading = await screen.findByRole('heading', { name: 'Chat notifications' });
+    const chatCard = heading.closest('.rounded-xl');
+    const pushSwitch = await screen.findByRole('switch', { name: 'Enable on this device' });
+
+    expect(chatCard).toContainElement(pushSwitch);
+    expect(
+      screen.queryByRole('heading', { name: 'Chat push notifications' }),
+    ).not.toBeInTheDocument();
+  });
+
   it('redirects a signed-out user to login', async () => {
     mocks.user = null;
     render(<ProfilePage />);
@@ -243,7 +255,7 @@ describe('Member profile page', () => {
         ),
       ).toBe(true),
     );
-    expect(screen.getByRole('status')).toHaveTextContent('Email preferences saved');
+    expect(screen.getByText('Email preferences saved.')).toBeInTheDocument();
   });
 
   it('rejects non-image avatar files without uploading', async () => {
@@ -310,7 +322,7 @@ describe('Member profile page', () => {
     await screen.findByDisplayValue('Member One');
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     await user.upload(input, new File(['image'], 'avatar.png', { type: 'image/png' }));
-    expect(await screen.findByRole('status')).toHaveTextContent('Avatar updated.');
+    expect(await screen.findByText('Avatar updated.')).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'Your avatar' })).toHaveAttribute(
       'src',
       'https://storage.example/avatar.jpg',
