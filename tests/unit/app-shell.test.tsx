@@ -63,7 +63,7 @@ describe('application shell', () => {
   it('wraps children in the locale root and loads configured club metadata', async () => {
     const layout = RootLayout({ children: <p>Page content</p> });
     const markup = renderToStaticMarkup(layout);
-    expect(markup).toContain('<html lang="en-CA">');
+    expect(markup).toContain('<html lang="en-CA" data-accent="green">');
     expect(markup).toContain('Page content');
     await expect(generateMetadata()).resolves.toMatchObject({
       title: 'Configured Club',

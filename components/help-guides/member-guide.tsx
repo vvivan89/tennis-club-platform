@@ -24,6 +24,7 @@ const tabs = [
 const topics = [
   ['dashboard', 'member-dashboard', 'Dashboard and activity'],
   ['profile', 'member-profile', 'Profile and eligibility'],
+  ['profile', 'member-appearance', 'Change appearance'],
   ['membership', 'member-membership', 'Season membership and waiver'],
   ['membership', 'member-family', 'Set up or leave a family'],
   ['membership', 'member-membership-payment', 'Pay membership fees'],
@@ -75,7 +76,12 @@ export function MemberHelpGuide() {
         className="space-y-5"
       >
         {activeTab === 'dashboard' && <DashboardTopic />}
-        {activeTab === 'profile' && <ProfileTopic shortName={shortName || 'club'} />}
+        {activeTab === 'profile' && (
+          <>
+            <ProfileTopic shortName={shortName || 'club'} />
+            <AppearanceTopic />
+          </>
+        )}
         {activeTab === 'membership' && <MembershipTopics />}
         {activeTab === 'events' && <EventTopics />}
         {activeTab === 'competitions' && <CompetitionTopics />}
@@ -114,11 +120,11 @@ function ProfileTopic({ shortName }: { shortName: string }) {
       <FieldTable
         rows={[
           {
-            field: 'Name, phone, birthday, and gender',
+            field: 'Required profile fields',
             value:
-              'Keep contact details current. Name, phone, date of birth, gender, and skill rating are required profile fields.',
+              'Full name, phone number, date of birth, gender, and tennis skill rating are required. Email is managed by authentication and cannot be changed on this page.',
             effect:
-              'Name and contact information identify you to club organizers. Gender affects eligibility for gender-specific events and category checks in competitions. Birthday and its visibility option support the club birthday display.',
+              'Your gender affects eligibility for gender-specific events and competition categories. Your date of birth supports family membership eligibility and the optional birthday display; it is not shown publicly.',
           },
           {
             field: 'Tennis skill rating',
@@ -216,6 +222,24 @@ function ProfileTopic({ shortName }: { shortName: string }) {
       <p>
         <LinkButton href="/member/profile">Edit my profile</LinkButton>
       </p>
+    </Topic>
+  );
+}
+
+function AppearanceTopic() {
+  return (
+    <Topic id="member-appearance" title="Change website appearance">
+      <Steps>
+        <li>Open Member Portal → Profile and find the Appearance section.</li>
+        <li>
+          Choose Light, Dark, or System. System follows the appearance setting on your device.
+        </li>
+        <li>Choose an accent color from the selector.</li>
+        <li>
+          Press Save appearance to save your choices to your profile. These settings will be applied
+          to all devices where you use the website.
+        </li>
+      </Steps>
     </Topic>
   );
 }

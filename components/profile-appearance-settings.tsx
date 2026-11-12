@@ -86,15 +86,18 @@ export function ProfileAppearanceSettings({
             </div>
           </fieldset>
           <label className="block space-y-1.5 text-sm font-medium">
-            Accent color
+            Court preference (accent color)
             <select
               value={accentColor}
-              onChange={(event) => setAccentColor(event.target.value as 'blue' | 'green')}
+              onChange={(event) =>
+                setAccentColor(event.target.value as 'blue' | 'green' | 'orange')
+              }
               disabled={!preferencesReady || busy}
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             >
-              <option value="blue">Blue</option>
-              <option value="green">Green</option>
+              <option value="blue">Hard (blue)</option>
+              <option value="green">Grass (green)</option>
+              <option value="orange">Clay (brown)</option>
             </select>
           </label>
           {!preferencesReady && (

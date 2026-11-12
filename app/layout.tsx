@@ -23,7 +23,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en-CA" suppressHydrationWarning>
+    <html lang="en-CA" data-accent="green" suppressHydrationWarning>
       <body>
         <ClubThemeProvider>
           <SiteHeaderStateProvider>

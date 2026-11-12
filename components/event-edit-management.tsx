@@ -12,6 +12,11 @@ import { UserIdentity } from '@/components/user-identity';
 import { registrationErrorMessage } from '@/lib/registration-error-message';
 import { getEligibility, validateAssignments } from '@/components/event-edit-helpers';
 import { createAssignLadderCourts } from '@/components/event-edit-ladder-courts';
+import {
+  copyCourtSession,
+  courtNumbersFor,
+  emptyCourtSession,
+} from '@/components/event-edit-types';
 import type {
   Assignment,
   Confirmation,
@@ -57,6 +62,7 @@ export function EventEditManagement({
   } | null>(null);
   const [genderRestriction, setGenderRestriction] = useState<string | null>(null);
   const [membershipRequired, setMembershipRequired] = useState(false);
+  const [courtCount, setCourtCount] = useState(4);
   const [paidMembershipUserIds, setPaidMembershipUserIds] = useState<Set<string>>(new Set());
   const [ladderStandings, setLadderStandings] = useState<
     Array<{ userId: string; name: string; points: number | null }>
@@ -88,7 +94,7 @@ export function EventEditManagement({
         db
           .from('events')
           .select(
-            'event_type,social_doubles_ladder_id,ladder_ranking_priority,ladder_position_points,gender_restriction,members_only',
+            'event_type,social_doubles_ladder_id,ladder_ranking_priority,ladder_position_points,gender_restriction,members_only,court_count',
           )
           .eq('id', eventId)
           .maybeSingle(),
@@ -110,6 +116,8 @@ export function EventEditManagement({
       });
     } else setLadderConfig(null);
     setGenderRestriction(eventMeta.data?.gender_restriction ?? null);
+    const availableCourtCount = Math.max(1, Math.floor(eventMeta.data?.court_count ?? 4));
+    setCourtCount(availableCourtCount);
     const requiresMembership = eventMeta.data?.members_only ?? false;
     setMembershipRequired(requiresMembership);
     const genderById = new Map<string, string | null>(
@@ -362,30 +370,29 @@ export function EventEditManagement({
     setBusy,
     setError,
     participants,
+    courtCount,
     setLadderStandings,
     setSessions,
     setMessage,
   });
   function openCourtModal() {
-    const first: Session = { 1: [], 2: [], 3: [], 4: [] };
+    const first = emptyCourtSession(courtCount);
     for (const assignment of assignments.filter((item) => item.segment_order === 1))
-      first[assignment.court_number].push(assignment.registration_id);
+      first[assignment.court_number]?.push(assignment.registration_id);
     setSessions([first]);
     setModalOpen(true);
   }
   function addSession() {
-    const first = sessions[0] ?? { 1: [], 2: [], 3: [], 4: [] };
-    setSessions((old) => [
-      ...old,
-      { 1: [...first[1]], 2: [...first[2]], 3: [...first[3]], 4: [...first[4]] },
-    ]);
+    const first = sessions[0] ?? emptyCourtSession(courtCount);
+    setSessions((old) => [...old, copyCourtSession(first, courtCount)]);
   }
   function movePlayer(registrationId: string, court: number, sessionIndex: number) {
     setSessions((old) =>
       old.map((s, i) => {
         if (i !== sessionIndex) return s;
-        const next: Session = { 1: [...s[1]], 2: [...s[2]], 3: [...s[3]], 4: [...s[4]] };
-        for (const c of [1, 2, 3, 4]) next[c] = next[c].filter((id) => id !== registrationId);
+        const next = copyCourtSession(s, courtCount);
+        for (const c of courtNumbersFor(courtCount))
+          next[c] = next[c].filter((id) => id !== registrationId);
         next[court].push(registrationId);
         return next;
       }),
@@ -400,7 +407,7 @@ export function EventEditManagement({
     const confirmed = participants.filter((p) => p.status === 'confirmed');
     const missing = sessions.flatMap((s, i) =>
       confirmed
-        .filter((p) => ![1, 2, 3, 4].some((c) => s[c].includes(p.registration_id)))
+        .filter((p) => !courtNumbersFor(courtCount).some((c) => s[c]?.includes(p.registration_id)))
         .map((p) => `Sub-session ${i + 1}: ${p.full_name || 'Member'}`),
     );
     if (missing.length) {
@@ -411,7 +418,7 @@ export function EventEditManagement({
     }
     const rows: Assignment[] = [];
     sessions.forEach((s, i) =>
-      [1, 2, 3, 4].forEach((c) =>
+      courtNumbersFor(courtCount).forEach((c) =>
         s[c].forEach((id) =>
           rows.push({ registration_id: id, court_number: c, segment_order: i + 1 }),
         ),
@@ -739,6 +746,7 @@ export function EventEditManagement({
         modalOpen={modalOpen}
         busy={busy}
         ladderConfig={!!ladderConfig}
+        courtCount={courtCount}
         ladderStandings={ladderStandings}
         sessions={sessions}
         setSessions={setSessions}

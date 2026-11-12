@@ -29,7 +29,7 @@ export function useLeagueEventCourtActions({
   const [leagueCourtSessionCount, setLeagueCourtSessionCount] = useState(1);
   const [leagueCourtError, setLeagueCourtError] = useState('');
   const [leagueCourtConfirmation, setLeagueCourtConfirmation] = useState(false);
-  const courtTotal = Math.min(4, Math.max(1, courtCount));
+  const courtTotal = Math.max(1, Math.floor(courtCount));
   const courtCounts = leagueCourtDraft.reduce((counts, assignment) => {
     const key = `${assignment.segment_order}:${assignment.court_number}`;
     counts.set(key, (counts.get(key) ?? 0) + 1);

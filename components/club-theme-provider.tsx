@@ -5,7 +5,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 
 export type ClubThemeMode = 'light' | 'dark' | 'system';
-export type ClubAccentColor = 'blue' | 'green';
+export type ClubAccentColor = 'blue' | 'green' | 'orange';
 
 type ClubThemeContextValue = {
   mode: ClubThemeMode;
@@ -24,7 +24,7 @@ function isThemeMode(value: unknown): value is ClubThemeMode {
 }
 
 function isAccentColor(value: unknown): value is ClubAccentColor {
-  return value === 'blue' || value === 'green';
+  return value === 'blue' || value === 'green' || value === 'orange';
 }
 
 function readCachedPreferences(): CachedPreferences | null {
@@ -46,7 +46,7 @@ function writeCachedPreferences(mode: ClubThemeMode, accentColor: ClubAccentColo
 
 function SyncedClubThemeProvider({ children }: { children: React.ReactNode }) {
   const { theme, setTheme } = useTheme();
-  const [accentColor, setAccentColorState] = useState<ClubAccentColor>('blue');
+  const [accentColor, setAccentColorState] = useState<ClubAccentColor>('green');
   const [preferencesReady, setPreferencesReady] = useState(false);
   const generation = useRef(0);
   const mode: ClubThemeMode = isThemeMode(theme) ? theme : 'system';
@@ -85,7 +85,7 @@ function SyncedClubThemeProvider({ children }: { children: React.ReactNode }) {
         if (!active || generation.current !== currentGeneration) return;
         if (!error && data) {
           const profileMode = isThemeMode(data.theme_mode) ? data.theme_mode : 'system';
-          const profileAccent = isAccentColor(data.theme_accent) ? data.theme_accent : 'blue';
+          const profileAccent = isAccentColor(data.theme_accent) ? data.theme_accent : 'green';
           setTheme(profileMode);
           setAccentColorState(profileAccent);
           writeCachedPreferences(profileMode, profileAccent);

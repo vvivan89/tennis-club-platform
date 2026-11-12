@@ -9,6 +9,7 @@ function props(overrides: Record<string, unknown> = {}) {
     modalOpen: true,
     busy: false,
     ladderConfig: true,
+    courtCount: 4,
     ladderStandings: [
       { userId: 'u1', name: 'Ranked Player', points: 12 },
       { userId: 'u2', name: 'Unranked Player', points: null },

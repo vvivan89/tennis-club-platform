@@ -459,8 +459,9 @@ export function AdminEventsGuide() {
           When assigning courts, Automatic ladder assignment calculates current Ladder standings,
           then places confirmed players in ranking order in groups of four: the top four on Court 1,
           the next four on Court 2, and so on. The dialog shows the ranking it used. Review or
-          adjust the court groups before saving; automatic assignment supports up to four courts,
-          and additional courts must be assigned manually.
+          adjust the court groups before saving. Automatic assignment uses the number of courts
+          configured for this event; if the roster needs more courts than are available, increase
+          the event&apos;s court count or assign players manually.
         </p>
       </Topic>
       <Topic id="admin-event-management" title="Manage registrations, matches, and results">

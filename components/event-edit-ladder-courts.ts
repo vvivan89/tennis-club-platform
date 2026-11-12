@@ -4,7 +4,7 @@ import {
   type LadderMetric,
 } from '@/lib/social-doubles-ladder';
 import type { createSupabaseBrowserClient } from '@/lib/supabase-browser';
-import type { Participant, Session } from '@/components/event-edit-types';
+import { emptyCourtSession, type Participant, type Session } from '@/components/event-edit-types';
 
 type LadderConfig = { id: string; ranking_priority: string[]; position_points: number[] };
 
@@ -14,6 +14,7 @@ type AssignLadderCourtsContext = {
   setBusy: (busy: boolean) => void;
   setError: (error: string) => void;
   participants: Participant[];
+  courtCount: number;
   setLadderStandings: (
     rows: Array<{ userId: string; name: string; points: number | null }>,
   ) => void;
@@ -28,6 +29,7 @@ export function createAssignLadderCourts(context: AssignLadderCourtsContext) {
     setBusy,
     setError,
     participants,
+    courtCount,
     setLadderStandings,
     setSessions,
     setMessage,
@@ -188,15 +190,15 @@ export function createAssignLadderCourts(context: AssignLadderCourtsContext) {
               : null,
         })),
       );
-      const courtCount = Math.max(1, Math.ceil(confirmed.length / 4));
-      if (courtCount > 4)
+      const requiredCourts = Math.ceil(confirmed.length / 4);
+      if (requiredCourts > courtCount)
         throw new Error(
-          'This event supports up to four courts for automatic ladder assignment. Assign additional courts manually.',
+          `Automatic ladder assignment needs ${requiredCourts} courts for this roster, but this event has ${courtCount} available. Increase the event's available courts or assign players manually.`,
         );
-      const groups: Session[] = [{ 1: [], 2: [], 3: [], 4: [] }];
+      const groups: Session[] = [emptyCourtSession(courtCount)];
       confirmed.forEach((player, index) => {
         const court = Math.floor(index / 4) + 1;
-        for (const group of groups) group[court as 1 | 2 | 3 | 4].push(player.registration_id);
+        for (const group of groups) group[court].push(player.registration_id);
       });
       setSessions(groups);
       setMessage('Ladder courts assigned from current standings. Review and save to apply.');

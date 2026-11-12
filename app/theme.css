@@ -1,6 +1,6 @@
 /*
- * Theme tokens for the club website. Light and dark palettes use blue accents.
- * Add future accent variants with a matching data-accent selector below.
+ * Theme tokens for the club website. Green is the default accent; blue and
+ * orange are also available through the appearance setting.
  */
 :root {
   color-scheme: light;
@@ -101,4 +101,30 @@
   --brand-forest: #91c99e;
   --brand-court: #6ea685;
   --brand-lime: #91c99e;
+}
+
+:root[data-accent='orange'] {
+  --primary: #a65324;
+  --primary-foreground: #ffffff;
+  --secondary: #f3e5d9;
+  --secondary-foreground: #63371f;
+  --accent: #efd6c2;
+  --accent-foreground: #59351f;
+  --ring: #b66535;
+  --brand-forest: #a65324;
+  --brand-court: #9c6244;
+  --brand-lime: #efd6c2;
+}
+
+.dark[data-accent='orange'] {
+  --primary: #efad7b;
+  --primary-foreground: #2d1a11;
+  --secondary: #493327;
+  --secondary-foreground: #f8e9dc;
+  --accent: #573c2d;
+  --accent-foreground: #faecdf;
+  --ring: #efad7b;
+  --brand-forest: #efad7b;
+  --brand-court: #c1845d;
+  --brand-lime: #efad7b;
 }
