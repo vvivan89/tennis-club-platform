@@ -14,6 +14,8 @@ describe('Help navigation', () => {
 
   it('shows only the guides the current role can access', () => {
     const { rerender } = render(<HelpNav role="member" approved />);
+    expect(screen.getByRole('navigation', { name: 'Help navigation' })).toHaveClass('hidden');
+    expect(screen.getByRole('navigation', { name: 'Help navigation' })).toHaveClass('lg:block');
     expect(screen.getAllByRole('link')).toHaveLength(2);
     expect(screen.getByRole('link', { name: 'Public guide' })).toHaveAttribute(
       'href',

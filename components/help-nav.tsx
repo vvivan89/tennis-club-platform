@@ -22,7 +22,10 @@ export function HelpNav({ role, approved }: HelpNavProps) {
   if (!isAdmin && !isOrganizer && !approved) return null;
 
   return (
-    <nav aria-label="Help navigation" className="border-b border-border/70 bg-background">
+    <nav
+      aria-label="Help navigation"
+      className="hidden border-b border-border/70 bg-background lg:block"
+    >
       <div className="page-container flex flex-wrap items-center gap-3 py-2">
         <div className="flex items-center gap-2 border-r border-border pr-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           <CircleHelp className="h-4 w-4" />
