@@ -62,6 +62,7 @@ export async function POST(request: Request) {
           const from =
             process.env.RESEND_FROM_EMAIL || process.env.RESEND_FROM || process.env.EMAIL_FROM!;
           const response = await sendResendEmail({
+            request,
             from,
             to: member.email,
             subject: approved

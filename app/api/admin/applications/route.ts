@@ -67,6 +67,7 @@ export async function POST(request: Request) {
             .maybeSingle();
           const shortName = clubSettings?.short_name || 'Tennis Club';
           const emailResponse = await sendResendEmail({
+            request,
             apiKey: resendKey,
             from: fromEmail,
             to: app.email,

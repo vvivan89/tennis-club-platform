@@ -244,6 +244,7 @@ async function sendReminder(
   const html = `<p>Hello ${escapeHtml(recipient.full_name || 'member')},</p><p>Your registration for <strong>${escapeHtml(event.title)}</strong> is awaiting payment. The registration cutoff is ${escapeHtml(cutoff)} (Pacific time), in ${timeText}.</p><p>If payment is not confirmed by the cutoff, your registration will be removed and your place may be given to another member.</p><p><a href="${escapeHtml(eventUrl)}">Complete or check your event payment</a></p><p>Port Coquitlam Tennis Club</p>`;
   try {
     const response = await sendResendEmail({
+      request,
       apiKey: resendKey,
       from: fromEmail,
       to: recipient.email,

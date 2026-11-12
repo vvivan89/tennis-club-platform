@@ -50,6 +50,7 @@ describe('sendResendEmail', () => {
   it('adds an Idempotency-Key header only when a key is given', async () => {
     fetchMock.mockResolvedValue(new Response('{}', { status: 200 }));
     await sendResendEmail({
+      request: new Request('https://demo.example.test/api/email'),
       to: 'a@example.com',
       subject: 'S',
       html: '<p>x</p>',
@@ -57,6 +58,7 @@ describe('sendResendEmail', () => {
       from: 'f@example.com',
     });
     await sendResendEmail({
+      request: new Request('https://demo.example.test/api/email'),
       to: 'a@example.com',
       subject: 'S',
       html: '<p>x</p>',
@@ -66,6 +68,31 @@ describe('sendResendEmail', () => {
     });
     expect(fetchMock.mock.calls[0][1].headers).not.toHaveProperty('Idempotency-Key');
     expect(fetchMock.mock.calls[1][1].headers['Idempotency-Key']).toBe('key-1');
+    const firstMessage = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(firstMessage.html).toContain(
+      '<a href="https://demo.example.test/member/profile">profile</a>',
+    );
+    expect(firstMessage.html).toContain('To unsubscribe from these emails');
+  });
+
+  it('adds a linked HTML footer and a URL text footer to text-only emails', async () => {
+    fetchMock.mockResolvedValue(new Response('{}', { status: 200 }));
+    await sendResendEmail({
+      request: new Request('https://tenant.example.test/api/email'),
+      to: 'a@example.com',
+      subject: 'S',
+      text: 'Plain text message',
+      apiKey: 'k',
+      from: 'f@example.com',
+    });
+
+    const message = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(message.html).toContain(
+      '<a href="https://tenant.example.test/member/profile">profile</a>',
+    );
+    expect(message.text).toContain(
+      'To unsubscribe from these emails, visit your club member profile: https://tenant.example.test/member/profile',
+    );
   });
 });
 

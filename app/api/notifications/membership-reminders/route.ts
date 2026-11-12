@@ -170,6 +170,7 @@ export async function GET(request: Request) {
         .eq('user_id', p.id);
     try {
       const resp = await sendResendEmail({
+        request,
         to: p.email,
         subject,
         html: `<p>Hello ${esc(p.full_name || 'member')},</p><p>${esc(text)}</p><p><a href="${portalUrl}">View your member portal</a></p>`,

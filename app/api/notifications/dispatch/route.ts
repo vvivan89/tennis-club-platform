@@ -311,6 +311,7 @@ export async function POST(request: Request) {
       const html = `<p>Hello ${name},</p><p>${template.intro}</p><h2>${title}</h2>${schedule ? `<p><strong>Schedule:</strong> ${esc(schedule)}.</p>` : ''}<p><strong>${schedule ? 'Next session:' : 'Date:'}</strong> ${esc(new Date(event.starts_at).toLocaleString('en-CA'))}${event.location ? ` · ${esc(event.location)}` : ''}</p>${status ? `<p><strong>Registration status:</strong> ${esc(status)}</p>` : ''}<p><a href="${esc(eventUrl)}">View event details</a></p><p>${esc(shortName)}</p>`;
       try {
         const response = await sendResendEmail({
+          request,
           apiKey: resendKey,
           from: fromEmail,
           to: recipient.email,

@@ -347,6 +347,7 @@ export async function POST(request: Request) {
           const from =
             process.env.RESEND_FROM_EMAIL || process.env.RESEND_FROM || process.env.EMAIL_FROM!;
           const emailResponse = await sendResendEmail({
+            request,
             from,
             to: profile!.email,
             subject: `${shortName} Interac payment instructions`,

@@ -364,6 +364,7 @@ export async function POST(req: Request) {
         const shortName = clubSettings?.short_name || 'Tennis Club';
         const url = new URL('/member/membership', getSiteOrigin(req)).toString();
         const mail = await sendResendEmail({
+          request: req,
           to: target.email,
           subject: `${shortName} family membership invitation`,
           html: `<p>Hello ${esc(target.full_name || 'member')},</p><p>${esc(me.full_name || me.email || 'A member')} invited you to join their ${esc(shortName)} family membership.</p><p>Sign in to your Member Portal and confirm the invitation: <a href="${esc(url)}">Review invitation</a>.</p>`,
