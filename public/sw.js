@@ -1,3 +1,11 @@
+self.addEventListener('install', (event) => {
+  event.waitUntil(self.skipWaiting());
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
+
 self.addEventListener('push', (event) => {
   let payload = {};
   try {
@@ -25,19 +33,47 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const target = new URL(event.notification.data?.url || '/member/chat', self.location.origin);
-  if (target.origin !== self.location.origin) return;
+  let target;
+  try {
+    target = new URL(event.notification.data?.url || '/member/chat', self.location.origin);
+  } catch {
+    target = new URL('/member/chat', self.location.origin);
+  }
+  if (target.origin !== self.location.origin)
+    target = new URL('/member/chat', self.location.origin);
 
   event.waitUntil(
     (async () => {
       const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-      for (const client of clients) {
-        if (new URL(client.url).origin === self.location.origin) {
-          await client.focus();
-          if ('navigate' in client && new URL(client.url).pathname !== target.pathname) {
-            await client.navigate(target.href);
-          }
+      const sameOriginClients = clients.filter((client) => {
+        try {
+          return new URL(client.url).origin === self.location.origin;
+        } catch {
+          return false;
+        }
+      });
+      const chatClient = sameOriginClients.find(
+        (client) => new URL(client.url).pathname === target.pathname,
+      );
+      if (chatClient) {
+        try {
+          await chatClient.focus();
           return;
+        } catch {
+          // If focusing an existing tab fails, open the chat in a new one.
+        }
+      }
+
+      const existingClient = sameOriginClients[0];
+      if (existingClient && typeof existingClient.navigate === 'function') {
+        try {
+          const navigatedClient = await existingClient.navigate(target.href);
+          if (navigatedClient) {
+            await navigatedClient.focus();
+            return;
+          }
+        } catch {
+          // Some browsers do not allow a service worker to navigate an existing tab.
         }
       }
       await self.clients.openWindow(target.href);

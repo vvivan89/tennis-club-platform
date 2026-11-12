@@ -46,7 +46,7 @@ export async function POST(request: Request) {
 
   const [{ data: profile, error: profileError }, { data: message, error: messageError }] =
     await Promise.all([
-      db.from('profiles').select('application_status').eq('id', user.id).maybeSingle(),
+      db.from('profiles').select('application_status,full_name').eq('id', user.id).maybeSingle(),
       db
         .from('member_chat_messages')
         .select('id,user_id,body,image_path,mentions,deleted_at')
@@ -160,8 +160,13 @@ export async function POST(request: Request) {
     typeof message.body === 'string' ? message.body.replace(/\s+/g, ' ').trim() : '';
   const notificationBody =
     messageText || (message.image_path ? 'Sent an image.' : 'New chat message.');
+  const senderName = profile.full_name?.trim() || 'A club member';
+  const notificationTitle = `Message from ${senderName}`;
   const payload = JSON.stringify({
-    title: 'New club chat message',
+    title:
+      notificationTitle.length > 100
+        ? `${notificationTitle.slice(0, 97).trimEnd()}...`
+        : notificationTitle,
     body:
       notificationBody.length > 240
         ? `${notificationBody.slice(0, 237).trimEnd()}...`

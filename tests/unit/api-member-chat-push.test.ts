@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   user: { id: '00000000-0000-4000-8000-000000000001' } as null | { id: string },
-  profile: { application_status: 'approved' } as null | { application_status: string },
+  profile: { application_status: 'approved', full_name: 'Alex Sender' } as null | {
+    application_status: string;
+    full_name: string;
+  },
   message: {
     id: '00000000-0000-4000-8000-000000000010',
     user_id: '00000000-0000-4000-8000-000000000001',
@@ -136,7 +139,7 @@ function request() {
 
 beforeEach(() => {
   mocks.user = { id: senderId };
-  mocks.profile = { application_status: 'approved' };
+  mocks.profile = { application_status: 'approved', full_name: 'Alex Sender' };
   mocks.message = {
     id: messageId,
     user_id: senderId,
@@ -198,7 +201,10 @@ describe('POST /api/member/chat/push', () => {
       `https://fcm.googleapis.com/${mentionedId}`,
       'https://fcm.googleapis.com/second-device',
     ]);
-    expect(JSON.parse(mocks.sent[0].payload)).toMatchObject({ body: 'Hello from the chat' });
+    expect(JSON.parse(mocks.sent[0].payload)).toMatchObject({
+      title: 'Message from Alex Sender',
+      body: 'Hello from the chat',
+    });
     expect(mocks.setVapidDetails).toHaveBeenCalledOnce();
   });
 
@@ -263,7 +269,7 @@ describe('POST /api/member/chat/push', () => {
       mentions: [],
       deleted_at: null,
     };
-    mocks.profile = { application_status: 'pending' };
+    mocks.profile = { application_status: 'pending', full_name: 'Alex Sender' };
     expect((await POST(request())).status).toBe(403);
     expect(mocks.sendNotification).not.toHaveBeenCalled();
   });
