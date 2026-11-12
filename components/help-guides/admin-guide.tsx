@@ -29,6 +29,7 @@ const tabs = [
 
 const topics = [
   ['dashboard', 'admin-dashboard', 'Club dashboard'],
+  ['dashboard', 'admin-chat-notifications', 'Chat notifications'],
   ['club-profile', 'admin-club-information', 'Club information'],
   ['club-profile', 'admin-club-contacts', 'Club contacts'],
   ['membership', 'admin-applications', 'Membership applications'],

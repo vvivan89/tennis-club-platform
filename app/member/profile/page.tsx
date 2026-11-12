@@ -18,6 +18,7 @@ import { FloatingFeedback } from '@/components/floating-feedback';
 import { GenderSelect } from '@/components/gender-select';
 import { TennisSkillLevelSelect } from '@/components/tennis-skill-level-select';
 import { ProfileAppearanceSettings } from '@/components/profile-appearance-settings';
+import { MemberChatPushSettings } from '@/components/member-chat-push-settings';
 
 function isBirthdayToday(dateOfBirth: string | null) {
   if (!dateOfBirth) return false;
@@ -498,8 +499,7 @@ export default function ProfilePage() {
                   <CardHeader>
                     <CardTitle>Chat notifications</CardTitle>
                     <CardDescription>
-                      Choose which new chat messages trigger an on-screen notification while you use
-                      the website.
+                      Choose which new chat messages trigger in-app or browser notifications.
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -532,6 +532,7 @@ export default function ProfilePage() {
                     </form>
                   </CardContent>
                 </Card>
+                <MemberChatPushSettings />
                 <ProfileAppearanceSettings
                   onSaved={(savedMessage) => {
                     setError('');

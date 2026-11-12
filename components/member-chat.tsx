@@ -12,6 +12,7 @@ import {
   useState,
 } from 'react';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
+import { dispatchChatPush } from '@/lib/chat-push-client';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import {
   canEditChatMessage,
@@ -222,18 +223,27 @@ export function MemberChat({ userId }: { userId: string }) {
           .upload(imagePath, image, { contentType: image.type, upsert: false });
         if (uploadError) throw uploadError;
       }
-      const { error: insertError } = await supabase.from('member_chat_messages').insert({
-        user_id: userId,
-        body: draft.trim(),
-        image_path: imagePath,
-        mentions: mentions.filter((id) => {
-          const member = mentionCandidates.find((candidate) => candidate.id === id);
-          return member ? draft.includes(`@${member.full_name}`) : false;
-        }),
-      });
+      const { data: insertedMessage, error: insertError } = await supabase
+        .from('member_chat_messages')
+        .insert({
+          user_id: userId,
+          body: draft.trim(),
+          image_path: imagePath,
+          mentions: mentions.filter((id) => {
+            const member = mentionCandidates.find((candidate) => candidate.id === id);
+            return member ? draft.includes(`@${member.full_name}`) : false;
+          }),
+        })
+        .select('id')
+        .single();
       if (insertError) {
         if (imagePath) await supabase.storage.from('member-chat-images').remove([imagePath]);
         throw insertError;
+      }
+      if (insertedMessage?.id) {
+        void dispatchChatPush(insertedMessage.id).catch((dispatchError) => {
+          console.warn('[Chat push] Dispatch request failed.', dispatchError);
+        });
       }
       setDraft('');
       setMentions([]);

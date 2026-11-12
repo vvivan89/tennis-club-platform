@@ -139,10 +139,22 @@ function ProfileTopic({ shortName }: { shortName: string }) {
               'The avatar identifies you in player lists; playing hand just is profile information not used anywhere.',
           },
           {
-            field: 'Email preferences and chat notifications',
+            field: 'Email preferences',
             value: 'Choose the automated event and club email categories you want.',
             effect:
               'Preferences control routine notification emails. You can also unsubscribe from a category directly from its email without signing in. Administrators can still send important club-wide announcements regardless of these settings.',
+          },
+          {
+            field: 'Chat notification preference',
+            value: 'Choose Show all, Show only when someone mentions you, or Don’t show.',
+            effect:
+              'This preference controls both in-app chat alerts and browser push notifications, when enabled.',
+          },
+          {
+            field: 'Enable push notifications',
+            value: 'Turn on browser notifications for this device and allow the browser prompt.',
+            effect:
+              'New chat messages can alert you while the site is closed. The chat preference still applies; each device is managed separately.',
           },
           {
             field: 'Show birthday emoji',
@@ -663,6 +675,14 @@ function ResourceTopics() {
             },
           ]}
         />
+        <p>
+          In Profile, enable push notifications separately for each device. The browser will ask
+          permission after you choose Enable on this device. If permission is blocked, change the
+          site’s notification setting in your browser and reload. Push is only for new chat
+          messages; the Show all, mentions only, or Don’t show preference above still applies. Your
+          own messages do not alert you. When this site is open and focused, the in-app chat
+          notification is used instead of a second browser alert.
+        </p>
         <p>
           <LinkButton href="/member/chat">Open Member chat</LinkButton>
         </p>

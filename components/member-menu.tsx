@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ChevronDown, User, ShieldCheck, CalendarDays, LogOut, LogIn } from 'lucide-react';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
+import { removeChatPushSubscriptionForSignOut } from '@/lib/chat-push-client';
 import { useSiteHeaderState } from '@/components/site-header-state';
 import { Button } from '@/components/ui/button';
 import {
@@ -30,6 +31,7 @@ export const MemberMenu = memo(function MemberMenu({
       .join('')
       .toUpperCase() || 'M';
   async function signOut() {
+    await removeChatPushSubscriptionForSignOut();
     const db = createSupabaseBrowserClient();
     await db.rpc('record_client_audit_event', {
       p_action: 'auth.sign_out',
