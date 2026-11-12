@@ -211,6 +211,7 @@ export async function POST(request: Request) {
           inviterById.get(inviterIdByInvitee.get(participant.id) || '')?.display_name ||
           'A tournament participant';
         const sent = await sendResendEmail({
+          request,
           to: email,
           subject: `Confirm your place with ${inviterName}`,
           html: `<p>Hello ${escapeHtml(participant.display_name)},</p><p>${escapeHtml(inviterName)} has listed you as a partner for <strong>${escapeHtml(event.title || 'this event')}</strong>. Sign in to review the entry details and confirm your participation.</p><p><a href="${escapeHtml(loginUrl)}">Review and confirm your event entry</a></p><p>If you do not recognize this invitation, you can ignore this email.</p><p>Port Coquitlam Tennis Club</p>`,

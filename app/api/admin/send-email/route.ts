@@ -72,6 +72,7 @@ export async function POST(request: Request) {
         deliverable.slice(i, i + SEND_CONCURRENCY).map(async (p) => {
           try {
             const res = await sendResendEmail({
+              request,
               to: p.email!,
               subject,
               html: `<p>Hello ${escapeHtml(String(p.full_name || 'member'))},</p>${html}<p>Port Coquitlam Tennis Club</p>`,

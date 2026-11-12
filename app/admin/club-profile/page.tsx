@@ -49,7 +49,7 @@ type Settings = {
 };
 const defaults: Settings = {
   club_name: 'Port Coquitlam Tennis Club',
-  short_name: 'PCTC',
+  short_name: '',
   description: '',
   contact_email: '',
   contact_phone: '',
@@ -207,6 +207,7 @@ export default function ClubProfileAdminPage() {
       return;
     }
     window.dispatchEvent(new Event('club-logo-updated'));
+    window.dispatchEvent(new Event('club-settings-updated'));
     setMessage('Club information saved.');
     setBusy(false);
   }

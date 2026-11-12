@@ -40,12 +40,12 @@ export default function ResetPasswordPage() {
 
   return (
     <main className="flex min-h-screen flex-col bg-background text-foreground">
-      <SiteHeader clubName="Port Coquitlam Tennis Club" shortName="PCTC" />
+      <SiteHeader />
       <div className="flex flex-1 items-center justify-center px-4 py-12">
         <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle>Choose a new password</CardTitle>
-            <CardDescription>Enter a new password for your PCTC account.</CardDescription>
+            <CardDescription>Enter a new password for your account.</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={submit} className="space-y-4">

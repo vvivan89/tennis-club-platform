@@ -32,6 +32,8 @@ vi.mock('@/lib/supabase-browser', () => ({
 
 import { MemberMenu } from '@/components/member-menu';
 import { SiteHeader } from '@/components/site-header';
+import { MobileNavigationDrawer } from '@/components/mobile-navigation-drawer';
+import { Home } from 'lucide-react';
 
 beforeEach(() => {
   mocks.state = {
@@ -54,6 +56,78 @@ afterEach(() => {
 });
 
 describe('site navigation authorization and session actions', () => {
+  it('opens a compact public drawer with main links and login for signed-out visitors', async () => {
+    const user = userEvent.setup();
+    render(
+      <MobileNavigationDrawer
+        mainLinks={[
+          { href: '/', label: 'Home', icon: <Home aria-hidden="true" />, current: false },
+          { href: '/events', label: 'Events', icon: <Home aria-hidden="true" />, current: true },
+        ]}
+        signedIn={false}
+        avatar=""
+        initials=""
+        name=""
+        approved={false}
+        isAdmin={false}
+        isOrganizer={false}
+        isEventGuest={false}
+        onSignOut={() => {}}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Open public menu' }));
+    const dialog = screen.getByRole('dialog', { name: 'Menu' });
+    expect(dialog).toBeInTheDocument();
+    expect(dialog).toHaveClass('mobile-navigation-panel');
+    expect(dialog.parentElement).toHaveClass('mobile-navigation-backdrop');
+    expect(screen.getByRole('navigation', { name: 'Main menu' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Main menu' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Events' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: 'Log in' })).toHaveAttribute('href', '/login');
+    const login = screen.getByRole('link', { name: 'Log in' });
+    const mainLink = screen.getByRole('link', { name: 'Home' });
+    expect(login.compareDocumentPosition(mainLink) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('shows only the current portal section expanded and highlights its active item', async () => {
+    mocks.pathname = '/admin/members?tab=applications';
+    const user = userEvent.setup();
+    render(
+      <MobileNavigationDrawer
+        mainLinks={[
+          { href: '/', label: 'Home', icon: <Home aria-hidden="true" />, current: false },
+        ]}
+        signedIn
+        avatar=""
+        initials="AA"
+        name="Alex Admin"
+        approved
+        isAdmin
+        isOrganizer={false}
+        isEventGuest={false}
+        onSignOut={() => {}}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Open navigation menu' }));
+    expect(screen.getByRole('heading', { name: 'Alex Admin' })).toBeInTheDocument();
+    expect(screen.queryByText('Signed in as Alex Admin')).not.toBeInTheDocument();
+    const adminPortal = screen.getByRole('button', { name: 'Admin Portal' });
+    expect(adminPortal.querySelector('svg')).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'Admin Portal' })).toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'Main menu' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'Member Portal' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Membership' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(screen.getByRole('button', { name: 'Main menu' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+  });
+
   it('shows sign-in while session is pending and hides member links for unapproved users', async () => {
     const { unmount } = render(<MemberMenu />);
     expect(screen.getByRole('link', { name: /Checking session/ })).toHaveAttribute(
@@ -83,7 +157,7 @@ describe('site navigation authorization and session actions', () => {
     mocks.signOut.mockResolvedValue({ error: null });
     const user = userEvent.setup();
     render(<MemberMenu />);
-    expect(screen.getByText('AA')).toBeInTheDocument();
+    expect(screen.getAllByText('AA')).toHaveLength(2);
     await user.click(screen.getByRole('button', { name: 'Member menu' }));
     expect(screen.getByRole('link', { name: 'Admin Portal' })).toHaveAttribute(
       'href',
@@ -124,7 +198,12 @@ describe('site navigation authorization and session actions', () => {
 
   it('exposes private navigation only when the access state allows it and marks current paths', () => {
     mocks.state = { ...mocks.state, canSeeDocuments: false, canSeeRankings: false, logoUrl: '' };
-    const { unmount } = render(<SiteHeader clubName="Club" shortName="C" active="" />);
+    const { unmount, container } = render(<SiteHeader clubName="Club" shortName="C" active="" />);
+    expect(container.querySelector('.page-container')).toHaveClass(
+      'flex',
+      'items-center',
+      'justify-between',
+    );
     expect(
       screen
         .getAllByRole('link', { name: 'Events' })
@@ -139,14 +218,14 @@ describe('site navigation authorization and session actions', () => {
       logoUrl: '/logo.svg',
     };
     render(<SiteHeader clubName="Club" shortName="C" active="" />);
-    expect(screen.getAllByRole('link', { name: 'Documents' })).toHaveLength(2);
-    expect(screen.getAllByRole('link', { name: 'Rankings' })).toHaveLength(2);
+    expect(screen.getAllByRole('link', { name: 'Documents' })).toHaveLength(1);
+    expect(screen.getAllByRole('link', { name: 'Rankings' })).toHaveLength(1);
     expect(screen.getByRole('img', { name: 'Club logo' })).toHaveAttribute('src', '/logo.svg');
   });
 
   it('shows Help as a direct top-level link, without a dropdown', () => {
     render(<SiteHeader clubName="Club" shortName="C" active="" />);
-    expect(screen.getAllByRole('link', { name: 'Help' })).toHaveLength(2);
+    expect(screen.getAllByRole('link', { name: 'Help' })).toHaveLength(1);
     expect(screen.getAllByRole('link', { name: 'Help' })[0]).toHaveAttribute(
       'href',
       '/help/public',
@@ -160,7 +239,7 @@ describe('site navigation authorization and session actions', () => {
   it('keeps role guide links out of the top navigation', () => {
     mocks.state = { ...mocks.state, approved: true, isOrganizer: true };
     render(<SiteHeader clubName="Club" shortName="C" active="" />);
-    expect(screen.getAllByRole('link', { name: 'Help' })).toHaveLength(2);
+    expect(screen.getAllByRole('link', { name: 'Help' })).toHaveLength(1);
     expect(screen.queryByRole('link', { name: 'Organizer guide' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Member guide' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Admin guide' })).not.toBeInTheDocument();

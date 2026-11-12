@@ -77,7 +77,7 @@ export default function MembershipPortal() {
     club_name: string;
     short_name: string;
     social_links: { url: string }[];
-  }>({ club_name: 'Port Coquitlam Tennis Club', short_name: 'PCTC', social_links: [] });
+  }>({ club_name: 'Port Coquitlam Tennis Club', short_name: '', social_links: [] });
   const load = useCallback(async () => {
     setLoading(true);
     const db = createSupabaseBrowserClient();
@@ -420,7 +420,7 @@ export default function MembershipPortal() {
     <main className="flex min-h-screen flex-col bg-background text-foreground">
       <SiteHeader
         clubName={club.club_name || 'Port Coquitlam Tennis Club'}
-        shortName={club.short_name || 'PCTC'}
+        shortName={club.short_name}
       />
       <MemberNav />
       <div className="page-container flex-1 py-10">

@@ -517,8 +517,8 @@ describe('EventEditManagement court assignments', () => {
     expect(screen.getAllByText(/pts/).length).toBeGreaterThan(0);
   });
 
-  it('requires manual assignment when a ladder roster exceeds four automatic courts', async () => {
-    const roster = Array.from({ length: 17 }, (_, index) => ({
+  it('requires manual assignment when a ladder roster exceeds the event court capacity', async () => {
+    const roster = Array.from({ length: 25 }, (_, index) => ({
       id: `player-${index + 1}`,
       full_name: `Player ${index + 1}`,
       email: `player-${index + 1}@example.test`,
@@ -546,13 +546,16 @@ describe('EventEditManagement court assignments', () => {
       ladder_ranking_priority: ['games_won'],
       ladder_position_points: [2, 1, -1, -2],
       members_only: false,
+      court_count: 6,
     };
     mocks.singleRows.social_doubles_ladders = { carryover_mode: 'position' };
     const user = userEvent.setup();
     render(<EventEditManagement eventId="large-ladder" startsAt="2999-01-01T00:00:00Z" />);
     await user.click(await screen.findByRole('button', { name: 'Assign courts' }));
     await user.click(screen.getByRole('button', { name: 'Automatic ladder assignment' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(/up to four courts/);
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /needs 7 courts for this roster, but this event has 6 available/,
+    );
   });
 
   it('hides registration management sections when tournament participants are managed separately', async () => {

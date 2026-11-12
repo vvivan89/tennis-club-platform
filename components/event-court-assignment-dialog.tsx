@@ -5,6 +5,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import { Button } from '@/components/ui/button';
 import { TennisLoader } from '@/components/tennis-loader';
 import { AssignmentDropZone, DraggableItem } from '@/components/drag-drop';
+import { courtNumbersFor, type Session } from '@/components/event-edit-types';
 
 type Participant = {
   registration_id: string;
@@ -15,7 +16,6 @@ type Participant = {
   tennis_skill_level: number | null;
   birthday_emoji_visible?: boolean;
 };
-type Session = Record<number, string[]>;
 type RecordLine = { wins: number; losses: number };
 type LadderStanding = { userId: string; name: string; points: number | null };
 
@@ -23,6 +23,7 @@ export function EventCourtAssignmentDialog({
   modalOpen,
   busy,
   ladderConfig,
+  courtCount,
   ladderStandings,
   sessions,
   setSessions,
@@ -39,6 +40,7 @@ export function EventCourtAssignmentDialog({
   modalOpen: boolean;
   busy: boolean;
   ladderConfig: boolean;
+  courtCount: number;
   ladderStandings: LadderStanding[];
   sessions: Session[];
   setSessions: Dispatch<SetStateAction<Session[]>>;
@@ -52,6 +54,7 @@ export function EventCourtAssignmentDialog({
   onAddSession: () => void;
   onSave: () => void;
 }) {
+  const courtNumbers = courtNumbersFor(courtCount);
   return (
     <>
       {modalOpen && (
@@ -117,8 +120,8 @@ export function EventCourtAssignmentDialog({
                       </Button>
                     )}
                   </div>
-                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                    {[1, 2, 3, 4].map((court) => (
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+                    {courtNumbers.map((court) => (
                       <AssignmentDropZone
                         variant="court"
                         key={court}
@@ -129,7 +132,7 @@ export function EventCourtAssignmentDialog({
                         <h4 className="mb-3 text-sm font-semibold">
                           Court {court}{' '}
                           <span className="font-normal text-muted-foreground">
-                            ({session[court].length}/4)
+                            ({session[court]?.length ?? 0}/4)
                           </span>
                         </h4>
                         <div className="space-y-2">
@@ -172,13 +175,10 @@ export function EventCourtAssignmentDialog({
                       setSessions((old) =>
                         old.map((current, index) => {
                           if (index !== si) return current;
-                          const next: Session = {
-                            1: [...current[1]],
-                            2: [...current[2]],
-                            3: [...current[3]],
-                            4: [...current[4]],
-                          };
-                          for (const court of [1, 2, 3, 4])
+                          const next = Object.fromEntries(
+                            courtNumbers.map((court) => [court, [...(current[court] ?? [])]]),
+                          ) as Session;
+                          for (const court of courtNumbers)
                             next[court] = next[court].filter((playerId) => playerId !== id);
                           return next;
                         }),
@@ -194,7 +194,7 @@ export function EventCourtAssignmentDialog({
                         .filter(
                           (p) =>
                             p.status === 'confirmed' &&
-                            ![1, 2, 3, 4].some((c) => session[c].includes(p.registration_id)),
+                            !courtNumbers.some((c) => session[c]?.includes(p.registration_id)),
                         )
                         .map((p) => (
                           <DraggableItem

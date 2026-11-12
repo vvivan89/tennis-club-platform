@@ -13,18 +13,19 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { GenderSelect } from '@/components/gender-select';
 import { TennisSkillLevelSelect } from '@/components/tennis-skill-level-select';
+import { useSiteHeaderState } from '@/components/site-header-state';
 
 type Mode = 'login' | 'signup' | 'reset';
 
 const copy = {
   login: {
     title: 'Member sign in',
-    description: 'Sign in to access your PCTC member account.',
+    description: 'Sign in to access your member account.',
     submit: 'Sign in',
   },
   signup: {
     title: 'Create a member account',
-    description: 'Create an account to begin your PCTC membership application.',
+    description: 'Create an account to begin your membership application.',
     submit: 'Create account',
   },
   reset: {
@@ -35,6 +36,7 @@ const copy = {
 } as const;
 
 export function AuthForm({ mode }: { mode: Mode }) {
+  const { shortName } = useSiteHeaderState();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState('');
@@ -129,11 +131,17 @@ export function AuthForm({ mode }: { mode: Mode }) {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background px-4 py-12 text-foreground">
+    <div className="flex w-full justify-center text-foreground">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-2">
           <CardTitle className="text-2xl">{config.title}</CardTitle>
-          <CardDescription>{config.description}</CardDescription>
+          <CardDescription>
+            {mode === 'login' && shortName
+              ? `Sign in to access your ${shortName} member account.`
+              : mode === 'signup' && shortName
+                ? `Create an account to begin your ${shortName} membership application.`
+                : config.description}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit} className="space-y-4">
@@ -264,6 +272,6 @@ export function AuthForm({ mode }: { mode: Mode }) {
           </div>
         </CardContent>
       </Card>
-    </main>
+    </div>
   );
 }

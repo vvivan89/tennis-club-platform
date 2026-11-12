@@ -30,6 +30,12 @@ export async function GET(request: Request) {
     .select('*')
     .eq('id', 1)
     .maybeSingle();
+  const { data: clubSettings } = await db
+    .from('club_settings')
+    .select('short_name')
+    .eq('id', 1)
+    .maybeSingle();
+  const shortName = clubSettings?.short_name || 'Tennis Club';
   if (!cfg)
     return NextResponse.json({
       success: true,
@@ -139,11 +145,13 @@ export async function GET(request: Request) {
   );
 
   const subject =
-    type === 'before' ? 'PCTC membership renewal is coming up' : 'PCTC membership fee reminder';
+    type === 'before'
+      ? `${shortName} membership renewal is coming up`
+      : `${shortName} membership fee reminder`;
   const text =
     type === 'before'
-      ? `The PCTC membership season begins on ${season.start.toISOString().slice(0, 10)}. Please renew your membership before the season starts.`
-      : `The PCTC membership season began on ${season.start.toISOString().slice(0, 10)} and we have not recorded a payment for you. Please renew your membership.`;
+      ? `The ${shortName} membership season begins on ${season.start.toISOString().slice(0, 10)}. Please renew your membership before the season starts.`
+      : `The ${shortName} membership season began on ${season.start.toISOString().slice(0, 10)} and we have not recorded a payment for you. Please renew your membership.`;
   const portalUrl = new URL('/member/membership', getSiteOrigin(request)).toString();
 
   async function remind(p: (typeof due)[number]): Promise<boolean | null> {
@@ -162,6 +170,7 @@ export async function GET(request: Request) {
         .eq('user_id', p.id);
     try {
       const resp = await sendResendEmail({
+        request,
         to: p.email,
         subject,
         html: `<p>Hello ${esc(p.full_name || 'member')},</p><p>${esc(text)}</p><p><a href="${portalUrl}">View your member portal</a></p>`,

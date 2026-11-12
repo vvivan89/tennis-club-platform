@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
+import { useSiteHeaderState } from '@/components/site-header-state';
 
 function titleCase(value: string): string {
   return value
@@ -11,7 +12,7 @@ function titleCase(value: string): string {
     .join(' ');
 }
 
-export function getPageTitle(pathname: string): string {
+export function getPageTitle(pathname: string, shortName = ''): string {
   const parts = pathname.split('/').filter(Boolean);
   const portal = parts[0] === 'admin' ? 'Admin' : parts[0] === 'member' ? 'Member' : '';
   const path = portal ? parts.slice(1) : parts;
@@ -25,15 +26,16 @@ export function getPageTitle(pathname: string): string {
   else if (path[0] === 'club-profile') page = 'Club Profile';
   else if (path[0] === 'forgot-password') page = 'Forgot Password';
   else if (path[0] === 'reset-password') page = 'Reset Password';
-  return ['PCTC', portal, page].filter(Boolean).join(' | ');
+  return [shortName, portal, page].filter(Boolean).join(' | ');
 }
 
 export function PageTitle() {
   const pathname = usePathname() || '/';
+  const { shortName } = useSiteHeaderState();
   useEffect(() => {
     // Event detail pages set their title from the loaded event record.
     if (/^\/events\/[^/]+\/?$/.test(pathname)) return;
-    document.title = getPageTitle(pathname);
-  }, [pathname]);
+    document.title = getPageTitle(pathname, shortName);
+  }, [pathname, shortName]);
   return null;
 }

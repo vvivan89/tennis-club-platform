@@ -27,9 +27,9 @@ function setup(rpcResult: { error: { message: string } | null } = { error: null 
 }
 
 describe('useLeagueEventCourtActions', () => {
-  it('opens from saved assignments, moves and unassigns teams, and bounds court count', () => {
+  it('opens from saved assignments, moves and unassigns teams, and uses the event court count', () => {
     const { result } = setup();
-    expect(result.current.courtTotal).toBe(4);
+    expect(result.current.courtTotal).toBe(6);
     act(() => result.current.openLeagueCourtModal());
     expect(result.current.leagueCourtModalOpen).toBe(true);
     expect(result.current.leagueCourtDraft).toEqual([

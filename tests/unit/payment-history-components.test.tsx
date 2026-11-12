@@ -191,7 +191,7 @@ describe('AdminManualPaymentRefundForm', () => {
     await user.type(amount, '12.50');
     await user.type(screen.getByLabelText('Manual refund note for interac-1'), ' member request ');
     await user.click(screen.getByRole('button', { name: 'Record manual refund for interac-1' }));
-    expect(screen.getByRole('alertdialog')).toHaveTextContent('This records the refund in PCTC');
+    expect(screen.getByRole('alertdialog')).toHaveTextContent('it does not send money');
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(fetchMock).not.toHaveBeenCalled();
 

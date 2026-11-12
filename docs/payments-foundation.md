@@ -1,4 +1,4 @@
-# PCTC payments and Stripe checkout
+# Club payments and Stripe checkout
 
 ## Implemented flows
 

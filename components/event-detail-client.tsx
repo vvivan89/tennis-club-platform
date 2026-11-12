@@ -10,6 +10,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import { dispatchEventNotificationsInBackground } from '@/lib/event-notifications';
 import { Button } from '@/components/ui/button';
 import { EventWeather } from '@/components/event-weather';
+import { InProgressBadge } from '@/components/in-progress-badge';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EventWithdrawalDialog } from '@/components/event-withdrawal-dialog';
 import { PaymentOptionsButton, type PaymentOption } from '@/components/payment-options-button';
@@ -34,6 +35,7 @@ import {
 
 import type { EventInfo } from '@/components/event-detail-types';
 import { useEventRegistrationActions } from '@/components/use-event-registration-actions';
+import { useSiteHeaderState } from '@/components/site-header-state';
 
 export function EventDetailClient({
   event,
@@ -68,11 +70,12 @@ export function EventDetailClient({
   remainingSpots: number;
   interacEnabled?: boolean;
 }) {
+  const { shortName } = useSiteHeaderState();
   const db = createSupabaseBrowserClient();
   const router = useRouter();
   useEffect(() => {
-    document.title = `PCTC | ${event.title}`;
-  }, [event.title]);
+    document.title = [shortName, event.title].filter(Boolean).join(' | ');
+  }, [event.title, shortName]);
   const eventNoun = event.event_type === 'tournament' ? 'Tournament' : 'Event';
   const operationKeys = useRef<Record<string, string>>({});
   const [liveRoster, setLiveRoster] = useState<Roster[]>(roster);
@@ -563,11 +566,7 @@ export function EventDetailClient({
               : ''}
         </span>
         {Date.now() >= new Date(event.starts_at).getTime() &&
-          Date.now() <= new Date(event.ends_at || event.starts_at).getTime() && (
-            <span className="rounded-full bg-success/15 px-2.5 py-1 text-xs font-medium text-success-foreground dark:text-success-foreground">
-              In progress
-            </span>
-          )}
+          Date.now() <= new Date(event.ends_at || event.starts_at).getTime() && <InProgressBadge />}
         {event.gender_restriction && (
           <span className="rounded-full bg-secondary px-3 py-1 text-xs">
             {event.gender_restriction === 'male'

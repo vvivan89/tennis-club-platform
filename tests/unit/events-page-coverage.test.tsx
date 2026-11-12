@@ -102,7 +102,7 @@ describe('EventsPage', () => {
       'Location: Port Coquitlam, British Columbia',
     );
     expect(screen.queryByRole('link', { name: 'Create event' })).not.toBeInTheDocument();
-    expect(screen.getByRole('banner')).toHaveTextContent('Port Coquitlam Tennis Club PCTC');
+    expect(screen.getByRole('banner')).toHaveTextContent('Port Coquitlam Tennis Club');
   });
 
   it('shows event creation only to approved administrators and organizers', async () => {

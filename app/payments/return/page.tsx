@@ -4,6 +4,7 @@ import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { safeRedirectPath } from '@/lib/safe-redirect';
+import { useSiteHeaderState } from '@/components/site-header-state';
 
 type PaymentStatus = {
   id: string;
@@ -16,6 +17,7 @@ type PaymentStatus = {
 type PaymentStatusResponse = { payment: PaymentStatus; fulfilled: boolean };
 
 function PaymentReturnContent() {
+  const { shortName } = useSiteHeaderState();
   const params = useSearchParams();
   const sessionId = params.get('session_id');
   const paymentId = params.get('payment_id');
@@ -168,7 +170,7 @@ function PaymentReturnContent() {
   return (
     <main className="page-container py-16">
       <section className="mx-auto max-w-xl rounded-xl border border-border p-6">
-        <p className="eyebrow">PCTC payments</p>
+        <p className="eyebrow">{shortName ? `${shortName} payments` : 'Payments'}</p>
         <h1 className="section-title mt-2">{title}</h1>
         <p className="mt-4 text-sm text-muted-foreground" role="status">
           {description}

@@ -271,7 +271,7 @@ describe('GalleryPage', () => {
     render(<GalleryPage />);
 
     expect(await screen.findByText(/Port Coquitlam Tennis Club/)).toBeInTheDocument();
-    expect(screen.getByText(/PCTC/)).toBeInTheDocument();
+    expect(screen.queryByText(/PCTC/)).not.toBeInTheDocument();
     expect(screen.getByText('No photos in this album yet.')).toBeInTheDocument();
     expect(
       screen.getAllByText(/Public album/).some((node) => node.textContent?.includes('0 photos')),

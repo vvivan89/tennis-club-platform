@@ -1,4 +1,4 @@
-# PCTC payments — implementation report
+# Club payments — implementation report
 
 ## Implemented
 

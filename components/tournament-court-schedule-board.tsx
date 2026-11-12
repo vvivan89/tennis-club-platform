@@ -68,7 +68,7 @@ export function TournamentCourtScheduleBoard<T extends CourtScheduleMatch>({
           )}
         </div>
       )}
-      <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
         {Array.from({ length: courtTotal }, (_, index) => index + 1).map((court) => (
           <DropZone
             key={court}

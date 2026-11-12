@@ -60,12 +60,19 @@ export async function POST(request: Request) {
           'Email was not sent: the approved account has no email address in its profile.';
       else
         try {
+          const { data: clubSettings } = await admin
+            .from('club_settings')
+            .select('short_name')
+            .eq('id', 1)
+            .maybeSingle();
+          const shortName = clubSettings?.short_name || 'Tennis Club';
           const emailResponse = await sendResendEmail({
+            request,
             apiKey: resendKey,
             from: fromEmail,
             to: app.email,
-            subject: 'Your PCTC application has been approved',
-            html: `<p>Hello ${escapeHtml(String(app.full_name || ''))},</p><p>Your Port Coquitlam Tennis Club account has been approved. You can now sign in and access member features.</p><p><a href="${new URL('/login', getSiteOrigin(request)).toString()}">Sign in to PCTC</a></p>`,
+            subject: `Your ${shortName} application has been approved`,
+            html: `<p>Hello ${escapeHtml(String(app.full_name || ''))},</p><p>Your ${escapeHtml(shortName)} account has been approved. You can now sign in and access member features.</p><p><a href="${new URL('/login', getSiteOrigin(request)).toString()}">Sign in to ${escapeHtml(shortName)}</a></p>`,
           });
           const raw = await emailResponse.text();
           let payload: Record<string, unknown> = {};

@@ -61,11 +61,11 @@ describe('Help Center role access', () => {
       screen.getByRole('heading', { name: 'Emails managed by these preferences' }),
     ).toBeInTheDocument();
     expect(screen.getByText(/Registration is open: \{event title\}/)).toBeInTheDocument();
-    expect(screen.getByText(/Your place in a PCTC event is confirmed/)).toBeInTheDocument();
+    expect(screen.getByText(/club — Your place in an event is confirmed/)).toBeInTheDocument();
     expect(
       screen.getByRole('heading', { name: 'Other emails are not controlled by these preferences' }),
     ).toBeInTheDocument();
-    expect(screen.getByText(/PCTC Interac payment instructions/)).toBeInTheDocument();
+    expect(screen.getByText(/club Interac payment instructions/)).toBeInTheDocument();
     expect(screen.getByText(/account invitations, passwordless sign-in links/)).toBeInTheDocument();
     expect(screen.getByText(/broad audiences.*ignore profile preferences/i)).toBeInTheDocument();
   });

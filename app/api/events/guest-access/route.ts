@@ -36,7 +36,7 @@ export async function POST(request: Request) {
     if (emailLimit) return emailLimit;
 
     const db = createServiceRoleClient();
-    const [{ data: event }, { data: profile }] = await Promise.all([
+    const [{ data: event }, { data: profile }, { data: clubSettings }] = await Promise.all([
       db
         .from('events')
         .select('id,slug,status,event_type,allow_non_member_registration')
@@ -47,6 +47,7 @@ export async function POST(request: Request) {
         .select('id,role,application_status,account_kind')
         .eq('email', email)
         .maybeSingle(),
+      db.from('club_settings').select('short_name').eq('id', 1).maybeSingle(),
     ]);
     if (
       !event ||
@@ -69,7 +70,7 @@ export async function POST(request: Request) {
       }
       return NextResponse.json({
         memberLoginRequired: true,
-        message: 'Please log in with your existing PCTC account.',
+        message: `Please log in with your existing ${clubSettings?.short_name || 'Tennis Club'} account.`,
       });
     }
 

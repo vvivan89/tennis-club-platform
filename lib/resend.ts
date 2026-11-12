@@ -5,6 +5,8 @@ export const escapeHtml = (value: string) =>
   );
 
 type ResendEmail = {
+  /** Request whose host should be used for links in this email. */
+  request: Pick<Request, 'url'>;
   from?: string;
   to: string;
   subject: string;
@@ -17,6 +19,7 @@ type ResendEmail = {
 
 export function sendResendEmail({
   from = process.env.RESEND_FROM_EMAIL,
+  request,
   to,
   subject,
   html,
@@ -24,6 +27,17 @@ export function sendResendEmail({
   apiKey = process.env.RESEND_API_KEY,
   idempotencyKey,
 }: ResendEmail) {
+  const profileUrl = new URL('/member/profile', new URL(request.url).origin).toString();
+  const footerHtml = `<p>To unsubscribe from these emails, visit your club member <a href="${escapeHtml(profileUrl)}">profile</a>.</p>`;
+  const htmlWithFooter = html
+    ? `${html}${footerHtml}`
+    : text
+      ? `<p>${escapeHtml(text).replace(/\r?\n/g, '<br>')}</p>${footerHtml}`
+      : undefined;
+  const textWithFooter = text
+    ? `${text}\n\nTo unsubscribe from these emails, visit your club member profile: ${profileUrl}`
+    : text;
+
   return fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
@@ -31,6 +45,6 @@ export function sendResendEmail({
       'Content-Type': 'application/json',
       ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
     },
-    body: JSON.stringify({ from, to: [to], subject, html, text }),
+    body: JSON.stringify({ from, to: [to], subject, html: htmlWithFooter, text: textWithFooter }),
   });
 }

@@ -7,34 +7,15 @@ import { usePendingMemberApplicationsCount } from '@/lib/use-pending-member-appl
 import { usePendingInteracPaymentsCount } from '@/lib/use-pending-interac-payments-count';
 import { NavCountBadge } from '@/components/nav-count-badge';
 import { PortalNavLink } from '@/components/portal-nav-link';
+import { ShieldCheck } from 'lucide-react';
 import {
-  LayoutDashboard,
-  Building2,
-  Users,
-  CalendarDays,
-  Newspaper,
-  Files,
-  ShieldCheck,
-  ClipboardList,
-  CreditCard,
-} from 'lucide-react';
-const adminLinks = [
-  { href: '/admin/dashboard', label: 'Dashboard', Icon: LayoutDashboard },
-  { href: '/admin/club-profile', label: 'Club Profile', Icon: Building2 },
-  { href: '/admin/members', label: 'Membership', Icon: Users },
-  { href: '/admin/payments', label: 'Payments', Icon: CreditCard },
-  { href: '/admin/events', label: 'Events', Icon: CalendarDays },
-  { href: '/admin/website', label: 'Publications', Icon: Newspaper },
-  { href: '/admin/documents', label: 'Documents', Icon: Files },
-  { href: '/admin/audit-logs', label: 'Audit Logs', Icon: ClipboardList },
-];
-const organizerLinks = [
-  { href: '/admin/organizer-dashboard', label: 'Dashboard', Icon: LayoutDashboard },
-  { href: '/admin/events', label: 'Events', Icon: CalendarDays },
-];
+  adminPortalLinks,
+  isAdminPortalLinkCurrent,
+  organizerPortalLinks,
+} from '@/components/portal-navigation-items';
 export function AdminNav() {
   const pathname = usePathname();
-  const [club, setClub] = useState({ short_name: 'PCTC', club_name: 'Port Coquitlam Tennis Club' });
+  const [club, setClub] = useState({ short_name: '', club_name: 'Port Coquitlam Tennis Club' });
   const [role, setRole] = useState('member');
   const pendingApplicationCount = usePendingMemberApplicationsCount(role === 'admin');
   const pendingInteracPaymentCount = usePendingInteracPaymentsCount(role === 'admin');
@@ -63,13 +44,13 @@ export function AdminNav() {
       active = false;
     };
   }, []);
-  const links = role === 'organizer' ? organizerLinks : adminLinks;
+  const links = role === 'organizer' ? organizerPortalLinks : adminPortalLinks;
   return (
     <>
       <SiteHeader clubName={club.club_name} shortName={club.short_name} />
       <nav
         aria-label="Administration navigation"
-        className="border-b border-border/70 bg-background"
+        className="hidden border-b border-border/70 bg-background lg:block"
       >
         <div className="page-container flex flex-wrap items-center gap-3 py-2">
           <div className="flex items-center gap-2 border-r border-border pr-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -78,20 +59,7 @@ export function AdminNav() {
           </div>
           <div className="flex flex-1 flex-wrap items-center justify-center gap-1">
             {links.map((item) => {
-              const current =
-                item.href === '/admin/dashboard' || item.href === '/admin/organizer-dashboard'
-                  ? pathname === item.href || pathname === '/admin'
-                  : item.href === '/admin/members'
-                    ? pathname.startsWith('/admin/members') ||
-                      pathname.startsWith('/admin/membership-types') ||
-                      pathname.startsWith('/admin/applications')
-                    : item.href === '/admin/website'
-                      ? pathname.startsWith('/admin/website') ||
-                        pathname.startsWith('/admin/gallery')
-                      : item.href === '/admin/documents'
-                        ? pathname.startsWith('/admin/documents') ||
-                          pathname.startsWith('/admin/legal')
-                        : pathname === item.href || pathname.startsWith(item.href + '/');
+              const current = isAdminPortalLinkCurrent(item.href, pathname);
               const Icon = item.Icon;
               return (
                 <PortalNavLink

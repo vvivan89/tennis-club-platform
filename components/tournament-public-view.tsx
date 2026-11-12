@@ -36,6 +36,7 @@ import { useTournamentPublicViewUiState } from '@/components/use-tournament-publ
 import { useTournamentWinnerAnnouncement } from '@/components/use-tournament-winner-announcement';
 import { getTournamentWithdrawalPaymentState } from '@/components/tournament-withdrawal-payment-state';
 import { getTournamentLeagueOverviewData } from '@/components/tournament-league-overview-data';
+import { useSiteHeaderState } from '@/components/site-header-state';
 const EMPTY_WINNER_SUMMARIES: Array<{ category: string; winners: string[] }> = [];
 export function TournamentPublicView({
   adminContent = null,
@@ -78,11 +79,12 @@ export function TournamentPublicView({
   winnersAnnounced: initialWinnersAnnounced = false,
   announcedWinners: initialAnnouncedWinners = EMPTY_WINNER_SUMMARIES,
 }: TournamentPublicViewProps) {
+  const { shortName } = useSiteHeaderState();
   const db = useMemo(() => createSupabaseBrowserClient(), []),
     router = useRouter();
   useEffect(() => {
-    if (eventTitle) document.title = `PCTC | ${eventTitle}`;
-  }, [eventTitle]);
+    if (eventTitle) document.title = [shortName, eventTitle].filter(Boolean).join(' | ');
+  }, [eventTitle, shortName]);
   const hasRules = Boolean(rulesHtml?.trim()) && !leagueTournament;
   const isEventGuest = !!currentUserId && currentUserAccountKind === 'event_guest';
   const canManageLeagueScores = leagueTournament && Boolean(adminContent);

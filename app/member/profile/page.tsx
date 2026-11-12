@@ -17,6 +17,7 @@ import { MemberNav } from '@/components/member-nav';
 import { FloatingFeedback } from '@/components/floating-feedback';
 import { GenderSelect } from '@/components/gender-select';
 import { TennisSkillLevelSelect } from '@/components/tennis-skill-level-select';
+import { ProfileAppearanceSettings } from '@/components/profile-appearance-settings';
 
 function isBirthdayToday(dateOfBirth: string | null) {
   if (!dateOfBirth) return false;
@@ -56,7 +57,7 @@ export default function ProfilePage() {
   const [error, setError] = useState('');
   const [club, setClub] = useState({
     club_name: 'Port Coquitlam Tennis Club',
-    short_name: 'PCTC',
+    short_name: '',
     social_links: [] as { url: string }[],
   });
 
@@ -82,7 +83,7 @@ export default function ProfilePage() {
       if (active && clubData)
         setClub({
           club_name: clubData.club_name || 'Port Coquitlam Tennis Club',
-          short_name: clubData.short_name || 'PCTC',
+          short_name: clubData.short_name || '',
           social_links: Array.isArray(clubData.social_links) ? clubData.social_links : [],
         });
       const { data, error: queryError } = await supabase
@@ -290,7 +291,7 @@ export default function ProfilePage() {
               </span>
             ) : null}
           </h1>
-          <p className="mt-2 text-sm text-muted-foreground">Manage your PCTC member details.</p>
+          <p className="mt-2 text-sm text-muted-foreground">Manage your member details.</p>
           {loading ? (
             <TennisLoader label="Loading profile" />
           ) : (
@@ -405,7 +406,7 @@ export default function ProfilePage() {
                         selectClassName="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                       />
                       <label className="block space-y-1.5 text-sm font-medium">
-                        Playing hand (optional)
+                        <span className="block min-h-6">Playing hand (optional)</span>
                         <select
                           value={playingHand}
                           onChange={(e) => setPlayingHand(e.target.value)}
@@ -524,6 +525,16 @@ export default function ProfilePage() {
                     </form>
                   </CardContent>
                 </Card>
+                <ProfileAppearanceSettings
+                  onSaved={(savedMessage) => {
+                    setError('');
+                    setMessage(savedMessage);
+                  }}
+                  onError={(saveError) => {
+                    setMessage('');
+                    setError(saveError);
+                  }}
+                />
               </div>
             </div>
           )}

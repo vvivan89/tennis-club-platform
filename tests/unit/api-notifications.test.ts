@@ -226,6 +226,7 @@ describe('notification endpoints', () => {
         recipient('recipient-1', { full_name: '<Player>', email_registration_updates: true }),
       ];
       mocks.data.events = [{ ...event, title: '<Finals>', location: 'Court <1>' }];
+      mocks.singles.club_settings = [{ short_name: 'Riverside TC' }];
       mocks.data.registrations = [
         {
           event_id: 'event-1',
@@ -249,6 +250,8 @@ describe('notification endpoints', () => {
       expect(message.html).toContain('&lt;Player&gt;');
       expect(message.html).toContain('&lt;Finals&gt;');
       expect(message.html).not.toContain('<Finals>');
+      expect(message.subject).toBe('Riverside TC — Registration confirmed: <Finals>');
+      expect(message.html).toContain('<p>Riverside TC</p>');
       expect(init.headers['Idempotency-Key']).toBe('event-notification:queue-1');
       const updates = queueUpdates().map((u) => u.values);
       expect(updates[0]).toEqual({ claimed_at: expect.any(String) });

@@ -117,7 +117,7 @@ describe('POST /api/events/guest-access', () => {
     const existing = await POST(request({ email: 'a@example.test', eventId }));
     expect(await existing.json()).toMatchObject({
       memberLoginRequired: true,
-      message: 'Please log in with your existing PCTC account.',
+      message: 'Please log in with your existing Tennis Club account.',
     });
   });
 

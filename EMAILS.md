@@ -10,13 +10,13 @@ These messages use the shared event notification layout. The subject and introdu
 
 | Notification | Subject | Introductory paragraph |
 | --- | --- | --- |
-| Registration created, confirmed | `Registration confirmed: {event title}` | Your registration has been recorded. Your current registration status is shown below. |
-| Registration created, waitlisted | `You're on the waitlist: {event title}` | Your registration has been recorded. Your current registration status is shown below. |
-| Registration created, other status | `Your PCTC event registration` | Your registration has been recorded. Your current registration status is shown below. |
-| Registration cancelled | `Your PCTC event registration was cancelled` | Your event registration has been cancelled. |
-| Event cancelled | `PCTC event cancelled` | An event you registered for has been cancelled by the club. |
-| Waitlist place confirmed | `Your place in a PCTC event is confirmed` | A place has opened and you have been moved from the waitlist to confirmed. |
-| New event announced | `New PCTC event announced` | A new club event is available for registration. |
+| Registration created, confirmed | `{club_settings.short_name} — Registration confirmed: {event title}` | Your registration has been recorded. Your current registration status is shown below. |
+| Registration created, waitlisted | `{club_settings.short_name} — You're on the waitlist: {event title}` | Your registration has been recorded. Your current registration status is shown below. |
+| Registration created, other status | `{club_settings.short_name} — Your event registration` | Your registration has been recorded. Your current registration status is shown below. |
+| Registration cancelled | `{club_settings.short_name} — Your event registration was cancelled` | Your event registration has been cancelled. |
+| Event cancelled | `{club_settings.short_name} — Event cancelled` | An event you registered for has been cancelled by the club. |
+| Waitlist place confirmed | `{club_settings.short_name} — Your place in an event is confirmed` | A place has opened and you have been moved from the waitlist to confirmed. |
+| New event announced | `{club_settings.short_name} — New event announced` | A new club event is available for registration. |
 
 The body layout is:
 
@@ -30,7 +30,7 @@ The body layout is:
 {for registration-created messages with a known status:
   <p><strong>Registration status:</strong> {status}</p>}
 <p><a href="{event page URL}">View event details</a></p>
-<p>Port Coquitlam Tennis Club</p>
+<p>{club_settings.short_name}</p>
 ```
 
 Registration status text is `Your registration is confirmed.` or `You are on the waitlist` (with ` at position {queue position}` when known). Recurring schedules are rendered as `Every {weekday}`, `Every other {weekday}`, or `Monthly on the {ordinal} {weekday}`. Dates use the server's `en-CA` locale formatting.
@@ -117,37 +117,37 @@ The recipient receives one of these based on whether the season starts in seven 
 
 **Before the season starts**
 
-- **Subject:** `PCTC membership renewal is coming up`
+- **Subject:** `{club_settings.short_name} membership renewal is coming up`
 - **Body:**
 
 ```html
 <p>Hello {member name or "member"},</p>
-<p>The PCTC membership season begins on {season start date, YYYY-MM-DD}.
+<p>The {club_settings.short_name} membership season begins on {season start date, YYYY-MM-DD}.
   Please renew your membership before the season starts.</p>
 <p><a href="{member membership page URL}">View your member portal</a></p>
 ```
 
 **After the season starts**
 
-- **Subject:** `PCTC membership fee reminder`
+- **Subject:** `{club_settings.short_name} membership fee reminder`
 - **Body:**
 
 ```html
 <p>Hello {member name or "member"},</p>
-<p>The PCTC membership season began on {season start date, YYYY-MM-DD} and we have not
+<p>The {club_settings.short_name} membership season began on {season start date, YYYY-MM-DD} and we have not
   recorded a payment for you. Please renew your membership.</p>
 <p><a href="{member membership page URL}">View your member portal</a></p>
 ```
 
 ### Family membership invitation
 
-- **Subject:** `PCTC family membership invitation`
+- **Subject:** `{club_settings.short_name} family membership invitation`
 - **Body:**
 
 ```html
 <p>Hello {invited member's name or "member"},</p>
 <p>{inviting member's name, email, or "A member"} invited you to join their
-  PCTC family membership.</p>
+  {club_settings.short_name} family membership.</p>
 <p>Sign in to your Member Portal and confirm the invitation:
   <a href="{member membership page URL}">Review invitation</a>.</p>
 ```
@@ -158,11 +158,11 @@ The recipient receives one of these based on whether the season starts in seven 
 
 Sent when an Interac payment request is initiated, once per payment request.
 
-- **Subject:** `PCTC Interac payment instructions`
+- **Subject:** `{club_settings.short_name} Interac payment instructions`
 - **Plain-text body:**
 
 ```text
-Your PCTC Interac payment request is pending.
+Your {club_settings.short_name} Interac payment request is pending.
 
 Amount: {amount with two decimals} CAD
 Send to: {club Interac recipient email}
@@ -179,7 +179,7 @@ Sent after an administrator confirms or rejects an Interac payment request.
 
 **Confirmed**
 
-- **Subject:** `PCTC Interac payment confirmed`
+- **Subject:** `{club_settings.short_name} Interac payment confirmed`
 - **Plain-text body:**
 
 ```text
@@ -192,7 +192,7 @@ Payment reference: {payment ID}
 
 **Rejected / needs attention**
 
-- **Subject:** `PCTC Interac payment requires attention`
+- **Subject:** `{club_settings.short_name} Interac payment requires attention`
 - **Plain-text body:**
 
 ```text
@@ -209,13 +209,13 @@ Payment reference: {payment ID}
 
 Sent when an administrator approves a membership application, if Resend is configured and the account has an email address.
 
-- **Subject:** `Your PCTC application has been approved`
+- **Subject:** `Your {club_settings.short_name} application has been approved`
 - **Body:**
 
 ```html
 <p>Hello {applicant's name},</p>
 <p>Your Port Coquitlam Tennis Club account has been approved. You can now sign in and access member features.</p>
-<p><a href="{PCTC login URL}">Sign in to PCTC</a></p>
+<p><a href="{club login URL}">Sign in to {club_settings.short_name}</a></p>
 ```
 
 ## Administrator announcements

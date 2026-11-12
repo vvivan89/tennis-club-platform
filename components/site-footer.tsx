@@ -23,7 +23,7 @@ export function SiteFooter({
   const { logoUrl } = useSiteHeaderState();
   const [settings, setSettings] = useState({
     club_name: suppliedClubName || 'Port Coquitlam Tennis Club',
-    short_name: suppliedShortName || 'PCTC',
+    short_name: suppliedShortName || '',
     social_links: suppliedSocialLinks || ([] as Social[]),
   });
   useEffect(() => {
@@ -45,7 +45,7 @@ export function SiteFooter({
         if (alive && data)
           setSettings({
             club_name: data.club_name || 'Port Coquitlam Tennis Club',
-            short_name: data.short_name || 'PCTC',
+            short_name: data.short_name || '',
             social_links: Array.isArray(data.social_links) ? data.social_links : [],
           });
       });

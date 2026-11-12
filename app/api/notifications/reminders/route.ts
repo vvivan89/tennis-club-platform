@@ -82,6 +82,7 @@ export async function GET(request: Request) {
       try {
         // The key makes a retry after a crash (or an overlapping run) a no-op at the provider.
         const response = await sendResendEmail({
+          request,
           to: p.email!,
           subject: `Registration is open: ${ev.title}`,
           html: `<p>Hello ${esc(p.full_name || 'member')},</p><p>Registration is now open for <strong>${esc(ev.title)}</strong>.</p><p>${esc(new Date(ev.starts_at).toLocaleString('en-CA'))} · ${esc(ev.location || '')}</p><p><a href="${esc(eventUrl)}">View event and register</a></p>`,

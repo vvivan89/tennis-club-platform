@@ -313,7 +313,7 @@ describe('manual payment review endpoint', () => {
     expect(mocks.fetch).toHaveBeenCalledOnce();
     expect(JSON.parse(String(mocks.fetch.mock.calls[0][1]?.body))).toMatchObject({
       to: ['member@example.test'],
-      subject: 'PCTC Interac payment confirmed',
+      subject: 'Tennis Club Interac payment confirmed',
     });
     expect(mocks.calls).toContainEqual(
       expect.objectContaining({ table: 'payments', operation: 'update' }),
@@ -340,7 +340,7 @@ describe('manual payment review endpoint', () => {
     expect(response.status).toBe(200);
     expect(mocks.fetch).toHaveBeenCalledOnce();
     expect(JSON.parse(String(mocks.fetch.mock.calls[0][1]?.body))).toMatchObject({
-      subject: 'PCTC Interac payment requires attention',
+      subject: 'Tennis Club Interac payment requires attention',
     });
     expect(mocks.calls).not.toContainEqual(
       expect.objectContaining({ table: 'payments', operation: 'update' }),

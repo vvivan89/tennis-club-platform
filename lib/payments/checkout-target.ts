@@ -22,6 +22,12 @@ export async function resolveCheckoutTarget(args: {
   settings: CheckoutPricingSettings | null;
 }): Promise<CheckoutTarget | NextResponse> {
   const { db, body, user, settings } = args;
+  const { data: clubSettings } = await db
+    .from('club_settings')
+    .select('short_name')
+    .eq('id', 1)
+    .maybeSingle();
+  const shortName = clubSettings?.short_name || 'Tennis Club';
   let businessRecordId = body.businessRecordId?.trim() || '';
   let amountMinor = 0;
   const currency = 'cad';
@@ -165,7 +171,7 @@ export async function resolveCheckoutTarget(args: {
       }
       businessRecordId = `family:${businessRecordId}`;
       amountMinor = Number(settings.family_price_cents);
-      description = `PCTC family membership — season ${season.year}`;
+      description = `${shortName} family membership — season ${season.year}`;
     } else {
       const targetSeason = season;
       let membership: {
@@ -225,7 +231,7 @@ export async function resolveCheckoutTarget(args: {
         );
       businessRecordId = membership.id;
       amountMinor = Number(settings.single_price_cents);
-      description = 'PCTC individual membership';
+      description = `${shortName} individual membership`;
     }
     if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0)
       return NextResponse.json(
@@ -301,7 +307,7 @@ export async function resolveCheckoutTarget(args: {
         { error: 'Event price does not match the registration. Refresh and try again.' },
         { status: 409 },
       );
-    description = `PCTC event registration — ${event.title}`;
+    description = `${shortName} event registration — ${event.title}`;
   } else {
     const participantIds = [
       ...new Set(
@@ -433,7 +439,7 @@ export async function resolveCheckoutTarget(args: {
         { error: 'The selected tournament entries do not require payment.' },
         { status: 409 },
       );
-    description = `PCTC tournament entries — ${tournamentEvent.title} (${unpaidEntries.length} participant${unpaidEntries.length === 1 ? '' : 's'})`;
+    description = `${shortName} tournament entries — ${tournamentEvent.title} (${unpaidEntries.length} participant${unpaidEntries.length === 1 ? '' : 's'})`;
   }
 
   return { businessRecordId, amountMinor, currency, description };

@@ -1,10 +1,10 @@
-# Port Coquitlam Tennis Club (PCTC)
+# Tennis Club Platform
 
 Next.js 14, React, TypeScript, Tailwind CSS, shadcn/ui-style components, and Supabase.
 
 ## Current functionality
 
-- PCTC landing page and published-event listing (real events load from Supabase; sample events are shown if the database is not configured or has no published events).
+- Club landing page and published-event listing (real events load from Supabase; sample events are shown if the database is not configured or has no published events).
 - Supabase Auth: email/password sign-in, sign-up, email confirmation callback, password-reset email, and password update.
 - Server-rendered member dashboard with the signed-in member's membership and event registration records.
 - Member profile editing.
@@ -27,7 +27,7 @@ Open http://localhost:3000.
 
 ## 2. Configure Supabase
 
-1. Create a Supabase project under an account controlled by PCTC.
+1. Create a Supabase project under an account controlled by the club.
 2. In Project Settings / API, copy the Project URL and the publishable key (or the legacy `anon` key if the project only exposes that key).
 3. Add them to `.env.local`:
 

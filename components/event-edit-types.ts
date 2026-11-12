@@ -33,6 +33,20 @@ export type RecordLine = { wins: number; losses: number };
 export type Warning = { kind: 'overfull' | 'count'; message: string };
 export type Session = Record<number, string[]>;
 
+export function courtNumbersFor(courtCount: number): number[] {
+  return Array.from({ length: Math.max(1, Math.floor(courtCount || 1)) }, (_, index) => index + 1);
+}
+
+export function emptyCourtSession(courtCount: number): Session {
+  return Object.fromEntries(courtNumbersFor(courtCount).map((court) => [court, []])) as Session;
+}
+
+export function copyCourtSession(session: Session, courtCount: number): Session {
+  return Object.fromEntries(
+    courtNumbersFor(courtCount).map((court) => [court, [...(session[court] ?? [])]]),
+  ) as Session;
+}
+
 export type Confirmation = {
   title: string;
   description: string;

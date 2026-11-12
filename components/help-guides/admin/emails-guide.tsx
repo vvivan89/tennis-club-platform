@@ -1,4 +1,7 @@
+'use client';
+
 import { FieldTable, Topic } from '@/components/help-guide-primitives';
+import { useSiteHeaderState } from '@/components/site-header-state';
 
 function Token({ children }: { children: string }) {
   return (
@@ -32,6 +35,8 @@ function EmailSection({ title, children }: { title: string; children: React.Reac
 }
 
 export function AdminEmailsGuide() {
+  const { shortName } = useSiteHeaderState();
+  const brand = shortName || 'Club';
   return (
     <Topic id="admin-emails" title="Emails">
       <p>
@@ -50,47 +55,41 @@ export function AdminEmailsGuide() {
             {
               field: 'Confirmed registration',
               value: 'Registration is created with confirmed status.',
-              effect:
-                'Registration confirmed: {event title} — Your registration has been recorded. Your current registration status is shown below.',
+              effect: `${brand} — Registration confirmed: {event title} — Your registration has been recorded. Your current registration status is shown below.`,
             },
             {
               field: 'Waitlisted registration',
               value: 'Registration is created with waitlisted status.',
-              effect:
-                "You're on the waitlist: {event title} — Your registration has been recorded. Your current registration status is shown below.",
+              effect: `${brand} — You're on the waitlist: {event title} — Your registration has been recorded. Your current registration status is shown below.`,
             },
             {
               field: 'Other registration status',
               value: 'A registration is created with another status.',
-              effect:
-                'Your PCTC event registration — Your registration has been recorded. Your current registration status is shown below.',
+              effect: `${brand} event registration — Your registration has been recorded. Your current registration status is shown below.`,
             },
             {
               field: 'Registration cancelled',
               value: 'A member’s event registration is cancelled.',
-              effect:
-                'Your PCTC event registration was cancelled — Your event registration has been cancelled.',
+              effect: `${brand} event registration was cancelled — Your event registration has been cancelled.`,
             },
             {
               field: 'Event cancelled',
               value: 'An event a member registered for is cancelled by the club.',
-              effect:
-                'PCTC event cancelled — An event you registered for has been cancelled by the club.',
+              effect: `${brand} event cancelled — An event you registered for has been cancelled by the club.`,
             },
             {
               field: 'Waitlist promotion',
               value: 'A waitlisted registration is promoted to confirmed.',
-              effect:
-                'Your place in a PCTC event is confirmed — A place has opened and you have been moved from the waitlist to confirmed.',
+              effect: `Your place in a ${brand} event is confirmed — A place has opened and you have been moved from the waitlist to confirmed.`,
             },
             {
               field: 'New event',
               value: 'A published event is made available for registration.',
-              effect: 'New PCTC event announced — A new club event is available for registration.',
+              effect: `New ${brand} event announced — A new club event is available for registration.`,
             },
           ]}
         />
-        <EmailPreview subject="Registration confirmed: {event title}">
+        <EmailPreview subject={`${brand} — Registration confirmed: {event title}`}>
           <p>
             Hello <Token>member name or “member”</Token>,
           </p>
@@ -112,7 +111,7 @@ export function AdminEmailsGuide() {
               View event details
             </a>
           </p>
-          <p>Port Coquitlam Tennis Club</p>
+          <p>{brand}</p>
         </EmailPreview>
         <p>
           Waitlisted registrations say “You are on the waitlist” and include a queue position when
@@ -209,7 +208,7 @@ export function AdminEmailsGuide() {
             </a>
           </p>
           <p>If you do not recognize this invitation, you can ignore this email.</p>
-          <p>Port Coquitlam Tennis Club</p>
+          <p>{brand}</p>
         </EmailPreview>
       </EmailSection>
 
@@ -250,12 +249,12 @@ export function AdminEmailsGuide() {
           Sent about seven days before a season begins or seven days after it begins. Paid members
           and members covered by a paid family membership are excluded.
         </p>
-        <EmailPreview subject="PCTC membership renewal is coming up">
+        <EmailPreview subject={`${brand} membership renewal is coming up`}>
           <p>
             Hello <Token>member name or “member”</Token>,
           </p>
           <p>
-            The PCTC membership season begins on <Token>season start date, YYYY-MM-DD</Token>.
+            The {brand} membership season begins on <Token>season start date, YYYY-MM-DD</Token>.
             Please renew your membership before the season starts.
           </p>
           <p>
@@ -264,13 +263,13 @@ export function AdminEmailsGuide() {
             </a>
           </p>
         </EmailPreview>
-        <EmailPreview subject="PCTC membership fee reminder">
+        <EmailPreview subject={`${brand} membership fee reminder`}>
           <p>
             Hello <Token>member name or “member”</Token>,
           </p>
           <p>
-            The PCTC membership season began on <Token>season start date, YYYY-MM-DD</Token> and we
-            have not recorded a payment for you. Please renew your membership.
+            The {brand} membership season began on <Token>season start date, YYYY-MM-DD</Token> and
+            we have not recorded a payment for you. Please renew your membership.
           </p>
           <p>
             <a className="font-medium text-primary underline" href="#">
@@ -282,13 +281,13 @@ export function AdminEmailsGuide() {
 
       <EmailSection title="Family membership invitation">
         <p>Sent when a member invites another member to join a family membership.</p>
-        <EmailPreview subject="PCTC family membership invitation">
+        <EmailPreview subject={`${brand} family membership invitation`}>
           <p>
             Hello <Token>invited member’s name or “member”</Token>,
           </p>
           <p>
             <Token>inviting member’s name, email, or “A member”</Token> invited you to join their
-            PCTC family membership.
+            {brand} family membership.
           </p>
           <p>
             Sign in to your Member Portal and confirm the invitation:{' '}
@@ -305,8 +304,8 @@ export function AdminEmailsGuide() {
           The instructions email is sent once when a request is created. The other messages follow
           administrator review.
         </p>
-        <EmailPreview subject="PCTC Interac payment instructions">
-          <p>Your PCTC Interac payment request is pending.</p>
+        <EmailPreview subject={`${brand} Interac payment instructions`}>
+          <p>Your {brand} Interac payment request is pending.</p>
           <dl className="grid gap-2 rounded-md bg-muted/40 p-3 sm:grid-cols-[auto_1fr]">
             <dt className="font-medium">Amount</dt>
             <dd>
@@ -328,7 +327,7 @@ export function AdminEmailsGuide() {
             Your membership or event registration will be finalized after the club confirms receipt.
           </p>
         </EmailPreview>
-        <EmailPreview subject="PCTC Interac payment confirmed">
+        <EmailPreview subject={`${brand} Interac payment confirmed`}>
           <p>
             Hello <Token>member name or “member”</Token>,
           </p>
@@ -341,7 +340,7 @@ export function AdminEmailsGuide() {
             Payment reference: <Token>payment ID</Token>
           </p>
         </EmailPreview>
-        <EmailPreview subject="PCTC Interac payment requires attention">
+        <EmailPreview subject={`${brand} Interac payment requires attention`}>
           <p>
             Hello <Token>member name or “member”</Token>,
           </p>
@@ -360,17 +359,16 @@ export function AdminEmailsGuide() {
           Sent after an administrator approves an application, when Resend is configured and the
           applicant has an email address.
         </p>
-        <EmailPreview subject="Your PCTC application has been approved">
+        <EmailPreview subject={`Your ${brand} application has been approved`}>
           <p>
             Hello <Token>applicant’s name</Token>,
           </p>
           <p>
-            Your Port Coquitlam Tennis Club account has been approved. You can now sign in and
-            access member features.
+            Your {brand} account has been approved. You can now sign in and access member features.
           </p>
           <p>
             <a className="font-medium text-primary underline" href="#">
-              Sign in to PCTC
+              Sign in to {brand}
             </a>
           </p>
         </EmailPreview>

@@ -99,6 +99,7 @@ export async function POST(request: Request) {
       recipients.map(async (recipient) => {
         const html = `<p>Hello ${escapeHtml(recipient.display_name || 'player')},</p><p>Your registration has been recorded. Your current registration status is shown below.</p><h2>${escapeHtml(eventTitle)}</h2><p><strong>Date:</strong> ${escapeHtml(eventDate)}${location}</p><p><strong>Registration status:</strong> Your registration is confirmed.</p><p><a href="${escapeHtml(eventUrl)}">View event details</a></p><p>Port Coquitlam Tennis Club</p>`;
         const result = await sendResendEmail({
+          request,
           to: recipient.email,
           subject,
           html,

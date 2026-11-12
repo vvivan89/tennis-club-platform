@@ -7,6 +7,8 @@ type HeaderState = {
   signedIn: boolean;
   authReady: boolean;
   logoUrl: string;
+  clubName: string;
+  shortName: string;
   canSeeDocuments: boolean;
   canSeeRankings: boolean;
   name: string;
@@ -20,6 +22,8 @@ const initialState: HeaderState = {
   signedIn: false,
   authReady: false,
   logoUrl: '',
+  clubName: '',
+  shortName: '',
   canSeeDocuments: false,
   canSeeRankings: false,
   name: '',
@@ -37,13 +41,29 @@ export function SiteHeaderStateProvider({ children }: { children: React.ReactNod
     let alive = true;
     const db = createSupabaseBrowserClient();
     const loadLogo = async () => {
-      const { data } = await db.from('club_settings').select('logo_url').eq('id', 1).maybeSingle();
-      if (alive) setState((current) => ({ ...current, logoUrl: data?.logo_url || '' }));
+      const { data } = await db
+        .from('club_settings')
+        .select('logo_url,club_name,short_name')
+        .eq('id', 1)
+        .maybeSingle();
+      if (alive)
+        setState((current) => ({
+          ...current,
+          logoUrl: data?.logo_url || '',
+          clubName: data?.club_name || '',
+          shortName: data?.short_name || '',
+        }));
     };
     const loadUser = async (user: { id: string; email?: string } | null) => {
       if (!user) {
         if (alive)
-          setState((current) => ({ ...initialState, authReady: true, logoUrl: current.logoUrl }));
+          setState((current) => ({
+            ...initialState,
+            authReady: true,
+            logoUrl: current.logoUrl,
+            clubName: current.clubName,
+            shortName: current.shortName,
+          }));
         return;
       }
       // Keep the previous profile/menu state visible while refreshing the session.
@@ -93,6 +113,7 @@ export function SiteHeaderStateProvider({ children }: { children: React.ReactNod
     };
     void loadLogo();
     window.addEventListener('club-logo-updated', loadLogo);
+    window.addEventListener('club-settings-updated', loadLogo);
     db.auth
       .getUser()
       .then(({ data: { user } }) => loadUser(user ? { id: user.id, email: user.email } : null))
@@ -106,6 +127,7 @@ export function SiteHeaderStateProvider({ children }: { children: React.ReactNod
     return () => {
       alive = false;
       window.removeEventListener('club-logo-updated', loadLogo);
+      window.removeEventListener('club-settings-updated', loadLogo);
       subscription.subscription.unsubscribe();
     };
   }, []);

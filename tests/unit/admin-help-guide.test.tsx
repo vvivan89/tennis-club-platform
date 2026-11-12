@@ -159,8 +159,8 @@ describe('AdminHelpGuide', () => {
     expect(
       screen.getByRole('heading', { name: 'Interac instructions and review outcomes' }),
     ).toBeInTheDocument();
-    expect(screen.getByText('PCTC family membership invitation')).toBeInTheDocument();
-    expect(screen.getByText(/PCTC Interac payment requires attention/)).toBeInTheDocument();
+    expect(screen.getByText('Club family membership invitation')).toBeInTheDocument();
+    expect(screen.getByText(/Club Interac payment requires attention/)).toBeInTheDocument();
     expect(screen.getByText(/receives a Supabase Auth sign-in link/)).toBeInTheDocument();
     expect(screen.getAllByRole('link', { name: 'View event details' }).length).toBeGreaterThan(0);
     expect(screen.queryByText(/<p>/)).not.toBeInTheDocument();

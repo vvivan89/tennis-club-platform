@@ -43,7 +43,7 @@ export default async function ContactsPage() {
   ]);
   const c = data ?? {
     club_name: 'Port Coquitlam Tennis Club',
-    short_name: 'PCTC',
+    short_name: '',
     description: '',
     contact_email: '',
     contact_phone: '',

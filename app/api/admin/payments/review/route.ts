@@ -46,6 +46,12 @@ export async function POST(request: Request) {
       (process.env.RESEND_FROM_EMAIL || process.env.RESEND_FROM || process.env.EMAIL_FROM)
     ) {
       try {
+        const { data: clubSettings } = await service
+          .from('club_settings')
+          .select('short_name')
+          .eq('id', 1)
+          .maybeSingle();
+        const shortName = clubSettings?.short_name || 'Tennis Club';
         const { data: member } = await service
           .from('profiles')
           .select('email,full_name')
@@ -56,11 +62,12 @@ export async function POST(request: Request) {
           const from =
             process.env.RESEND_FROM_EMAIL || process.env.RESEND_FROM || process.env.EMAIL_FROM!;
           const response = await sendResendEmail({
+            request,
             from,
             to: member.email,
             subject: approved
-              ? 'PCTC Interac payment confirmed'
-              : 'PCTC Interac payment requires attention',
+              ? `${shortName} Interac payment confirmed`
+              : `${shortName} Interac payment requires attention`,
             text: approved
               ? `Hello ${member.full_name || 'member'},\n\nThe club has confirmed your Interac payment of ${((outcome.amountMinor || 0) / 100).toFixed(2)} ${(outcome.currency || 'CAD').toUpperCase()}. Your associated membership or event registration has been updated.\n\nPayment reference: ${body.paymentId}`
               : `Hello ${member.full_name || 'member'},\n\nThe club could not confirm your Interac payment request. Reason: ${typeof body.note === 'string' ? body.note : 'Please contact the club.'}\n\nPayment reference: ${body.paymentId}`,

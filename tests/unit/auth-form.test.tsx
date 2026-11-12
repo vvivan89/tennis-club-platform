@@ -40,6 +40,13 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe('AuthForm', () => {
+  it('leaves viewport sizing to the page layout instead of adding another full-height layer', () => {
+    const { container } = render(<AuthForm mode="login" />);
+    expect(container.querySelector('main')).not.toBeInTheDocument();
+    expect(container.firstElementChild).not.toHaveClass('min-h-screen', 'py-12');
+    expect(container.firstElementChild).toHaveClass('justify-center');
+  });
+
   it('logs in, records the auth action, and honors the next destination', async () => {
     const user = userEvent.setup();
     render(<AuthForm mode="login" />);
