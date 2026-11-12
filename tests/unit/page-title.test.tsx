@@ -2,26 +2,28 @@ import { describe, expect, it } from 'vitest';
 import { getPageTitle } from '@/components/page-title';
 
 describe('page titles', () => {
-  it('uses the PCTC prefix for public pages', () => {
-    expect(getPageTitle('/events/summer-tournament')).toBe('PCTC | Events');
-    expect(getPageTitle('/')).toBe('PCTC | Home');
+  const title = (path: string) => getPageTitle(path, 'Configured Club');
+
+  it('uses the configured short name for public pages', () => {
+    expect(title('/events/summer-tournament')).toBe('Configured Club | Events');
+    expect(title('/')).toBe('Configured Club | Home');
   });
 
   it('includes the portal for admin and member pages', () => {
-    expect(getPageTitle('/admin/events')).toBe('PCTC | Admin | Events');
-    expect(getPageTitle('/member/profile')).toBe('PCTC | Member | Profile');
+    expect(title('/admin/events')).toBe('Configured Club | Admin | Events');
+    expect(title('/member/profile')).toBe('Configured Club | Member | Profile');
   });
 
   it('maps named portal and authentication routes and title-cases other paths', () => {
-    expect(getPageTitle('/admin')).toBe('PCTC | Admin | Dashboard');
-    expect(getPageTitle('/member/')).toBe('PCTC | Member | Dashboard');
-    expect(getPageTitle('/admin/create')).toBe('PCTC | Admin | Create Event');
-    expect(getPageTitle('/admin/membership-types')).toBe('PCTC | Admin | Membership Types');
-    expect(getPageTitle('/admin/audit-logs')).toBe('PCTC | Admin | Audit Logs');
-    expect(getPageTitle('/admin/club-profile')).toBe('PCTC | Admin | Club Profile');
-    expect(getPageTitle('/forgot-password')).toBe('PCTC | Forgot Password');
-    expect(getPageTitle('/reset-password')).toBe('PCTC | Reset Password');
-    expect(getPageTitle('/member/custom-section/')).toBe('PCTC | Member | Custom Section');
-    expect(getPageTitle('///')).toBe('PCTC | Home');
+    expect(title('/admin')).toBe('Configured Club | Admin | Dashboard');
+    expect(title('/member/')).toBe('Configured Club | Member | Dashboard');
+    expect(title('/admin/create')).toBe('Configured Club | Admin | Create Event');
+    expect(title('/admin/membership-types')).toBe('Configured Club | Admin | Membership Types');
+    expect(title('/admin/audit-logs')).toBe('Configured Club | Admin | Audit Logs');
+    expect(title('/admin/club-profile')).toBe('Configured Club | Admin | Club Profile');
+    expect(title('/forgot-password')).toBe('Configured Club | Forgot Password');
+    expect(title('/reset-password')).toBe('Configured Club | Reset Password');
+    expect(title('/member/custom-section/')).toBe('Configured Club | Member | Custom Section');
+    expect(title('///')).toBe('Configured Club | Home');
   });
 });

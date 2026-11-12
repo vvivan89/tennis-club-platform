@@ -130,7 +130,7 @@ describe('SiteFooter', () => {
     };
     render(<SiteFooter clubName="Partial Club" />);
     await waitFor(() => expect(screen.getByText('Port Coquitlam Tennis Club')).toBeInTheDocument());
-    expect(screen.getByRole('contentinfo')).toHaveTextContent('Port Coquitlam Tennis Club (PCTC)');
+    expect(screen.getByRole('contentinfo')).toHaveTextContent('Port Coquitlam Tennis Club');
     expect(screen.queryByRole('link', { name: /Social media link/ })).not.toBeInTheDocument();
   });
 });

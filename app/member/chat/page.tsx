@@ -23,7 +23,7 @@ export default async function MemberChatPage() {
     .eq('id', 1)
     .maybeSingle();
   const clubName = club?.club_name || 'Port Coquitlam Tennis Club';
-  const shortName = club?.short_name || 'PCTC';
+  const shortName = club?.short_name || '';
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
       <div className="shrink-0">

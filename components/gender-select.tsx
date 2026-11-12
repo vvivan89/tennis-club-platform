@@ -19,7 +19,9 @@ export function GenderSelect({
 }: GenderSelectProps) {
   return (
     <label className={className}>
-      {label} <span className="text-destructive">*</span>
+      <span className="block min-h-6">
+        {label} <span className="text-destructive">*</span>
+      </span>
       <select
         name={name}
         className={selectClassName}

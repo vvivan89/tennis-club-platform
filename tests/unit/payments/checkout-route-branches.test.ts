@@ -826,7 +826,7 @@ describe('checkout route branch coverage', () => {
         line_items: [
           expect.objectContaining({
             price_data: expect.objectContaining({
-              product_data: { name: 'PCTC event registration — Summer Social' },
+              product_data: { name: 'Tennis Club event registration — Summer Social' },
             }),
           }),
         ],

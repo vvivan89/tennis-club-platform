@@ -9,6 +9,7 @@ import {
   Topic,
 } from '@/components/help-guide-primitives';
 import { helpTopicLinks, useHelpGuideNavigation } from '@/components/help-guides/navigation';
+import { useSiteHeaderState } from '@/components/site-header-state';
 
 const tabs = [
   ['dashboard', 'Dashboard'],
@@ -46,6 +47,7 @@ export function MemberHelpTopicNav() {
 }
 
 export function MemberHelpGuide() {
+  const { shortName } = useSiteHeaderState();
   const { activeTab, selectTab } = useHelpGuideNavigation(tabs, topics, 'dashboard');
 
   return (
@@ -73,7 +75,7 @@ export function MemberHelpGuide() {
         className="space-y-5"
       >
         {activeTab === 'dashboard' && <DashboardTopic />}
-        {activeTab === 'profile' && <ProfileTopic />}
+        {activeTab === 'profile' && <ProfileTopic shortName={shortName || 'club'} />}
         {activeTab === 'membership' && <MembershipTopics />}
         {activeTab === 'events' && <EventTopics />}
         {activeTab === 'competitions' && <CompetitionTopics />}
@@ -106,7 +108,7 @@ function DashboardTopic() {
   );
 }
 
-function ProfileTopic() {
+function ProfileTopic({ shortName }: { shortName: string }) {
   return (
     <Topic id="member-profile" title="Profile information and eligibility">
       <FieldTable
@@ -149,16 +151,18 @@ function ProfileTopic() {
         <ul className="list-disc space-y-2 pl-5">
           <li>
             <strong>Registration and withdrawal confirmations:</strong>{' '}
-            {'“Registration confirmed: {event title}”'}; {"“You're on the waitlist: {event title}”"}
-            ; “Your PCTC event registration”; “Your PCTC event registration was cancelled”; and
-            League {'“Registration confirmed: {event title}”'}.
+            {'“{club short name} — Registration confirmed: {event title}”'};{' '}
+            {'“{club short name} — You’re on the waitlist: {event title}”'};{' '}
+            {'“{club short name} — Your event registration”'};{' '}
+            {'“{club short name} — Your event registration was cancelled”'}; and League{' '}
+            {'“Registration confirmed: {event title}”'}.
           </li>
           <li>
-            <strong>Waitlist promotion confirmations:</strong> “Your place in a PCTC event is
-            confirmed”.
+            <strong>Waitlist promotion confirmations:</strong> “{shortName} — Your place in an event
+            is confirmed”.
           </li>
           <li>
-            <strong>Event cancellation notifications:</strong> “PCTC event cancelled”.
+            <strong>Event cancellation notifications:</strong> “{shortName} — Event cancelled”.
           </li>
           <li>
             <strong>Registration reminders:</strong> {'“Registration is open: {event title}”'};{' '}
@@ -166,7 +170,7 @@ function ProfileTopic() {
             {'“Final reminder: event payment due soon — {event title}”'}.
           </li>
           <li>
-            <strong>New event announcements:</strong> “New PCTC event announced”.
+            <strong>New event announcements:</strong> “{shortName} — New event announced”.
           </li>
           <li>
             <strong>Newsletter and club news:</strong> custom-subject announcements sent to the
@@ -186,18 +190,21 @@ function ProfileTopic() {
             {' {inviting player’s name}'}”.
           </li>
           <li>
-            <strong>Family membership invitation:</strong> “PCTC family membership invitation”.
+            <strong>Family membership invitation:</strong> “{shortName} family membership
+            invitation”.
           </li>
           <li>
-            <strong>Membership renewal:</strong> “PCTC membership renewal is coming up” and “PCTC
+            <strong>Membership renewal:</strong> “{shortName} membership renewal is coming up” and “
+            {shortName}
             membership fee reminder”.
           </li>
           <li>
-            <strong>Interac payment messages:</strong> “PCTC Interac payment instructions”, “PCTC
-            Interac payment confirmed”, and “PCTC Interac payment requires attention”.
+            <strong>Interac payment messages:</strong> “{shortName} Interac payment instructions”, “
+            {shortName}
+            Interac payment confirmed”, and “{shortName} Interac payment requires attention”.
           </li>
           <li>
-            <strong>Application approval:</strong> “Your PCTC application has been approved”.
+            <strong>Application approval:</strong> “Your {shortName} application has been approved”.
           </li>
           <li>
             <strong>Administrator announcements:</strong> important emails to broad audiences (All

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FloatingFeedback } from '@/components/floating-feedback';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { useSiteHeaderState } from '@/components/site-header-state';
 import { RefundAmountRow, useRefundForm } from '@/components/refund-form-parts';
 
 export function AdminManualPaymentRefundForm({
@@ -13,6 +14,7 @@ export function AdminManualPaymentRefundForm({
   paymentId: string;
   remainingMinor: number;
 }) {
+  const { shortName } = useSiteHeaderState();
   const router = useRouter();
   const form = useRefundForm(remainingMinor);
   const { amount, idempotencyKey } = form;
@@ -78,7 +80,7 @@ export function AdminManualPaymentRefundForm({
       <ConfirmDialog
         open={confirmOpen}
         title="Record manual Interac refund?"
-        description={`Record a manual Interac refund of $${Number(amount || 0).toFixed(2)}? This records the refund in PCTC; it does not send money.`}
+        description={`Record a manual Interac refund of $${Number(amount || 0).toFixed(2)}? This records the refund${shortName ? ` in ${shortName}` : ''}; it does not send money.`}
         confirmLabel="Record refund"
         destructive
         busy={form.busy}

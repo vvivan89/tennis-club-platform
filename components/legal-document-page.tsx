@@ -26,7 +26,7 @@ export async function renderLegalDocumentPage({
     <main className="flex min-h-screen flex-col bg-background text-foreground">
       <SiteHeader
         clubName={club?.club_name || 'Port Coquitlam Tennis Club'}
-        shortName={club?.short_name || 'PCTC'}
+        shortName={club?.short_name || ''}
       />
       <article className="page-container flex-1 py-10">
         <p className="eyebrow">Legal</p>

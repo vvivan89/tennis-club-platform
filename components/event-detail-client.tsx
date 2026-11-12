@@ -34,6 +34,7 @@ import {
 
 import type { EventInfo } from '@/components/event-detail-types';
 import { useEventRegistrationActions } from '@/components/use-event-registration-actions';
+import { useSiteHeaderState } from '@/components/site-header-state';
 
 export function EventDetailClient({
   event,
@@ -68,11 +69,12 @@ export function EventDetailClient({
   remainingSpots: number;
   interacEnabled?: boolean;
 }) {
+  const { shortName } = useSiteHeaderState();
   const db = createSupabaseBrowserClient();
   const router = useRouter();
   useEffect(() => {
-    document.title = `PCTC | ${event.title}`;
-  }, [event.title]);
+    document.title = [shortName, event.title].filter(Boolean).join(' | ');
+  }, [event.title, shortName]);
   const eventNoun = event.event_type === 'tournament' ? 'Tournament' : 'Event';
   const operationKeys = useRef<Record<string, string>>({});
   const [liveRoster, setLiveRoster] = useState<Roster[]>(roster);

@@ -34,7 +34,7 @@ const organizerLinks = [
 ];
 export function AdminNav() {
   const pathname = usePathname();
-  const [club, setClub] = useState({ short_name: 'PCTC', club_name: 'Port Coquitlam Tennis Club' });
+  const [club, setClub] = useState({ short_name: '', club_name: 'Port Coquitlam Tennis Club' });
   const [role, setRole] = useState('member');
   const pendingApplicationCount = usePendingMemberApplicationsCount(role === 'admin');
   const pendingInteracPaymentCount = usePendingInteracPaymentsCount(role === 'admin');

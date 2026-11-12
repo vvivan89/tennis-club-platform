@@ -8,7 +8,7 @@ type ClubLike = {
 export function getClubDisplay(club?: ClubLike) {
   return {
     clubName: club?.club_name || 'Port Coquitlam Tennis Club',
-    shortName: club?.short_name || 'PCTC',
+    shortName: club?.short_name || '',
     socialLinks: Array.isArray(club?.social_links) ? (club.social_links as { url: string }[]) : [],
   };
 }

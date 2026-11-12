@@ -1,3 +1,5 @@
+'use client';
+
 import { CircleHelp } from 'lucide-react';
 import type { HelpGuide } from '@/lib/help-access';
 import { LinkButton, SectionNav } from '@/components/help-guide-primitives';
@@ -8,10 +10,12 @@ import {
 } from '@/components/help-guides/organizer-guide';
 import { AdminHelpGuide, AdminHelpTopicNav } from '@/components/help-guides/admin-guide';
 import { MemberHelpGuide, MemberHelpTopicNav } from '@/components/help-guides/member-guide';
+import { useSiteHeaderState } from '@/components/site-header-state';
 
 type HelpCenterProps = { guide: HelpGuide };
 
 export function HelpCenter({ guide }: HelpCenterProps) {
+  const { shortName } = useSiteHeaderState();
   const titles: Record<HelpGuide, string> = {
     public: 'Public guide',
     member: 'Member guide',
@@ -41,7 +45,7 @@ export function HelpCenter({ guide }: HelpCenterProps) {
   return (
     <div className="page-container flex-1 py-10 sm:py-14">
       <header className="mb-9 rounded-2xl border border-border bg-card p-6 sm:p-9">
-        <p className="eyebrow">PCTC Help</p>
+        <p className="eyebrow">{shortName ? `${shortName} Help` : 'Help'}</p>
         <h1 className="section-title mt-2">{titles[guide]}</h1>
         <p className="mt-4 max-w-3xl text-sm leading-7 text-muted-foreground">
           {descriptions[guide]}

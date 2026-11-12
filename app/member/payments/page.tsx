@@ -66,7 +66,7 @@ export default async function MemberPaymentsPage() {
     <main className="flex min-h-screen flex-col bg-background text-foreground">
       <SiteHeader
         clubName={club?.club_name || 'Port Coquitlam Tennis Club'}
-        shortName={club?.short_name || 'PCTC'}
+        shortName={club?.short_name || ''}
       />
       <MemberNav />
       <div className="page-container flex-1 py-10">
@@ -91,7 +91,7 @@ export default async function MemberPaymentsPage() {
       </div>
       <SiteFooter
         clubName={club?.club_name || 'Port Coquitlam Tennis Club'}
-        shortName={club?.short_name || 'PCTC'}
+        shortName={club?.short_name || ''}
         socialLinks={
           Array.isArray(club?.social_links) ? (club.social_links as { url: string }[]) : []
         }

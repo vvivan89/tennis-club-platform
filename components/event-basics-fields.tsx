@@ -188,9 +188,9 @@ export function EventBasicsFields({
             onChange={(e) => change('court_count', Number(e.target.value))}
             className="block h-10 w-full rounded-md border border-input bg-background px-3"
           >
-            {Array.from({length: 6}).map((_, n) => (
-              <option key={n} value={n+1}>
-                {n+1}
+            {Array.from({ length: 6 }).map((_, n) => (
+              <option key={n} value={n + 1}>
+                {n + 1}
               </option>
             ))}
           </select>

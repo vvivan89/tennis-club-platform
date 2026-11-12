@@ -85,7 +85,7 @@ export async function getHourlyForecastForStart(
   if (!place || typeof place.latitude !== 'number' || typeof place.longitude !== 'number') {
     place = await geocode('Port Coquitlam, British Columbia, Canada');
   }
-  // PCTC is based in Port Coquitlam; this coordinate fallback keeps forecasts
+  // The club is based in Port Coquitlam; this coordinate fallback keeps forecasts
   // available if Open-Meteo's geocoder is temporarily unavailable.
   const latitude = typeof place?.latitude === 'number' ? place.latitude : 49.2625;
   const longitude = typeof place?.longitude === 'number' ? place.longitude : -122.7811;

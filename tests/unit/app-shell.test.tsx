@@ -8,10 +8,20 @@ vi.mock('@/lib/supabase-browser', () => ({
 }));
 vi.mock('@/components/site-header-state', () => ({
   SiteHeaderStateProvider: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  useSiteHeaderState: () => ({ shortName: 'Configured Club' }),
+}));
+vi.mock('@/lib/supabase-server', () => ({
+  createSupabaseServerClient: async () => ({
+    from: () => ({
+      select: () => ({
+        eq: () => ({ maybeSingle: async () => ({ data: { short_name: 'Configured Club' } }) }),
+      }),
+    }),
+  }),
 }));
 
 import ApplicationError from '@/app/error';
-import RootLayout, { metadata } from '@/app/layout';
+import RootLayout, { generateMetadata } from '@/app/layout';
 
 afterEach(() => {
   cleanup();
@@ -46,13 +56,13 @@ describe('application shell', () => {
     expect(reset).toHaveBeenCalledOnce();
   });
 
-  it('wraps children in the locale root and exports club metadata', () => {
+  it('wraps children in the locale root and loads configured club metadata', async () => {
     const layout = RootLayout({ children: <p>Page content</p> });
     const markup = renderToStaticMarkup(layout);
     expect(markup).toContain('<html lang="en-CA">');
     expect(markup).toContain('Page content');
-    expect(metadata).toMatchObject({
-      title: 'Port Coquitlam Tennis Club (PCTC)',
+    await expect(generateMetadata()).resolves.toMatchObject({
+      title: 'Configured Club',
       description: expect.stringContaining('Membership'),
     });
   });

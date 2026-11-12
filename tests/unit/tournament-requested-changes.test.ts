@@ -92,8 +92,8 @@ describe('requested tournament registration fixes', () => {
     expect(migration).toContain('(p.user_id IS NOT NULL) AS is_member');
   });
 
-  it('keeps registration gender optional and removes Other from tournament controls', () => {
-    expect(publicView).toContain('Gender (optional)');
+  it('keeps registration gender required and removes Other from tournament controls', () => {
+    expect(publicView).toContain('Gender');
     expect(publicView).not.toContain('<option value="other">Other</option>');
     expect(management).not.toContain('<option value="other">Other</option>');
   });

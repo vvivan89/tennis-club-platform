@@ -27,7 +27,7 @@ export default function GalleryPage() {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [club, setClub] = useState({
     club_name: 'Port Coquitlam Tennis Club',
-    short_name: 'PCTC',
+    short_name: '',
     social_links: [] as { url: string }[],
   });
   const [loading, setLoading] = useState(true);
@@ -54,7 +54,7 @@ export default function GalleryPage() {
       if (clubData && alive)
         setClub({
           club_name: clubData.club_name || 'Port Coquitlam Tennis Club',
-          short_name: clubData.short_name || 'PCTC',
+          short_name: clubData.short_name || '',
           social_links: Array.isArray(clubData.social_links) ? clubData.social_links : [],
         });
       let paid = false;

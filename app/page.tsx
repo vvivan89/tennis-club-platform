@@ -98,7 +98,7 @@ export default function Home() {
     location_query: string;
   }>({
     club_name: 'Port Coquitlam Tennis Club',
-    short_name: 'PCTC',
+    short_name: '',
     contact_email: '',
     contact_phone: '',
     location_url: '',

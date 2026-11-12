@@ -10,17 +10,27 @@ import { useSiteHeaderState } from '@/components/site-header-state';
 import { CalendarDays, Images, ContactRound, Files, Trophy, CircleHelp } from 'lucide-react';
 
 export const SiteHeader = memo(function SiteHeader({
-  clubName,
-  shortName,
+  clubName: suppliedClubName,
+  shortName: suppliedShortName,
   active = '',
 }: {
-  clubName: string;
-  shortName: string;
+  clubName?: string;
+  shortName?: string;
   active?: 'home' | 'events' | 'contacts' | 'gallery' | 'help' | '';
 }) {
   const pathname = usePathname();
-  const { logoUrl, canSeeDocuments, canSeeRankings, approved, isAdmin, isOrganizer } =
-    useSiteHeaderState();
+  const {
+    logoUrl,
+    clubName: configuredClubName,
+    shortName: configuredShortName,
+    canSeeDocuments,
+    canSeeRankings,
+    approved,
+    isAdmin,
+    isOrganizer,
+  } = useSiteHeaderState();
+  const clubName = suppliedClubName || configuredClubName || 'Tennis Club';
+  const shortName = suppliedShortName || configuredShortName || '';
   const invitations = usePendingTournamentInvitations(approved && !isAdmin && !isOrganizer);
   const current = (key: string) =>
     active === key ||

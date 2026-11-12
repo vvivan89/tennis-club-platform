@@ -356,11 +356,17 @@ export async function POST(req: Request) {
         .insert({ family_id: familyId, user_id: targetId, invited_by: user.id, status: 'pending' });
       if (inviteErr) throw inviteErr;
       if (process.env.RESEND_API_KEY && process.env.RESEND_FROM_EMAIL) {
+        const { data: clubSettings } = await db
+          .from('club_settings')
+          .select('short_name')
+          .eq('id', 1)
+          .maybeSingle();
+        const shortName = clubSettings?.short_name || 'Tennis Club';
         const url = new URL('/member/membership', getSiteOrigin(req)).toString();
         const mail = await sendResendEmail({
           to: target.email,
-          subject: 'PCTC family membership invitation',
-          html: `<p>Hello ${esc(target.full_name || 'member')},</p><p>${esc(me.full_name || me.email || 'A member')} invited you to join their PCTC family membership.</p><p>Sign in to your Member Portal and confirm the invitation: <a href="${esc(url)}">Review invitation</a>.</p>`,
+          subject: `${shortName} family membership invitation`,
+          html: `<p>Hello ${esc(target.full_name || 'member')},</p><p>${esc(me.full_name || me.email || 'A member')} invited you to join their ${esc(shortName)} family membership.</p><p>Sign in to your Member Portal and confirm the invitation: <a href="${esc(url)}">Review invitation</a>.</p>`,
         });
         if (!mail.ok)
           return NextResponse.json({

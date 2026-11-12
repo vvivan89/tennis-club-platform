@@ -445,10 +445,7 @@ export function TournamentOwnRegistrationList({
                       className="text-sm"
                       selectClassName="mt-1 block h-10 w-full rounded-md border border-input bg-background px-3"
                     />
-                    <GenderSelect
-                      value={ownEditGender}
-                      onChange={setOwnEditGender}
-                    />
+                    <GenderSelect value={ownEditGender} onChange={setOwnEditGender} />
                     <p className="self-end text-xs text-muted-foreground">
                       Your gender affects eligibility for gender-specific categories.
                     </p>

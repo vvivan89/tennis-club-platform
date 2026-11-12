@@ -1,4 +1,4 @@
-# PCTC code quality and verification
+# Club platform code quality and verification
 
 This project uses automated formatting, linting, TypeScript checks, unit tests, browser smoke tests, accessibility scans, database migration validation, and dependency auditing.
 

@@ -18,23 +18,23 @@ type QueueItem = { id: string; event_id: string; user_id: string; notification_t
 
 const templates: Record<string, { subject: string; intro: string }> = {
   registration_created: {
-    subject: 'Your PCTC event registration',
+    subject: 'Your event registration',
     intro: 'Your registration has been recorded. Your current registration status is shown below.',
   },
   registration_cancelled: {
-    subject: 'Your PCTC event registration was cancelled',
+    subject: 'Your event registration was cancelled',
     intro: 'Your event registration has been cancelled.',
   },
   event_cancelled: {
-    subject: 'PCTC event cancelled',
+    subject: 'Event cancelled',
     intro: 'An event you registered for has been cancelled by the club.',
   },
   waitlist_confirmed: {
-    subject: 'Your place in a PCTC event is confirmed',
+    subject: 'Your place in an event is confirmed',
     intro: 'A place has opened and you have been moved from the waitlist to confirmed.',
   },
   new_event_created: {
-    subject: 'New PCTC event announced',
+    subject: 'New event announced',
     intro: 'A new club event is available for registration.',
   },
 };
@@ -110,6 +110,12 @@ export async function POST(request: Request) {
       : { data: [], error: null };
     if (claimError) return NextResponse.json({ error: claimError.message }, { status: 500 });
     const queue = (claimedRows ?? []) as QueueItem[];
+    const { data: clubSettings } = await admin
+      .from('club_settings')
+      .select('short_name')
+      .eq('id', 1)
+      .maybeSingle();
+    const shortName = clubSettings?.short_name || 'Tennis Club';
 
     const releaseClaims = async (ids: string[]) => {
       if (ids.length)
@@ -293,14 +299,16 @@ export async function POST(request: Request) {
             ? 'Your registration is confirmed.'
             : '';
       const subject =
-        item.notification_type === 'registration_created'
+        shortName +
+        ' — ' +
+        (item.notification_type === 'registration_created'
           ? reg?.status === 'waitlisted'
             ? `You're on the waitlist: ${event.title}`
             : reg?.status === 'confirmed'
               ? `Registration confirmed: ${event.title}`
               : template.subject
-          : template.subject;
-      const html = `<p>Hello ${name},</p><p>${template.intro}</p><h2>${title}</h2>${schedule ? `<p><strong>Schedule:</strong> ${esc(schedule)}.</p>` : ''}<p><strong>${schedule ? 'Next session:' : 'Date:'}</strong> ${esc(new Date(event.starts_at).toLocaleString('en-CA'))}${event.location ? ` · ${esc(event.location)}` : ''}</p>${status ? `<p><strong>Registration status:</strong> ${esc(status)}</p>` : ''}<p><a href="${esc(eventUrl)}">View event details</a></p><p>Port Coquitlam Tennis Club</p>`;
+          : template.subject);
+      const html = `<p>Hello ${name},</p><p>${template.intro}</p><h2>${title}</h2>${schedule ? `<p><strong>Schedule:</strong> ${esc(schedule)}.</p>` : ''}<p><strong>${schedule ? 'Next session:' : 'Date:'}</strong> ${esc(new Date(event.starts_at).toLocaleString('en-CA'))}${event.location ? ` · ${esc(event.location)}` : ''}</p>${status ? `<p><strong>Registration status:</strong> ${esc(status)}</p>` : ''}<p><a href="${esc(eventUrl)}">View event details</a></p><p>${esc(shortName)}</p>`;
       try {
         const response = await sendResendEmail({
           apiKey: resendKey,

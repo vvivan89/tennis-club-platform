@@ -338,13 +338,19 @@ export async function POST(request: Request) {
         (process.env.RESEND_FROM_EMAIL || process.env.RESEND_FROM || process.env.EMAIL_FROM)
       ) {
         try {
+          const { data: clubSettings } = await db
+            .from('club_settings')
+            .select('short_name')
+            .eq('id', 1)
+            .maybeSingle();
+          const shortName = clubSettings?.short_name || 'Tennis Club';
           const from =
             process.env.RESEND_FROM_EMAIL || process.env.RESEND_FROM || process.env.EMAIL_FROM!;
           const emailResponse = await sendResendEmail({
             from,
             to: profile!.email,
-            subject: 'PCTC Interac payment instructions',
-            text: `Your PCTC Interac payment request is pending.\n\nAmount: ${(amountMinor / 100).toFixed(2)} CAD\nSend to: ${methodSettings.interac_recipient_email}\nPayment reference: ${paymentId}\n\n${methodSettings.interac_instructions}\n\nYour membership or event registration will be finalized after the club confirms receipt.`,
+            subject: `${shortName} Interac payment instructions`,
+            text: `Your ${shortName} Interac payment request is pending.\n\nAmount: ${(amountMinor / 100).toFixed(2)} CAD\nSend to: ${methodSettings.interac_recipient_email}\nPayment reference: ${paymentId}\n\n${methodSettings.interac_instructions}\n\nYour membership or event registration will be finalized after the club confirms receipt.`,
             idempotencyKey: `interac-instructions:${paymentId}`,
           });
           if (emailResponse.ok) {
