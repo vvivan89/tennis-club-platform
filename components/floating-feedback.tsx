@@ -9,7 +9,7 @@ export function FloatingFeedback({ error, message }: { error?: string; message?:
       {error && (
         <p
           role="alert"
-          className="pointer-events-auto rounded-md border border-destructive/30 bg-background p-3 text-sm text-destructive shadow-lg"
+          className="pointer-events-auto rounded-md border border-destructive/30 bg-muted p-3 text-sm text-destructive shadow-toast"
         >
           {error}
         </p>
@@ -17,7 +17,7 @@ export function FloatingFeedback({ error, message }: { error?: string; message?:
       {message && (
         <p
           role="status"
-          className="pointer-events-auto rounded-md border border-success/30 bg-background p-3 text-sm shadow-lg"
+          className="pointer-events-auto rounded-md border border-success/30 bg-muted p-3 text-sm shadow-toast"
         >
           {message}
         </p>

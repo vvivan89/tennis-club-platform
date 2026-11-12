@@ -41,6 +41,7 @@ const topics = [
   ['results', 'member-rankings', 'Rankings and standings'],
   ['resources', 'member-gallery-documents', 'Gallery and Documents'],
   ['resources', 'member-chat', 'Member chat'],
+  ['resources', 'member-chat-push', 'Chat push notifications'],
 ] as const;
 
 export function MemberHelpTopicNav() {
@@ -139,10 +140,16 @@ function ProfileTopic({ shortName }: { shortName: string }) {
               'The avatar identifies you in player lists; playing hand just is profile information not used anywhere.',
           },
           {
-            field: 'Email preferences and chat notifications',
+            field: 'Email preferences',
             value: 'Choose the automated event and club email categories you want.',
             effect:
-              'Preferences control routine notification emails. Administrators can still send important club-wide announcements regardless of these settings.',
+              'Preferences control routine notification emails. You can also unsubscribe from a category directly from its email without signing in. Administrators can still send important club-wide announcements regardless of these settings.',
+          },
+          {
+            field: 'Chat notification preference',
+            value: 'Choose Show all, Show only when someone mentions you, or Don’t show.',
+            effect:
+              'This preference controls both in-app chat alerts and browser push notifications, when enabled.',
           },
           {
             field: 'Show birthday emoji',
@@ -156,12 +163,10 @@ function ProfileTopic({ shortName }: { shortName: string }) {
         <h4 className="font-semibold">Emails managed by these preferences</h4>
         <ul className="list-disc space-y-2 pl-5">
           <li>
-            <strong>Registration and withdrawal confirmations:</strong>{' '}
-            {'“{club short name} — Registration confirmed: {event title}”'};{' '}
-            {'“{club short name} — You’re on the waitlist: {event title}”'};{' '}
-            {'“{club short name} — Your event registration”'};{' '}
-            {'“{club short name} — Your event registration was cancelled”'}; and League{' '}
-            {'“Registration confirmed: {event title}”'}.
+            <strong>Registration and withdrawal confirmations:</strong> “{shortName} — Registration
+            confirmed: {'{event title}'}”; “{shortName} — You’re on the waitlist: {'{event title}'}
+            ”; “{shortName} — Your event registration”; “{shortName} — Your event registration was
+            cancelled”; and League “{shortName} — Registration confirmed: {'{event title}'}”.
           </li>
           <li>
             <strong>Waitlist promotion confirmations:</strong> “{shortName} — Your place in an event
@@ -171,9 +176,14 @@ function ProfileTopic({ shortName }: { shortName: string }) {
             <strong>Event cancellation notifications:</strong> “{shortName} — Event cancelled”.
           </li>
           <li>
-            <strong>Registration reminders:</strong> {'“Registration is open: {event title}”'};{' '}
+            <strong>Event registration and payment reminders:</strong>{' '}
+            {'“Registration is open: {event title}”'};{' '}
             {'“Payment required to keep your place: {event title}”'}; and{' '}
             {'“Final reminder: event payment due soon — {event title}”'}.
+          </li>
+          <li>
+            <strong>Membership renewal and payment reminders:</strong> “{shortName} membership
+            renewal is coming up” and “{shortName} membership fee reminder”.
           </li>
           <li>
             <strong>New event announcements:</strong> “{shortName} — New event announced”.
@@ -183,6 +193,10 @@ function ProfileTopic({ shortName }: { shortName: string }) {
             Newsletter subscribers audience.
           </li>
         </ul>
+        <p className="text-sm text-muted-foreground">
+          To unsubscribe from one of these categories, use its email link and confirm on the page.
+          No sign-in is required. The matching preference on your profile will be turned off.
+        </p>
       </div>
       <div className="space-y-3">
         <h4 className="font-semibold">Other emails are not controlled by these preferences</h4>
@@ -198,11 +212,6 @@ function ProfileTopic({ shortName }: { shortName: string }) {
           <li>
             <strong>Family membership invitation:</strong> “{shortName} family membership
             invitation”.
-          </li>
-          <li>
-            <strong>Membership renewal:</strong> “{shortName} membership renewal is coming up” and “
-            {shortName}
-            membership fee reminder”.
           </li>
           <li>
             <strong>Interac payment messages:</strong> “{shortName} Interac payment instructions”, “
@@ -661,6 +670,22 @@ function ResourceTopics() {
         />
         <p>
           <LinkButton href="/member/chat">Open Member chat</LinkButton>
+        </p>
+      </Topic>
+      <Topic id="member-chat-push" title="Chat push notifications">
+        <p>
+          In Profile, choose Enable on this device to allow browser notifications for new chat
+          messages when this site is closed. The browser asks for permission after you click the
+          button. This enables push notifications on that particular device only; repeat the setup
+          on each device you want to use. Disable on this device removes that device’s saved
+          subscription.
+        </p>
+        <p>
+          Push follows your Show all, mentions only, or Don’t show chat preference. Your own
+          messages do not alert you. When the site is open and focused, the in-app notification is
+          used instead of a second browser alert. If permission is blocked, change this site’s
+          notification setting in browser settings and reload the profile page. Browser and device
+          support varies.
         </p>
       </Topic>
     </>

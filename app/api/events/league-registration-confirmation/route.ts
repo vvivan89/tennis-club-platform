@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSignedInUser, isUuid } from '@/lib/api-helpers';
 import { createServiceRoleClient } from '@/lib/supabase-service';
 import { escapeHtml, sendResendEmail } from '@/lib/resend';
+import { createEmailUnsubscribeUrl } from '@/lib/email-unsubscribe';
 import { getSiteOrigin } from '@/lib/site-url';
 
 export const runtime = 'nodejs';
@@ -103,6 +104,12 @@ export async function POST(request: Request) {
           to: recipient.email,
           subject,
           html,
+          unsubscribeUrl: await createEmailUnsubscribeUrl(
+            db,
+            request,
+            recipient.user_id,
+            'registration_updates',
+          ),
           idempotencyKey: `league-registration-confirmation:${event.id}:${pair.id}:${recipient.user_id}`,
         });
         if (!result.ok) {

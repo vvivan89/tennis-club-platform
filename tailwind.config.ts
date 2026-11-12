@@ -73,7 +73,10 @@ const config: Config = {
         sans: ['DM Sans', 'sans-serif'],
         serif: ['Playfair Display', 'Georgia', 'serif'],
       },
-      boxShadow: { soft: '0 12px 35px rgb(from var(--foreground) r g b / 0.06)' },
+      boxShadow: {
+        soft: '0 12px 35px rgb(from var(--foreground) r g b / 0.06)',
+        toast: 'var(--toast-shadow)',
+      },
     },
   },
   plugins: [],

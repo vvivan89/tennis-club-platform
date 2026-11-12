@@ -23,6 +23,7 @@ vi.mock('@/lib/supabase-service', () => ({
         eq: () => query,
         or: () => query,
         in: () => query,
+        insert: async () => ({ error: null }),
         maybeSingle: async () => ({ data: mocks.singles[table]?.shift() ?? null, error: null }),
         then: (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) =>
           Promise.resolve({ data: mocks.lists[table]?.shift() ?? [], error: null }).then(

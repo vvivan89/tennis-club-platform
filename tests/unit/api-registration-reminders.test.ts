@@ -142,31 +142,35 @@ describe('GET /api/notifications/reminders', () => {
       expect(email.html).toContain('&lt;Club Finals&gt;');
       expect(email.html).not.toContain('<Club Finals>');
       expect(init.headers['Idempotency-Key']).toBe('registration-reminder:event-1:unregistered');
-      expect(mocks.calls).toEqual([
-        {
-          table: 'event_email_log',
-          operation: 'insert',
-          values: {
-            event_id: 'event-1',
-            user_id: 'unregistered',
-            email_type: 'registration_reminder',
-          },
-        },
+      expect(mocks.calls.map((call) => call.table)).toEqual([
+        'email_unsubscribe_tokens',
+        'event_email_log',
       ]);
+      expect(mocks.calls[1]).toEqual({
+        table: 'event_email_log',
+        operation: 'insert',
+        values: {
+          event_id: 'event-1',
+          user_id: 'unregistered',
+          email_type: 'registration_reminder',
+        },
+      });
     });
 
     it('records nothing and counts a failure when the provider rejects the email, so the next run retries', async () => {
       mocks.fetch.mockResolvedValue(new Response('provider rejected', { status: 500 }));
       const response = await GET(request());
       expect(await response.json()).toEqual({ success: true, sent: 0, failed: 1, events: 1 });
-      expect(mocks.calls).toHaveLength(0);
+      expect(mocks.calls.map((call) => call.table)).toEqual(['email_unsubscribe_tokens']);
+      expect(mocks.calls.some((call) => call.table === 'event_email_log')).toBe(false);
     });
 
     it('counts a failure when sending throws', async () => {
       mocks.fetch.mockRejectedValue(new Error('network down'));
       const response = await GET(request());
       expect(await response.json()).toMatchObject({ sent: 0, failed: 1 });
-      expect(mocks.calls).toHaveLength(0);
+      expect(mocks.calls.map((call) => call.table)).toEqual(['email_unsubscribe_tokens']);
+      expect(mocks.calls.some((call) => call.table === 'event_email_log')).toBe(false);
     });
 
     it('still counts the reminder as sent when a parallel run already recorded it', async () => {

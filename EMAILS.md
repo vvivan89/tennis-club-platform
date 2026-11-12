@@ -231,5 +231,7 @@ Administrators can send a custom email to a selected recipient group. The subjec
 ## Notes
 
 - The Resend sender address is configured by the server environment (`RESEND_FROM_EMAIL`, with supported fallbacks in some routes).
+- Preference-controlled messages include a category-specific unsubscribe link. The link opens a confirmation page; only confirming it updates the matching profile preference, and no sign-in is required.
 - Supabase Auth invitation, passwordless sign-in, and event-guest sign-in emails are not listed above because Supabase sends them directly rather than through Resend.
+- Account-security and required transaction messages do not include a preference unsubscribe link.
 - Email preferences, timing windows, and eligibility rules are noted where they affect delivery; this document describes the message text, not a guarantee that every eligible recipient receives it (delivery can fail at the provider).

@@ -9,6 +9,7 @@ import {
   MAX_EMAIL_RECIPIENTS,
 } from '@/lib/email-audience';
 import { escapeHtml, sendResendEmail } from '@/lib/resend';
+import { createEmailUnsubscribeUrl } from '@/lib/email-unsubscribe';
 import { sanitizeHtml } from '@/lib/sanitize-html';
 const SEND_CONCURRENCY = 10;
 
@@ -71,11 +72,16 @@ export async function POST(request: Request) {
       const results = await Promise.all(
         deliverable.slice(i, i + SEND_CONCURRENCY).map(async (p) => {
           try {
+            const unsubscribeUrl =
+              group === 'newsletter'
+                ? await createEmailUnsubscribeUrl(db, request, p.id, 'newsletter')
+                : undefined;
             const res = await sendResendEmail({
               request,
               to: p.email!,
               subject,
               html: `<p>Hello ${escapeHtml(String(p.full_name || 'member'))},</p>${html}<p>Port Coquitlam Tennis Club</p>`,
+              unsubscribeUrl,
               idempotencyKey: `announcement:${contentKey}:${p.id}`,
             });
             return res.ok;

@@ -56,6 +56,10 @@ function queryFor(table: string) {
       return query;
     },
     maybeSingle: async () => ({ data: mocks.messages[0] ?? null, error: null }),
+    single: async () => ({
+      data: { id: 'new-message' },
+      error: mocks.writeErrors[`${table}.insert`] ?? null,
+    }),
     insert: (payload: Record<string, unknown>) => {
       operation = 'insert';
       values = payload;
@@ -171,7 +175,10 @@ beforeEach(() => {
   });
   mocks.removeChannel.mockReset();
   supabase.rpc.mockClear();
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue({ ok: true, json: async () => ({ failed: 0 }) }),
+  );
 });
 afterEach(() => {
   cleanup();
@@ -288,6 +295,13 @@ describe('MemberChat', () => {
       expect(mocks.inserts).toContainEqual(
         expect.objectContaining({ body: 'Sent with Enter', mentions: [] }),
       ),
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/member/chat/push',
+      expect.objectContaining({
+        body: JSON.stringify({ messageId: 'new-message' }),
+        keepalive: true,
+      }),
     );
   });
 
