@@ -27,14 +27,13 @@ export async function POST(request: Request) {
         { error: 'Name, valid email, phone, and skill rating are required.' },
         { status: 400 },
       );
-    if (gender && !['male', 'female'].includes(gender))
+    if (!['male', 'female'].includes(gender))
       return NextResponse.json({ error: 'Choose a valid gender.' }, { status: 400 });
     if (
-      date_of_birth &&
-      (!/^\d{4}-\d{2}-\d{2}$/.test(date_of_birth) ||
-        Number.isNaN(Date.parse(`${date_of_birth}T00:00:00Z`)) ||
-        new Date(`${date_of_birth}T00:00:00Z`).toISOString().slice(0, 10) !== date_of_birth ||
-        date_of_birth > new Date().toISOString().slice(0, 10))
+      !/^\d{4}-\d{2}-\d{2}$/.test(date_of_birth) ||
+      Number.isNaN(Date.parse(`${date_of_birth}T00:00:00Z`)) ||
+      new Date(`${date_of_birth}T00:00:00Z`).toISOString().slice(0, 10) !== date_of_birth ||
+      date_of_birth > new Date().toISOString().slice(0, 10)
     )
       return NextResponse.json({ error: 'Choose a valid date of birth.' }, { status: 400 });
     const limited = await enforceRateLimit(request, {
@@ -56,8 +55,8 @@ export async function POST(request: Request) {
         full_name,
         phone,
         tennis_skill_level,
-        gender: gender || null,
-        date_of_birth: date_of_birth || null,
+        gender,
+        date_of_birth,
       },
     });
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });

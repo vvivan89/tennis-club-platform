@@ -195,6 +195,10 @@ describe('Member profile page', () => {
     await screen.findByDisplayValue('Member One');
     fireEvent.change(screen.getByLabelText('Full name'), { target: { value: 'New Member' } });
     fireEvent.change(screen.getByLabelText(/Phone number/), { target: { value: '6045550199' } });
+    fireEvent.change(screen.getByLabelText(/Date of birth/), {
+      target: { value: '1990-05-14' },
+    });
+    fireEvent.change(screen.getByLabelText(/Gender/), { target: { value: 'female' } });
     const forms = container.querySelectorAll('form');
     fireEvent.submit(forms[0]);
     await waitFor(() =>

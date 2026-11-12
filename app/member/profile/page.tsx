@@ -15,8 +15,8 @@ import { SiteHeader } from '@/components/site-header';
 import { SiteFooter } from '@/components/site-footer';
 import { MemberNav } from '@/components/member-nav';
 import { FloatingFeedback } from '@/components/floating-feedback';
-
-const SKILL_LEVELS = Array.from({ length: 10 }, (_, i) => (2.5 + i * 0.5).toFixed(1));
+import { GenderSelect } from '@/components/gender-select';
+import { TennisSkillLevelSelect } from '@/components/tennis-skill-level-select';
 
 function isBirthdayToday(dateOfBirth: string | null) {
   if (!dateOfBirth) return false;
@@ -141,6 +141,8 @@ export default function ProfilePage() {
     setMessage('');
     try {
       if (!phone.trim()) throw new Error('Phone number is required.');
+      if (!dateOfBirth) throw new Error('Date of birth is required.');
+      if (!gender) throw new Error('Select your gender.');
       if (!tennisSkillLevel) throw new Error('Select your tennis skill rating.');
       const { db: supabase, user } = await requireBrowserUser('Please sign in again.');
       const { data: updatedProfile, error: updateError } = await supabase
@@ -327,12 +329,13 @@ export default function ProfilePage() {
                       />
                     </label>
                     <label className="block space-y-1.5 text-sm font-medium">
-                      Date of birth (optional)
+                      Date of birth <span className="text-destructive">*</span>
                       <Input
                         type="date"
                         value={dateOfBirth}
                         max={new Date().toISOString().slice(0, 10)}
                         onChange={(e) => setDateOfBirth(e.target.value)}
+                        required
                       />
                     </label>
                     <label className="flex items-start gap-3 rounded-lg border border-border p-3 text-sm">
@@ -395,18 +398,12 @@ export default function ProfilePage() {
                       )}
                     </div>
                     <div className="grid gap-4 sm:grid-cols-2">
-                      <label className="block space-y-1.5 text-sm font-medium">
-                        Gender (optional)
-                        <select
-                          value={gender}
-                          onChange={(e) => setGender(e.target.value)}
-                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        >
-                          <option value="">Not specified</option>
-                          <option value="male">Male</option>
-                          <option value="female">Female</option>
-                        </select>
-                      </label>
+                      <GenderSelect
+                        value={gender}
+                        onChange={setGender}
+                        className="block space-y-1.5 text-sm font-medium"
+                        selectClassName="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      />
                       <label className="block space-y-1.5 text-sm font-medium">
                         Playing hand (optional)
                         <select
@@ -420,24 +417,13 @@ export default function ProfilePage() {
                         </select>
                       </label>
                     </div>
-                    <label className="block space-y-1.5 text-sm font-medium">
-                      Tennis skill rating <span className="text-destructive">*</span>
-                      <select
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        value={tennisSkillLevel}
-                        onChange={(e) => setTennisSkillLevel(e.target.value)}
-                        required
-                      >
-                        <option value="" disabled>
-                          Select your rating
-                        </option>
-                        {SKILL_LEVELS.map((level) => (
-                          <option key={level} value={level}>
-                            {level}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                    <TennisSkillLevelSelect
+                      label="Tennis skill rating"
+                      value={tennisSkillLevel}
+                      onChange={setTennisSkillLevel}
+                      placeholder="Select your rating"
+                      selectClassName="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    />
                     <div className="flex flex-wrap gap-3">
                       <Button type="submit" disabled={busy}>
                         {busy ? <TennisLoader compact label="Saving" /> : 'Save profile'}

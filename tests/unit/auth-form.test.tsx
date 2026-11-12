@@ -77,6 +77,8 @@ describe('AuthForm', () => {
     render(<AuthForm mode="signup" />);
     await user.type(screen.getByLabelText('Full name'), '  New Member  ');
     await user.type(screen.getByLabelText(/Phone number/), '6045550100');
+    await user.type(screen.getByLabelText(/Date of birth/), '1990-05-14');
+    await user.selectOptions(screen.getByLabelText(/Gender/), 'female');
     await user.selectOptions(screen.getByLabelText(/Tennis skill rating/), '3.5');
     await user.type(screen.getByLabelText(/Comment/), '  Please contact me  ');
     await user.type(screen.getByLabelText('Email'), 'new@example.com');
@@ -92,8 +94,8 @@ describe('AuthForm', () => {
             phone: '604.555.0100',
             tennis_skill_level: '3.5',
             application_comment: 'Please contact me',
-            date_of_birth: null,
-            gender: null,
+            date_of_birth: '1990-05-14',
+            gender: 'female',
           },
         }),
       }),
@@ -111,6 +113,8 @@ describe('AuthForm', () => {
     render(<AuthForm mode="signup" />);
     await user.type(screen.getByLabelText('Full name'), 'New Member');
     await user.type(screen.getByLabelText(/Phone number/), '6045550100');
+    await user.type(screen.getByLabelText(/Date of birth/), '1990-05-14');
+    await user.selectOptions(screen.getByLabelText(/Gender/), 'male');
     await user.selectOptions(screen.getByLabelText(/Tennis skill rating/), '4.0');
     await user.type(screen.getByLabelText('Email'), 'new@example.com');
     await user.type(screen.getByLabelText(/^Password/), 'password123');

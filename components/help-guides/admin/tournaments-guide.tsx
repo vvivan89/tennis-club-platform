@@ -25,7 +25,7 @@ export function AdminTournamentsGuide() {
             {
               field: 'Add a non-member guest',
               value:
-                'For non-League tournaments, leave member search blank and enter the guest’s name; email, phone, and gender are available as shown.',
+                'For non-League tournaments, leave member search blank and enter the guest’s name. Gender is required; email and phone are optional.',
               effect:
                 'Creates a tournament participant record. Guest registration does not create an approved club membership account. League entries must use the League’s team registration rules.',
             },

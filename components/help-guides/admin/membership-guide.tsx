@@ -49,7 +49,7 @@ export function AdminMembershipGuide() {
             {
               field: 'Date of birth and gender',
               value:
-                'Both are optional at invitation time; enter them only when supplied by the person.',
+                'Both are required when inviting a member and when a member edits their profile.',
               effect:
                 'Birth date contributes to family adult/child limits; gender affects eligibility for gender-specific events.',
             },
@@ -57,10 +57,7 @@ export function AdminMembershipGuide() {
         />
         <Steps>
           <li>Open Members and choose Invite member.</li>
-          <li>
-            Enter the required name, email, phone, and skill rating; optionally enter birth date and
-            gender.
-          </li>
+          <li>Enter the required name, email, phone, skill rating, birth date, and gender.</li>
           <li>
             Send the invitation. The person must follow the email link to confirm and finish account
             setup.

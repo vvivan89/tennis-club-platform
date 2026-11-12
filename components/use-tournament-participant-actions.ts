@@ -389,7 +389,16 @@ export function useTournamentParticipantActions({
       setError('Enter a participant name or select a member.');
       return;
     }
-    const registrationGender = selected?.gender || participantGender || null;
+    const selectedGender = selected?.gender || null;
+    if (selected && !selectedGender) {
+      setError('The selected member must add a gender to their profile before registration.');
+      return;
+    }
+    if (!selected && !participantGender) {
+      setError('Select the participant’s gender before registration.');
+      return;
+    }
+    const registrationGender = selectedGender || participantGender;
     const emailKey = (selected?.email || participantEmail).trim().toLowerCase();
     const oppositeCategory =
       targetCategory === 'men' ? 'women' : targetCategory === 'women' ? 'men' : null;

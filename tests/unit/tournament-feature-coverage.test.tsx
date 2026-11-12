@@ -481,7 +481,7 @@ describe('tournament component coverage', () => {
       );
     });
 
-    it('registers a free anonymous entrant with optional gender and skill data', async () => {
+    it('registers a free anonymous entrant with required gender and skill data', async () => {
       supabaseMocks.rpcData.register_event_guest_tournament_entry = {
         participantId: 'guest-entry-1',
         amountCents: 0,
@@ -511,8 +511,8 @@ describe('tournament component coverage', () => {
 
       await screen.findByRole('tab', { name: 'Overview' });
       await user.type(screen.getByLabelText('Your full name'), 'Taylor Guest');
-      await user.selectOptions(screen.getByLabelText('Gender (optional)'), 'female');
-      await user.selectOptions(screen.getByLabelText('Tennis skill level (optional)'), '4.0');
+      await user.selectOptions(screen.getByLabelText(/Gender/), 'female');
+      await user.selectOptions(screen.getByLabelText(/Tennis skill level/), '4.0');
       await user.click(screen.getByRole('button', { name: 'Register for tournament' }));
 
       expect(await screen.findByText('Registration confirmed.')).toBeInTheDocument();
@@ -528,7 +528,7 @@ describe('tournament component coverage', () => {
       });
     });
 
-    it('submits a single guest registration with optional profile fields omitted', async () => {
+    it('submits a single guest registration with required gender and optional phone omitted', async () => {
       supabaseMocks.rpcData.register_event_guest_tournament_entry = {
         participantId: 'guest-entry-no-profile',
       };
@@ -556,6 +556,8 @@ describe('tournament component coverage', () => {
       );
       await screen.findByRole('tab', { name: 'Overview' });
       await user.type(screen.getByLabelText('Your full name'), 'Guest Player');
+      await user.selectOptions(screen.getByLabelText(/^Gender/), 'male');
+      await user.selectOptions(screen.getByLabelText(/Tennis skill level/), '4.0');
       await user.click(screen.getByRole('button', { name: 'Register for tournament' }));
 
       expect(await screen.findByText('Registration confirmed.')).toBeInTheDocument();
@@ -564,14 +566,14 @@ describe('tournament component coverage', () => {
           name: 'register_event_guest_tournament_entry',
           args: expect.objectContaining({
             p_display_name: 'Guest Player',
-            p_gender: null,
-            p_tennis_skill_level: null,
+            p_gender: 'male',
+            p_tennis_skill_level: 4,
           }),
         }),
       );
     });
 
-    it('registers a guest pair when optional partner fields are blank', async () => {
+    it('registers a guest pair when optional contact fields are blank', async () => {
       supabaseMocks.rpcData.register_event_guest_tournament_entry = {
         participantId: 'guest-entry-2',
         partnerParticipantId: 'guest-partner-2',
@@ -608,6 +610,10 @@ describe('tournament component coverage', () => {
       await user.type(screen.getByLabelText('Your full name'), 'Taylor Guest');
       await user.type(screen.getByLabelText('Partner name'), 'Morgan Guest');
       await user.type(screen.getByLabelText('Partner email'), 'morgan@example.com');
+      await user.selectOptions(screen.getByLabelText(/^Gender/), 'male');
+      await user.selectOptions(screen.getByLabelText(/Partner gender/), 'female');
+      await user.selectOptions(screen.getByLabelText(/Tennis skill level/), '4.0');
+      await user.selectOptions(screen.getByLabelText(/Partner tennis skill level/), '3.5');
       await user.click(screen.getByRole('button', { name: 'Register for tournament' }));
       expect(await screen.findByRole('status')).toHaveTextContent(
         'Registration saved. Your team can pay after your partner confirms.',
@@ -619,8 +625,8 @@ describe('tournament component coverage', () => {
           p_partner_name: 'Morgan Guest',
           p_partner_email: 'morgan@example.com',
           p_partner_phone: null,
-          p_partner_gender: null,
-          p_partner_skill_level: null,
+          p_partner_gender: 'female',
+          p_partner_skill_level: 3.5,
         }),
       });
       expect(fetchMock).toHaveBeenCalledWith(
@@ -697,7 +703,8 @@ describe('tournament component coverage', () => {
       await user.click(screen.getByRole('option', { name: /Add a partner without an account/ }));
       await user.type(screen.getByLabelText('Partner name'), 'Morgan New');
       await user.type(screen.getByLabelText('Partner email'), 'morgan@example.test');
-      await user.selectOptions(screen.getByLabelText('Partner gender (optional)'), partnerGender);
+      await user.selectOptions(screen.getByLabelText(/Partner tennis skill level/), '4.0');
+      await user.selectOptions(screen.getByLabelText(/Partner gender/), partnerGender);
       await user.click(screen.getByRole('button', { name: 'Register for tournament' }));
 
       expect(await screen.findByText(message)).toBeInTheDocument();
@@ -906,11 +913,8 @@ describe('tournament component coverage', () => {
       await user.type(screen.getByLabelText('Partner name'), 'Jordan Guest');
       await user.type(screen.getByLabelText('Partner email'), 'jordan@example.com');
       await user.type(screen.getByLabelText('Partner phone (optional)'), '604-555-0102');
-      await user.selectOptions(screen.getByLabelText('Partner gender (optional)'), 'female');
-      await user.selectOptions(
-        screen.getByLabelText('Partner tennis skill level (optional)'),
-        '4.0',
-      );
+      await user.selectOptions(screen.getByLabelText(/Partner gender/), 'female');
+      await user.selectOptions(screen.getByLabelText(/Partner tennis skill level/), '4.0');
       await user.click(screen.getByRole('button', { name: 'Register for tournament' }));
 
       expect(await screen.findByRole('status')).toHaveTextContent(
@@ -976,7 +980,8 @@ describe('tournament component coverage', () => {
       await user.click(screen.getByRole('option', { name: /Add a partner without an account/ }));
       await user.type(screen.getByLabelText('Partner name'), 'Jordan Partner');
       await user.type(screen.getByLabelText('Partner email'), 'partner@example.com');
-      await user.selectOptions(screen.getByLabelText('Partner gender (optional)'), 'female');
+      await user.selectOptions(screen.getByLabelText(/Partner tennis skill level/), '4.0');
+      await user.selectOptions(screen.getByLabelText(/Partner gender/), 'female');
       await user.click(screen.getByRole('button', { name: 'Register for tournament' }));
 
       expect(await screen.findByRole('status')).toHaveTextContent(
@@ -2237,7 +2242,7 @@ describe('tournament component coverage', () => {
     await user.type(screen.getByPlaceholderText('Full name'), 'Taylor Guest');
     await user.type(screen.getByPlaceholderText('Email (private)'), 'taylor@example.com');
     await user.type(screen.getByPlaceholderText('Phone (private)'), '604-555-0199');
-    await user.selectOptions(screen.getByLabelText('Gender profile'), 'female');
+    await user.selectOptions(screen.getByLabelText(/Gender/), 'female');
     await user.click(screen.getByRole('button', { name: 'Add participant' }));
 
     await waitFor(() =>
@@ -2580,7 +2585,7 @@ describe('tournament component coverage', () => {
     expect(supabaseMocks.writes).toHaveLength(0);
   });
 
-  it('allows an admin to add a guest participant without optional email, phone, or gender', async () => {
+  it('allows an admin to add a guest participant without email or phone when gender is supplied', async () => {
     const user = userEvent.setup();
     render(
       <TournamentManagement
@@ -2594,6 +2599,7 @@ describe('tournament component coverage', () => {
       />,
     );
     await user.type(await screen.findByPlaceholderText('Full name'), 'Guest Player');
+    await user.selectOptions(screen.getByLabelText(/Gender/), 'male');
     await user.click(screen.getByRole('button', { name: 'Add participant' }));
     await waitFor(() =>
       expect(supabaseMocks.writes).toContainEqual(
@@ -2604,7 +2610,7 @@ describe('tournament component coverage', () => {
             display_name: 'Guest Player',
             email: null,
             phone: null,
-            gender: null,
+            gender: 'male',
           }),
         }),
       ),
@@ -4627,6 +4633,8 @@ describe('tournament component coverage', () => {
     );
     await screen.findByRole('heading', { name: 'Tournament registration' });
     await user.type(screen.getByLabelText('Your full name'), 'Taylor Guest');
+    await user.selectOptions(screen.getByLabelText(/^Gender/), 'female');
+    await user.selectOptions(screen.getByLabelText(/Tennis skill level/), '4.0');
     await user.click(await screen.findByRole('button', { name: 'Register for tournament' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Registration is closed.');
     expect(supabaseMocks.rpcArgs).toContainEqual(
@@ -6128,6 +6136,8 @@ describe('tournament component coverage', () => {
     await user.type(screen.getByLabelText('Partner name'), 'Casey New');
     await user.clear(screen.getByLabelText('Partner email'));
     await user.type(screen.getByLabelText('Partner email'), 'casey@example.com');
+    await user.selectOptions(screen.getByLabelText(/Partner tennis skill level/), '4.0');
+    await user.selectOptions(screen.getByLabelText(/Partner gender/), 'female');
     await user.click(screen.getByRole('button', { name: 'Save and invite' }));
     expect(
       await screen.findByText(/Partner updated. The new partner must confirm/),

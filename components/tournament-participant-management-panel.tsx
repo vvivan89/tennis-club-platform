@@ -3,6 +3,7 @@ import { Square, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { SearchableMemberSelect, type MemberOption } from '@/components/searchable-member-select';
+import { GenderSelect } from '@/components/gender-select';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import type { Member, Pair, Participant, Team } from '@/components/tournament-management-types';
 import { TournamentEntryGroupingPanel } from '@/components/tournament-entry-grouping-panel';
@@ -224,18 +225,12 @@ export function TournamentParticipantManagementPanel(props: Props) {
                   value={participantPhone}
                   onChange={(e) => setParticipantPhone(e.target.value)}
                 />
-                <label className="block text-sm">
-                  Gender profile
-                  <select
-                    className="block h-10 w-full rounded-md border border-input bg-background px-3"
-                    value={participantGender}
-                    onChange={(e) => setParticipantGender(e.target.value)}
-                  >
-                    <option value="">Not specified</option>
-                    <option value="male">Male</option>
-                    <option value="female">Female</option>
-                  </select>
-                </label>
+                <GenderSelect
+                  value={participantGender}
+                  onChange={setParticipantGender}
+                  className="block text-sm"
+                  selectClassName="block h-10 w-full rounded-md border border-input bg-background px-3"
+                />
               </>
             )}
             <Button disabled={busy || (leagueTournament && !memberId)} type="submit">
