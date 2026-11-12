@@ -113,7 +113,8 @@ function ProfileTopic() {
         rows={[
           {
             field: 'Name, phone, birthday, and gender',
-            value: 'Keep contact details current; phone and name are required profile fields.',
+            value:
+              'Keep contact details current. Name, phone, date of birth, gender, and skill rating are required profile fields.',
             effect:
               'Name and contact information identify you to club organizers. Gender affects eligibility for gender-specific events and category checks in competitions. Birthday and its visibility option support the club birthday display.',
           },

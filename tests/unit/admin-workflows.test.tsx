@@ -116,6 +116,8 @@ describe('administrator workflow components', () => {
     await user.type(screen.getByLabelText(/Full name/), 'Taylor Member');
     await user.type(screen.getByLabelText(/Email/), 'taylor@example.com');
     await user.type(screen.getByLabelText(/Phone/), '6045550100');
+    await user.type(screen.getByLabelText(/Date of birth/), '1990-05-14');
+    await user.selectOptions(screen.getByLabelText(/Gender/), 'female');
     await user.selectOptions(screen.getByLabelText(/Tennis skill rating/), '4.0');
     await user.click(screen.getByRole('button', { name: 'Send invitation email' }));
     expect(await screen.findByRole('status')).toHaveTextContent(
@@ -126,6 +128,8 @@ describe('administrator workflow components', () => {
       full_name: 'Taylor Member',
       email: 'taylor@example.com',
       tennis_skill_level: '4.0',
+      date_of_birth: '1990-05-14',
+      gender: 'female',
     });
 
     mocks.fetch.mockResolvedValueOnce(
@@ -136,6 +140,8 @@ describe('administrator workflow components', () => {
     await user.type(screen.getByLabelText(/Full name/), 'Another Member');
     await user.type(screen.getByLabelText(/Email/), 'another@example.com');
     await user.type(screen.getByLabelText(/Phone/), '6045550101');
+    await user.type(screen.getByLabelText(/Date of birth/), '1990-05-14');
+    await user.selectOptions(screen.getByLabelText(/Gender/), 'male');
     await user.click(screen.getByRole('button', { name: 'Send invitation email' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('bad request');
   });

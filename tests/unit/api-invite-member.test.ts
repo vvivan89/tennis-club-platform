@@ -79,6 +79,8 @@ const valid = {
   email: ' TAYLOR@EXAMPLE.COM ',
   phone: ' 604-555-0123 ',
   tennis_skill_level: '3.5',
+  gender: 'female',
+  date_of_birth: '1990-05-14',
 };
 
 beforeEach(() => {
@@ -112,6 +114,8 @@ describe('POST /api/admin/invite-member', () => {
     expect((await POST(request({ ...valid, email: ' ' }))).status).toBe(400);
     expect((await POST(request({ ...valid, phone: ' ' }))).status).toBe(400);
     expect((await POST(request({ ...valid, tennis_skill_level: '8.0' }))).status).toBe(400);
+    expect((await POST(request({ ...valid, gender: '' }))).status).toBe(400);
+    expect((await POST(request({ ...valid, date_of_birth: '' }))).status).toBe(400);
     expect((await POST(request({ ...valid, gender: 'other' }))).status).toBe(400);
     expect((await POST(request({ ...valid, date_of_birth: '2020-02-31' }))).status).toBe(400);
     expect((await POST(request({ ...valid, date_of_birth: '2999-01-01' }))).status).toBe(400);
@@ -129,7 +133,13 @@ describe('POST /api/admin/invite-member', () => {
       values: {
         email: 'taylor@example.com',
         options: {
-          data: { full_name: 'Taylor Member', phone: '604-555-0123', tennis_skill_level: '3.5' },
+          data: {
+            full_name: 'Taylor Member',
+            phone: '604-555-0123',
+            tennis_skill_level: '3.5',
+            gender: 'female',
+            date_of_birth: '1990-05-14',
+          },
         },
       },
     });

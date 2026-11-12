@@ -20,7 +20,8 @@ const publicView = [
   .join('\n');
 const interacDialog = read('components/interac-payment-instructions-dialog.tsx');
 const paymentOptions = read('components/payment-options-button.tsx');
-const partnerSkillSelect = read('components/partner-skill-level-select.tsx');
+const skillSelect = read('components/tennis-skill-level-select.tsx');
+const skillLevels = read('lib/tennis-skill-levels.ts');
 const memberMenu = read('components/member-menu.tsx');
 const checkout = read('app/api/payments/checkout/route.ts');
 const cancel = read('app/api/payments/cancel/route.ts');
@@ -106,11 +107,11 @@ describe('requested tournament registration fixes', () => {
   });
 
   it('offers optional skill levels from 2.5 through 7.0 in half-point increments', () => {
-    expect(publicView).toContain('Tennis skill level (optional)');
-    expect(publicView.match(/<PartnerSkillLevelSelect/g) ?? []).toHaveLength(3);
-    expect(partnerSkillSelect).toContain('Partner tennis skill level (optional)');
-    expect(partnerSkillSelect).toContain('Array.from({ length: 10 }');
-    expect(partnerSkillSelect).toContain('(2.5 + index * 0.5).toFixed(1)');
+    expect(publicView).toContain('label="Tennis skill level"');
+    expect(publicView.match(/<TennisSkillLevelSelect/g) ?? []).toHaveLength(5);
+    expect(skillSelect).toContain('minSkill = 2.5');
+    expect(skillSelect).toContain('maxSkill = 7.0');
+    expect(skillLevels).toContain('minSkill + index * 0.5');
     expect(migration).toContain('tennis_skill_level BETWEEN 2.5 AND 7.0');
   });
 

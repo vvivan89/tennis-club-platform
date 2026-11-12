@@ -82,14 +82,14 @@ export function PublicHelpGuide() {
             },
             {
               field: 'Phone, skill, and gender',
-              value: 'Phone, skill rating, and gender are optional for guest entries.',
+              value: 'Phone is optional; skill rating and gender are required for guest entries.',
               effect:
                 'The skill rating appears with tournament participant/pair details when those details are displayed. Gender affects gender-specific and mixed-pair eligibility.',
             },
             {
               field: 'Partner',
               value:
-                'Choose a registered member or enter a new partner’s name and email; phone, skill, and gender are optional fields where shown.',
+                'Choose a registered member or enter a new partner’s details. Phone is optional; skill rating and gender are required for a new partner.',
               effect:
                 'The partner must satisfy the same category rules. With both genders known, Mixed doubles requires one male and one female.',
             },

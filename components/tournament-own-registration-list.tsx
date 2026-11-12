@@ -2,7 +2,7 @@
 
 import { Input } from '@/components/ui/input';
 import { PaymentOptionsButton, type PaymentOption } from '@/components/payment-options-button';
-import { PartnerSkillLevelSelect } from '@/components/partner-skill-level-select';
+import { TennisSkillLevelSelect } from '@/components/tennis-skill-level-select';
 import { GenderSelect } from '@/components/gender-select';
 import type { InteracPaymentNotice } from '@/components/interac-payment-instructions-dialog';
 import type {
@@ -438,24 +438,17 @@ export function TournamentOwnRegistrationList({
                         maxLength={40}
                       />
                     </label>
-                    <label className="text-sm">
-                      Tennis skill rating
-                      <select
-                        className="mt-1 block h-10 w-full rounded-md border border-input bg-background px-3"
-                        value={ownEditSkill}
-                        onChange={(event) => setOwnEditSkill(event.target.value)}
-                      >
-                        <option value="">Not specified</option>
-                        {Array.from({ length: 10 }, (_, index) =>
-                          (2.5 + index * 0.5).toFixed(1),
-                        ).map((level) => (
-                          <option key={level} value={level}>
-                            {level}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <GenderSelect value={ownEditGender} onChange={setOwnEditGender} />
+                    <TennisSkillLevelSelect
+                      label="Tennis skill rating"
+                      value={ownEditSkill}
+                      onChange={setOwnEditSkill}
+                      className="text-sm"
+                      selectClassName="mt-1 block h-10 w-full rounded-md border border-input bg-background px-3"
+                    />
+                    <GenderSelect
+                      value={ownEditGender}
+                      onChange={setOwnEditGender}
+                    />
                     <p className="self-end text-xs text-muted-foreground">
                       Your gender affects eligibility for gender-specific categories.
                     </p>
@@ -509,11 +502,18 @@ export function TournamentOwnRegistrationList({
                         onChange={(event) => setPartnerEditPhone(event.target.value)}
                       />
                     </label>
-                    <PartnerSkillLevelSelect
+                    <TennisSkillLevelSelect
+                      label="Partner tennis skill level"
                       value={partnerEditSkill}
                       onChange={setPartnerEditSkill}
+                      className="text-sm"
+                      selectClassName="mt-1 block h-10 w-full rounded-md border border-input bg-background px-3"
                     />
-                    <GenderSelect value={partnerEditGender} onChange={setPartnerEditGender} />
+                    <GenderSelect
+                      label="Partner gender (for doubles events)"
+                      value={partnerEditGender}
+                      onChange={setPartnerEditGender}
+                    />
                     <div className="flex gap-2 sm:col-span-2">
                       <button
                         type="submit"

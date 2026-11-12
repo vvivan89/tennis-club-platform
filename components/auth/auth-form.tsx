@@ -11,6 +11,8 @@ import { formatPhoneNumber } from '@/lib/format-phone';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { GenderSelect } from '@/components/gender-select';
+import { TennisSkillLevelSelect } from '@/components/tennis-skill-level-select';
 
 type Mode = 'login' | 'signup' | 'reset';
 
@@ -66,6 +68,8 @@ export function AuthForm({ mode }: { mode: Mode }) {
     setBusy(true);
 
     try {
+      if (mode === 'signup' && !dateOfBirth) throw new Error('Date of birth is required.');
+      if (mode === 'signup' && !gender) throw new Error('Select your gender.');
       const supabase = createSupabaseBrowserClient();
       if (mode === 'login') {
         const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
@@ -158,47 +162,28 @@ export function AuthForm({ mode }: { mode: Mode }) {
                   />
                 </label>
                 <label className="block space-y-1.5 text-sm font-medium">
-                  Date of birth (optional)
+                  Date of birth <span className="text-destructive">*</span>
                   <Input
                     type="date"
                     autoComplete="bday"
                     value={dateOfBirth}
                     max={new Date().toISOString().slice(0, 10)}
                     onChange={(e) => setDateOfBirth(e.target.value)}
+                    required
                   />
                 </label>
-                <label className="block space-y-1.5 text-sm font-medium">
-                  Gender (optional)
-                  <select
-                    value={gender}
-                    onChange={(e) => setGender(e.target.value)}
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  >
-                    <option value="">Not specified</option>
-                    <option value="male">Male</option>
-                    <option value="female">Female</option>
-                  </select>
-                </label>
-                <label className="block space-y-1.5 text-sm font-medium">
-                  Tennis skill rating <span className="text-destructive">*</span>
-                  <select
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    value={tennisSkillLevel}
-                    onChange={(e) => setTennisSkillLevel(e.target.value)}
-                    required
-                  >
-                    <option value="" disabled>
-                      Select your rating
-                    </option>
-                    {Array.from({ length: 10 }, (_, i) => (2.5 + i * 0.5).toFixed(1)).map(
-                      (level) => (
-                        <option key={level} value={level}>
-                          {level}
-                        </option>
-                      ),
-                    )}
-                  </select>
-                </label>
+                <GenderSelect
+                  value={gender}
+                  onChange={setGender}
+                  className="block space-y-1.5 text-sm font-medium"
+                  selectClassName="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                />
+                <TennisSkillLevelSelect
+                  label="Tennis skill rating"
+                  value={tennisSkillLevel}
+                  onChange={setTennisSkillLevel}
+                  placeholder="Select your rating"
+                />
                 <label className="block space-y-1.5 text-sm font-medium">
                   Comment (optional)
                   <textarea

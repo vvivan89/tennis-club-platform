@@ -3,7 +3,8 @@
 import type { Dispatch, FormEventHandler, SetStateAction } from 'react';
 import { Input } from '@/components/ui/input';
 import { SearchableMemberSelect, type MemberOption } from '@/components/searchable-member-select';
-import { PartnerSkillLevelSelect } from '@/components/partner-skill-level-select';
+import { GenderSelect } from '@/components/gender-select';
+import { TennisSkillLevelSelect } from '@/components/tennis-skill-level-select';
 import { categoryLabel } from '@/components/tournament-public-view-format';
 import { isGenderEligibleForCategory } from '@/lib/tournament-config';
 import type { Participant, PartnerMember } from '@/components/tournament-public-view-types';
@@ -152,35 +153,19 @@ export function TournamentEntryForm(props: TournamentEntryFormProps) {
             Phone (optional)
             <Input value={entrantPhone} onChange={(e) => setEntrantPhone(e.target.value)} />
           </label>
-          <label className="text-sm">
-            Tennis skill level (optional)
-            <select
-              className="mt-1 block h-10 w-full rounded-md border border-input bg-background px-3"
-              value={entrantSkillLevel}
-              onChange={(e) => setEntrantSkillLevel(e.target.value)}
-            >
-              <option value="">Not specified</option>
-              {Array.from({ length: 10 }, (_, index) => (2.5 + index * 0.5).toFixed(1)).map(
-                (level) => (
-                  <option key={level} value={level}>
-                    {level}
-                  </option>
-                ),
-              )}
-            </select>
-          </label>
-          <label className="text-sm">
-            Gender (optional)
-            <select
-              className="mt-1 block h-10 w-full rounded-md border border-input bg-background px-3"
-              value={entrantGender}
-              onChange={(e) => setEntrantGender(e.target.value)}
-            >
-              <option value="">Not specified</option>
-              <option value="male">Male</option>
-              <option value="female">Female</option>
-            </select>
-          </label>
+          <TennisSkillLevelSelect
+            label="Tennis skill level"
+            value={entrantSkillLevel}
+            onChange={setEntrantSkillLevel}
+            className="text-sm"
+            selectClassName="mt-1 block h-10 w-full rounded-md border border-input bg-background px-3"
+          />
+          <GenderSelect
+            value={entrantGender}
+            onChange={setEntrantGender}
+            className="text-sm"
+            selectClassName="mt-1 block h-10 w-full rounded-md border border-input bg-background px-3"
+          />
         </div>
       )}
       {format === 'doubles' && effectiveRegistrationMode === 'pair' && (
@@ -257,19 +242,20 @@ export function TournamentEntryForm(props: TournamentEntryFormProps) {
                 Partner phone (optional)
                 <Input value={partnerPhone} onChange={(e) => setPartnerPhone(e.target.value)} />
               </label>
-              <PartnerSkillLevelSelect value={partnerSkillLevel} onChange={setPartnerSkillLevel} />
-              <label className="text-sm">
-                Partner gender (optional)
-                <select
-                  className="mt-1 block h-10 w-full rounded-md border border-input bg-background px-3"
-                  value={partnerGender}
-                  onChange={(e) => setPartnerGender(e.target.value)}
-                >
-                  <option value="">Not specified</option>
-                  <option value="male">Male</option>
-                  <option value="female">Female</option>
-                </select>
-              </label>
+              <TennisSkillLevelSelect
+                label="Partner tennis skill level"
+                value={partnerSkillLevel}
+                onChange={setPartnerSkillLevel}
+                className="text-sm"
+                selectClassName="mt-1 block h-10 w-full rounded-md border border-input bg-background px-3"
+              />
+              <GenderSelect
+                label="Partner gender (for doubles events)"
+                value={partnerGender}
+                onChange={setPartnerGender}
+                className="text-sm"
+                selectClassName="mt-1 block h-10 w-full rounded-md border border-input bg-background px-3"
+              />
             </div>
           )}
           {!currentUserId &&
@@ -278,10 +264,12 @@ export function TournamentEntryForm(props: TournamentEntryFormProps) {
             participants.some(
               (participant) => participant.id === partnerChoice && !participant.is_member,
             ) && (
-              <PartnerSkillLevelSelect
+              <TennisSkillLevelSelect
+                label="Partner tennis skill level"
                 className="block text-sm"
                 value={partnerSkillLevel}
                 onChange={setPartnerSkillLevel}
+                selectClassName="mt-1 block h-10 w-full rounded-md border border-input bg-background px-3"
               />
             )}
         </div>

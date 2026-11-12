@@ -44,6 +44,7 @@ export function useTournamentEntryEditActions({
     setPartnerEditBusy(true);
     setRegistrationError('');
     try {
+      if (!partnerEditGender) throw new Error('Select your partner’s gender.');
       const { data, error } = await db.rpc('update_unconfirmed_tournament_partner', {
         p_participant_id: participantId,
         p_partner_user_id: null,
@@ -95,6 +96,7 @@ export function useTournamentEntryEditActions({
     setOwnEditBusy(true);
     setRegistrationError('');
     try {
+      if (!ownEditGender) throw new Error('Select your gender.');
       const { error } = await db.rpc('update_event_guest_registration_details', {
         p_participant_id: participantId,
         p_display_name: ownEditName.trim(),

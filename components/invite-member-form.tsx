@@ -6,7 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Input } from '@/components/ui/input';
 import { formatPhoneNumber } from '@/lib/format-phone';
 import { Button } from '@/components/ui/button';
-const levels = ['2.5', '3.0', '3.5', '4.0', '4.5', '5.0', '5.5', '6.0', '6.5', '7.0'];
+import { GenderSelect } from '@/components/gender-select';
+import { TennisSkillLevelSelect } from '@/components/tennis-skill-level-select';
 export function InviteMemberForm() {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -82,34 +83,27 @@ export function InviteMemberForm() {
               />
             </label>
             <label className="space-y-1 text-sm">
-              Date of birth (optional)
-              <Input name="date_of_birth" type="date" max={new Date().toISOString().slice(0, 10)} />
-            </label>
-            <label className="space-y-1 text-sm">
-              Gender (optional)
-              <select
-                name="gender"
-                defaultValue=""
-                className="block h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-              >
-                <option value="">Not specified</option>
-                <option value="male">Male</option>
-                <option value="female">Female</option>
-              </select>
-            </label>
-            <label className="space-y-1 text-sm">
-              Tennis skill rating <span className="text-destructive">*</span>
-              <select
-                name="tennis_skill_level"
+              Date of birth <span className="text-destructive">*</span>
+              <Input
+                name="date_of_birth"
+                type="date"
+                max={new Date().toISOString().slice(0, 10)}
                 required
-                defaultValue="2.5"
-                className="block h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-              >
-                {levels.map((x) => (
-                  <option key={x}>{x}</option>
-                ))}
-              </select>
+              />
             </label>
+            <GenderSelect
+              name="gender"
+              defaultValue=""
+              className="space-y-1 text-sm"
+              selectClassName="block h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+            />
+            <TennisSkillLevelSelect
+              label="Tennis skill rating"
+              name="tennis_skill_level"
+              defaultValue="2.5"
+              className="space-y-1 text-sm"
+              selectClassName="block h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+            />
             <div className="sm:col-span-2">
               <Button disabled={busy}>
                 {busy ? (
