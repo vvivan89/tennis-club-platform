@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { EventCardActions } from '@/components/event-card-actions';
 import { EventCardWeather } from '@/components/event-card-weather';
+import { InProgressBadge } from '@/components/in-progress-badge';
 import { PastEventsList } from '@/components/past-events-list';
 import { eventPath } from '@/lib/event-slug';
 import {
@@ -156,9 +157,7 @@ export function EventsBrowser({
                   </h2>
                   {new Date(event.starts_at).getTime() <= current &&
                     new Date(event.ends_at || event.starts_at).getTime() >= current && (
-                      <span className="mt-2 inline-flex rounded-full bg-success/15 px-2.5 py-1 text-xs font-medium text-success-foreground dark:text-success-foreground">
-                        In progress
-                      </span>
+                      <InProgressBadge className="mt-2" />
                     )}
                 </CardHeader>
                 <CardContent className="pb-4">

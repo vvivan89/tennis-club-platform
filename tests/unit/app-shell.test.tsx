@@ -10,6 +10,10 @@ vi.mock('@/components/site-header-state', () => ({
   SiteHeaderStateProvider: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   useSiteHeaderState: () => ({ shortName: 'Configured Club' }),
 }));
+vi.mock('next-themes', () => ({
+  ThemeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useTheme: () => ({ theme: 'system', setTheme: vi.fn() }),
+}));
 vi.mock('@/lib/supabase-server', () => ({
   createSupabaseServerClient: async () => ({
     from: () => ({

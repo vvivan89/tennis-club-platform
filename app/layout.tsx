@@ -4,6 +4,7 @@ import './styles.css';
 import { SiteHeaderStateProvider } from '@/components/site-header-state';
 import { MemberChatNotifications } from '@/components/member-chat-notifications';
 import { PageTitle } from '@/components/page-title';
+import { ClubThemeProvider } from '@/components/club-theme-provider';
 
 export async function generateMetadata(): Promise<Metadata> {
   let shortName = 'Tennis Club';
@@ -22,13 +23,15 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en-CA">
+    <html lang="en-CA" suppressHydrationWarning>
       <body>
-        <SiteHeaderStateProvider>
-          <PageTitle />
-          {children}
-          <MemberChatNotifications />
-        </SiteHeaderStateProvider>
+        <ClubThemeProvider>
+          <SiteHeaderStateProvider>
+            <PageTitle />
+            {children}
+            <MemberChatNotifications />
+          </SiteHeaderStateProvider>
+        </ClubThemeProvider>
       </body>
     </html>
   );

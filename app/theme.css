@@ -1,76 +1,104 @@
 /*
- * Theme tokens for the club website.
- * Edit these hexadecimal values to change colors throughout the application.
+ * Theme tokens for the club website. Light and dark palettes use blue accents.
+ * Add future accent variants with a matching data-accent selector below.
  */
 :root {
-  --background: #f9f9f5;
-  --foreground: #192924;
+  color-scheme: light;
+  --background: #f5f8fc;
+  --foreground: #172638;
   --card: #ffffff;
-  --card-foreground: #192924;
+  --card-foreground: #172638;
   --popover: #ffffff;
-  --popover-foreground: #192924;
-  --primary: #224e39;
-  --primary-foreground: #fcfcf8;
-  --secondary: #e9f0e0;
-  --secondary-foreground: #223f33;
-  --muted: #edf0eb;
-  --muted-foreground: #63746b;
-  --accent: #d2eb94;
-  --accent-foreground: #1a2e27;
-  --destructive: #dc2828;
-  --destructive-foreground: #fafafa;
-  --success: #2f7a4c;
+  --popover-foreground: #172638;
+  --primary: #245fa8;
+  --primary-foreground: #ffffff;
+  --secondary: #e5effc;
+  --secondary-foreground: #1d4675;
+  --muted: #edf2f8;
+  --muted-foreground: #617184;
+  --accent: #d4e7ff;
+  --accent-foreground: #1d416a;
+  --destructive: #c43c3c;
+  --destructive-foreground: #ffffff;
+  --success: #31794c;
   --success-foreground: #205234;
   --warning: #d79a32;
   --warning-foreground: #76500f;
   --info: #3977a8;
   --info-foreground: #245477;
-  --border: #dae0d7;
-  --input: #cfd7cb;
-  --ring: #327153;
+  --border: #d7e1ed;
+  --input: #c8d5e4;
+  --ring: #3478c4;
   --radius: 0.65rem;
 
-  /* Additional brand tokens for custom areas of the site. */
-  --brand-forest: #224e39;
-  --brand-court: #477657;
-  --brand-lime: #d2eb94;
-  --brand-cream: #f9f9f5;
+  /* Additional brand tokens used by custom areas of the site. */
+  --brand-forest: #245fa8;
+  --brand-court: #3978b8;
+  --brand-lime: #d4e7ff;
+  --brand-cream: #f5f8fc;
   --brand-sand: #e8daca;
   --overlay: #000000;
   --overlay-foreground: #ffffff;
 }
 
 .dark {
-  --background: #121c19;
-  --foreground: #f7f7f3;
-  --card: #182521;
-  --card-foreground: #f7f7f3;
-  --popover: #182521;
-  --popover-foreground: #f7f7f3;
-  --primary: #bdd879;
-  --primary-foreground: #162721;
-  --secondary: #2a3c35;
-  --secondary-foreground: #f3f3ed;
-  --muted: #27352f;
-  --muted-foreground: #a5b6ac;
-  --accent: #305040;
-  --accent-foreground: #f7f7f3;
-  --destructive: #962c2c;
-  --destructive-foreground: #fafafa;
+  color-scheme: dark;
+  --background: #111b29;
+  --foreground: #edf4fc;
+  --card: #192637;
+  --card-foreground: #edf4fc;
+  --popover: #192637;
+  --popover-foreground: #edf4fc;
+  --primary: #82baff;
+  --primary-foreground: #10243a;
+  --secondary: #263c56;
+  --secondary-foreground: #e7f1fc;
+  --muted: #243347;
+  --muted-foreground: #a7b8cb;
+  --accent: #294969;
+  --accent-foreground: #edf4fc;
+  --destructive: #a83b3b;
+  --destructive-foreground: #ffffff;
   --success: #6ea685;
   --success-foreground: #bde0c7;
   --warning: #d5a34b;
   --warning-foreground: #f4dba9;
   --info: #78add4;
   --info-foreground: #b9d9ef;
-  --border: #384741;
-  --input: #384741;
-  --ring: #bdd879;
-  --brand-forest: #bdd879;
-  --brand-court: #6ea685;
-  --brand-lime: #bdd879;
-  --brand-cream: #121c19;
+  --border: #35475d;
+  --input: #35475d;
+  --ring: #82baff;
+  --brand-forest: #82baff;
+  --brand-court: #5c91c5;
+  --brand-lime: #82baff;
+  --brand-cream: #111b29;
   --brand-sand: #564839;
   --overlay: #000000;
   --overlay-foreground: #ffffff;
+}
+
+:root[data-accent='green'] {
+  --primary: #2b6949;
+  --primary-foreground: #ffffff;
+  --secondary: #e5f0e8;
+  --secondary-foreground: #214d37;
+  --accent: #cfe6ce;
+  --accent-foreground: #1d402d;
+  --ring: #37845b;
+  --brand-forest: #2b6949;
+  --brand-court: #477657;
+  --brand-lime: #cfe6ce;
+}
+
+.dark[data-accent='green'] {
+  --primary: #91c99e;
+  --primary-foreground: #14281c;
+  --secondary: #2a4435;
+  --secondary-foreground: #edf8ef;
+  --accent: #31513c;
+  --accent-foreground: #f1f8f2;
+  --ring: #91c99e;
+  --brand-forest: #91c99e;
+  --brand-court: #6ea685;
+  --brand-lime: #91c99e;
 }

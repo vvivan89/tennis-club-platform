@@ -1,5 +1,6 @@
 import { dateLabel } from '@/components/tournament-public-view-format';
 import { eventPriceLabel } from '@/lib/event-format';
+import { InProgressBadge } from '@/components/in-progress-badge';
 
 export function TournamentEventSummary({
   leagueTournament,
@@ -34,11 +35,7 @@ export function TournamentEventSummary({
         </span>
         {leagueTournament &&
           Date.now() >= new Date(startsAt).getTime() &&
-          Date.now() <= new Date(endsAt || startsAt).getTime() && (
-            <span className="rounded-full bg-success/15 px-2.5 py-1 text-xs font-medium text-success-foreground dark:text-success-foreground">
-              In progress
-            </span>
-          )}
+          Date.now() <= new Date(endsAt || startsAt).getTime() && <InProgressBadge />}
         {leagueTournament && genderRestriction && (
           <span className="rounded-full bg-secondary px-3 py-1 text-xs">
             {genderRestriction === 'male' ? 'Male participants only' : 'Female participants only'}

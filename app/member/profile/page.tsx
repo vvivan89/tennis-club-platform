@@ -17,6 +17,7 @@ import { MemberNav } from '@/components/member-nav';
 import { FloatingFeedback } from '@/components/floating-feedback';
 import { GenderSelect } from '@/components/gender-select';
 import { TennisSkillLevelSelect } from '@/components/tennis-skill-level-select';
+import { ProfileAppearanceSettings } from '@/components/profile-appearance-settings';
 
 function isBirthdayToday(dateOfBirth: string | null) {
   if (!dateOfBirth) return false;
@@ -524,6 +525,16 @@ export default function ProfilePage() {
                     </form>
                   </CardContent>
                 </Card>
+                <ProfileAppearanceSettings
+                  onSaved={(savedMessage) => {
+                    setError('');
+                    setMessage(savedMessage);
+                  }}
+                  onError={(saveError) => {
+                    setMessage('');
+                    setError(saveError);
+                  }}
+                />
               </div>
             </div>
           )}

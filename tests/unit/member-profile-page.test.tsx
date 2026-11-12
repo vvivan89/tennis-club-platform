@@ -29,6 +29,8 @@ const mocks = vi.hoisted(() => ({
   profileError: null as null | { message: string },
   updateError: null as null | { message: string },
   updateNoData: false,
+  setThemeMode: vi.fn(),
+  setThemeAccent: vi.fn(),
 }));
 vi.mock('next/navigation', () => {
   const router = { replace: mocks.routerReplace, refresh: mocks.routerRefresh };
@@ -37,6 +39,15 @@ vi.mock('next/navigation', () => {
 vi.mock('@/components/site-header', () => ({ SiteHeader: () => null }));
 vi.mock('@/components/site-footer', () => ({ SiteFooter: () => null }));
 vi.mock('@/components/member-nav', () => ({ MemberNav: () => null }));
+vi.mock('@/components/club-theme-provider', () => ({
+  useClubTheme: () => ({
+    mode: 'system',
+    accentColor: 'blue',
+    preferencesReady: true,
+    setMode: mocks.setThemeMode,
+    setAccentColor: mocks.setThemeAccent,
+  }),
+}));
 vi.mock('@/lib/supabase-browser', () => ({
   createSupabaseBrowserClient: () => ({
     auth: { getUser: async () => ({ data: { user: mocks.user }, error: null }) },

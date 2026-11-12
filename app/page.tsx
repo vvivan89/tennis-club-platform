@@ -10,6 +10,7 @@ import { SiteHeader } from '@/components/site-header';
 import { SiteFooter } from '@/components/site-footer';
 import { EventCardActions } from '@/components/event-card-actions';
 import { EventCardWeather } from '@/components/event-card-weather';
+import { InProgressBadge } from '@/components/in-progress-badge';
 import { newsPathSlug } from '@/lib/news-slug';
 import { eventPath } from '@/lib/event-slug';
 import { eventDateRangeLabel } from '@/lib/event-format';
@@ -411,9 +412,7 @@ export default function Home() {
                     {hydrated &&
                       new Date(event.starts_at).getTime() <= Date.now() &&
                       new Date(event.ends_at || event.starts_at).getTime() >= Date.now() && (
-                        <span className="mt-2 inline-flex rounded-full bg-success/15 px-2.5 py-1 text-xs font-medium text-success-foreground dark:text-success-foreground">
-                          In progress
-                        </span>
+                        <InProgressBadge className="mt-2" />
                       )}
                   </CardHeader>
                   <CardContent className="pb-3">

@@ -10,6 +10,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import { dispatchEventNotificationsInBackground } from '@/lib/event-notifications';
 import { Button } from '@/components/ui/button';
 import { EventWeather } from '@/components/event-weather';
+import { InProgressBadge } from '@/components/in-progress-badge';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EventWithdrawalDialog } from '@/components/event-withdrawal-dialog';
 import { PaymentOptionsButton, type PaymentOption } from '@/components/payment-options-button';
@@ -565,11 +566,7 @@ export function EventDetailClient({
               : ''}
         </span>
         {Date.now() >= new Date(event.starts_at).getTime() &&
-          Date.now() <= new Date(event.ends_at || event.starts_at).getTime() && (
-            <span className="rounded-full bg-success/15 px-2.5 py-1 text-xs font-medium text-success-foreground dark:text-success-foreground">
-              In progress
-            </span>
-          )}
+          Date.now() <= new Date(event.ends_at || event.starts_at).getTime() && <InProgressBadge />}
         {event.gender_restriction && (
           <span className="rounded-full bg-secondary px-3 py-1 text-xs">
             {event.gender_restriction === 'male'
