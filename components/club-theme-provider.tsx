@@ -49,6 +49,7 @@ function SyncedClubThemeProvider({ children }: { children: React.ReactNode }) {
   const [accentColor, setAccentColorState] = useState<ClubAccentColor>('green');
   const [preferencesReady, setPreferencesReady] = useState(false);
   const generation = useRef(0);
+  const loadedUserId = useRef<string | null | undefined>(undefined);
   const mode: ClubThemeMode = isThemeMode(theme) ? theme : 'system';
 
   useEffect(() => {
@@ -70,6 +71,8 @@ function SyncedClubThemeProvider({ children }: { children: React.ReactNode }) {
     }
     const loadProfilePreferences = async (userId: string | null) => {
       if (!active) return;
+      if (loadedUserId.current === userId) return;
+      loadedUserId.current = userId;
       const currentGeneration = ++generation.current;
       if (!userId) {
         if (active) setPreferencesReady(true);
@@ -103,7 +106,8 @@ function SyncedClubThemeProvider({ children }: { children: React.ReactNode }) {
       .catch(() => {
         if (active) setPreferencesReady(true);
       });
-    const { data: authSubscription } = db.auth.onAuthStateChange((_event, session) => {
+    const { data: authSubscription } = db.auth.onAuthStateChange((event, session) => {
+      if (event !== 'SIGNED_IN' && event !== 'SIGNED_OUT') return;
       void loadProfilePreferences(session?.user?.id ?? null);
     });
     return () => {
