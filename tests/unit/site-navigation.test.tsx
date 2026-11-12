@@ -128,6 +128,84 @@ describe('site navigation authorization and session actions', () => {
     );
   });
 
+  it('puts role-specific Help guides and Sign out below the mobile menu accordions', async () => {
+    mocks.pathname = '/help/organizer';
+    const user = userEvent.setup();
+    render(
+      <MobileNavigationDrawer
+        mainLinks={[
+          {
+            href: '/help/public',
+            label: 'Help',
+            icon: <Home aria-hidden="true" />,
+            current: true,
+          },
+        ]}
+        signedIn
+        avatar=""
+        initials="OM"
+        name="Organizer Member"
+        approved
+        isAdmin={false}
+        isOrganizer
+        isEventGuest={false}
+        onSignOut={() => {}}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Open navigation menu' }));
+
+    expect(screen.getByRole('button', { name: 'Help' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('link', { name: 'Public guide' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Organizer guide' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(screen.getByRole('link', { name: 'Member guide' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Admin guide' })).not.toBeInTheDocument();
+    const helpGuides = screen.getByRole('navigation', { name: 'Help guides' });
+    const signOutButton = screen.getByRole('button', { name: 'Sign out' });
+    expect(
+      helpGuides.compareDocumentPosition(signOutButton) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it('shows only public and admin Help guides to admins', async () => {
+    mocks.pathname = '/help/admin';
+    const user = userEvent.setup();
+    render(
+      <MobileNavigationDrawer
+        mainLinks={[
+          {
+            href: '/help/public',
+            label: 'Help',
+            icon: <Home aria-hidden="true" />,
+            current: true,
+          },
+        ]}
+        signedIn
+        avatar=""
+        initials="AA"
+        name="Admin Member"
+        approved
+        isAdmin
+        isOrganizer
+        isEventGuest={false}
+        onSignOut={() => {}}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Open navigation menu' }));
+
+    expect(screen.getByRole('link', { name: 'Public guide' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Admin guide' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(screen.getByRole('link', { name: 'Member guide' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Organizer guide' })).not.toBeInTheDocument();
+  });
+
   it('shows sign-in while session is pending and hides member links for unapproved users', async () => {
     const { unmount } = render(<MemberMenu />);
     expect(screen.getByRole('link', { name: /Checking session/ })).toHaveAttribute(

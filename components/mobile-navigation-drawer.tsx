@@ -7,6 +7,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   CalendarDays,
   ChevronDown,
+  CircleHelp,
+  Globe2,
   LogIn,
   LogOut,
   Menu,
@@ -69,6 +71,7 @@ export function MobileNavigationDrawer({
   const pathname = usePathname() || '/';
   const [open, setOpen] = useState(false);
   const [expandedSection, setExpandedSection] = useState<'main' | 'member' | 'admin' | null>(null);
+  const [helpExpanded, setHelpExpanded] = useState(false);
   const drawerRef = useRef<HTMLElement>(null);
   const activeSection: 'main' | 'member' | 'admin' = pathname.startsWith('/member/')
     ? 'member'
@@ -172,8 +175,11 @@ export function MobileNavigationDrawer({
   }, [open]);
 
   useEffect(() => {
-    if (open) setExpandedSection(activeSection);
-  }, [activeSection, open]);
+    if (open) {
+      setExpandedSection(activeSection);
+      setHelpExpanded(pathname.startsWith('/help'));
+    }
+  }, [activeSection, open, pathname]);
 
   return (
     <>
@@ -258,19 +264,107 @@ export function MobileNavigationDrawer({
                     aria-label={section.title}
                     className={`grid ${signedIn ? 'gap-0 pl-2' : 'gap-1'}`}
                   >
-                    {section.items.map((item) => (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        aria-current={item.current ? 'page' : undefined}
-                        onClick={() => setOpen(false)}
-                        className={`flex min-h-12 items-center gap-3 rounded-md px-3 py-2 text-sm ${item.current ? 'border-l-4 border-primary bg-secondary font-semibold text-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
-                      >
-                        {item.icon}
-                        <span className="min-w-0 flex-1">{item.label}</span>
-                        {item.badge}
-                      </Link>
-                    ))}
+                    {section.items.map((item) => {
+                      if (signedIn && item.href === '/help/public') {
+                        const guides = [
+                          {
+                            href: '/help/public',
+                            label: 'Public guide',
+                            icon: <Globe2 className="h-4 w-4 shrink-0" aria-hidden="true" />,
+                          },
+                          ...(isAdmin
+                            ? [
+                                {
+                                  href: '/help/admin',
+                                  label: 'Admin guide',
+                                  icon: (
+                                    <ShieldCheck className="h-4 w-4 shrink-0" aria-hidden="true" />
+                                  ),
+                                },
+                              ]
+                            : []),
+                          ...(isOrganizer && !isAdmin
+                            ? [
+                                {
+                                  href: '/help/organizer',
+                                  label: 'Organizer guide',
+                                  icon: (
+                                    <CalendarDays className="h-4 w-4 shrink-0" aria-hidden="true" />
+                                  ),
+                                },
+                              ]
+                            : []),
+                          ...(approved
+                            ? [
+                                {
+                                  href: '/help/member',
+                                  label: 'Member guide',
+                                  icon: (
+                                    <UserRound className="h-4 w-4 shrink-0" aria-hidden="true" />
+                                  ),
+                                },
+                              ]
+                            : []),
+                        ];
+                        const helpPanelId = 'mobile-navigation-help-guides';
+                        return (
+                          <div key={item.href}>
+                            <button
+                              type="button"
+                              aria-expanded={helpExpanded}
+                              aria-controls={helpPanelId}
+                              onClick={() => setHelpExpanded((value) => !value)}
+                              className={`flex min-h-12 w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm ${item.current ? 'border-l-4 border-primary bg-secondary font-semibold text-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
+                            >
+                              {item.icon || (
+                                <CircleHelp className="h-5 w-5 shrink-0" aria-hidden="true" />
+                              )}
+                              <span className="min-w-0 flex-1">{item.label}</span>
+                              <ChevronDown
+                                className={`h-4 w-4 shrink-0 transition-transform ${helpExpanded ? 'rotate-180' : ''}`}
+                                aria-hidden="true"
+                              />
+                            </button>
+                            {helpExpanded && (
+                              <nav
+                                id={helpPanelId}
+                                aria-label="Help guides"
+                                className="grid gap-0 pl-8"
+                              >
+                                {guides.map((guide) => {
+                                  const current = pathname === guide.href;
+                                  return (
+                                    <Link
+                                      key={guide.href}
+                                      href={guide.href}
+                                      aria-current={current ? 'page' : undefined}
+                                      onClick={() => setOpen(false)}
+                                      className={`flex min-h-11 items-center gap-3 rounded-md px-3 py-2 text-sm ${current ? 'bg-secondary font-semibold text-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
+                                    >
+                                      {guide.icon}
+                                      {guide.label}
+                                    </Link>
+                                  );
+                                })}
+                              </nav>
+                            )}
+                          </div>
+                        );
+                      }
+                      return (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          aria-current={item.current ? 'page' : undefined}
+                          onClick={() => setOpen(false)}
+                          className={`flex min-h-12 items-center gap-3 rounded-md px-3 py-2 text-sm ${item.current ? 'border-l-4 border-primary bg-secondary font-semibold text-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
+                        >
+                          {item.icon}
+                          <span className="min-w-0 flex-1">{item.label}</span>
+                          {item.badge}
+                        </Link>
+                      );
+                    })}
                   </nav>
                 );
 
@@ -300,22 +394,22 @@ export function MobileNavigationDrawer({
                   </section>
                 );
               })}
-            </div>
-            <footer className="space-y-2 border-t border-border p-4">
               {signedIn && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOpen(false);
-                    onSignOut();
-                  }}
-                  className="flex min-h-12 w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-destructive hover:bg-muted"
-                >
-                  <LogOut className="h-5 w-5" aria-hidden="true" />
-                  Sign out
-                </button>
+                <div className="border-t border-border pt-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpen(false);
+                      onSignOut();
+                    }}
+                    className="flex min-h-12 w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-destructive hover:bg-muted"
+                  >
+                    <LogOut className="h-5 w-5" aria-hidden="true" />
+                    Sign out
+                  </button>
+                </div>
               )}
-            </footer>
+            </div>
           </section>
         </div>
       )}
