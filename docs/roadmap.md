@@ -24,20 +24,20 @@ Updated November 6, 2026. These items are planned work. This file is the persist
 
 ### 3. Beta notice
 
-- [ ] Display a message at the very top of the page stating that the app is in beta.
+- [x] Display a message at the very top of the page stating that the app is in beta.
 
 ### 4. Compact navigation on narrow screens
 
-- [ ] Change the menu to take less space on mobile devices and all other narrow screens.
-- [ ] Keep navigation usable and accessible across narrow screen sizes.
+- [x] Change the menu to take less space on mobile devices and all other narrow screens.
+- [x] Keep navigation usable and accessible across narrow screen sizes.
 
 ### 5. Selectable color themes
 
-- [ ] Extend the app's existing theme system with a couple of additional color themes, including blue and potentially orange, while keeping the current theme available.
-- [ ] Add a theme selector to the user's profile settings and apply the selected theme consistently across the app.
-- [ ] Persist each user's selected theme in the database so it survives reloads and sign-ins and follows the user across devices.
-- [ ] Use the current theme as the default for users without a saved selection.
-- [ ] Verify readable text, accessible contrast, and consistent component states for every theme.
+- [x] Extend the app's existing theme system with a couple of additional color themes, including blue and potentially orange, while keeping the current theme available.
+- [x] Add a theme selector to the user's profile settings and apply the selected theme consistently across the app.
+- [x] Persist each user's selected theme in the database so it survives reloads and sign-ins and follows the user across devices.
+- [x] Use the current theme as the default for users without a saved selection.
+- [x] Verify readable text, accessible contrast, and consistent component states for every theme.
 
 ## Project-wide work
 

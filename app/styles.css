@@ -107,6 +107,42 @@
   background: repeating-linear-gradient(90deg, var(--border) 0 5px, transparent 5px 9px);
   opacity: 0.6;
 }
+
+@keyframes mobile-navigation-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes mobile-navigation-slide-in {
+  from {
+    opacity: 0.7;
+    transform: translateX(1.25rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.mobile-navigation-backdrop {
+  animation: mobile-navigation-fade-in 180ms ease-out both;
+}
+
+.mobile-navigation-panel {
+  animation: mobile-navigation-slide-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-navigation-backdrop,
+  .mobile-navigation-panel {
+    animation: none;
+  }
+}
+
 .tennis-loader-ball {
   position: absolute;
   left: 0;

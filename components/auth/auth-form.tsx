@@ -131,7 +131,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background px-4 py-12 text-foreground">
+    <div className="flex w-full justify-center text-foreground">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-2">
           <CardTitle className="text-2xl">{config.title}</CardTitle>
@@ -272,6 +272,6 @@ export function AuthForm({ mode }: { mode: Mode }) {
           </div>
         </CardContent>
       </Card>
-    </main>
+    </div>
   );
 }

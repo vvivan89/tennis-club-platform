@@ -5,23 +5,8 @@ import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import { DEFAULT_MEMBERSHIP_SEASON_SETTINGS, getMembershipSeason } from '@/lib/membership-season';
 import { NavCountBadge } from '@/components/nav-count-badge';
 import { PortalNavLink } from '@/components/portal-nav-link';
-import {
-  LayoutDashboard,
-  BarChart3,
-  UsersRound,
-  UserRound,
-  MessageCircle,
-  CreditCard,
-  AlertTriangle,
-} from 'lucide-react';
-const links = [
-  { href: '/member/dashboard', label: 'Dashboard', Icon: LayoutDashboard },
-  { href: '/member/profile', label: 'Profile', Icon: UserRound },
-  { href: '/member/results', label: 'Results', Icon: BarChart3 },
-  { href: '/member/membership', label: 'Membership', Icon: UsersRound },
-  { href: '/member/payments', label: 'Payments', Icon: CreditCard },
-  { href: '/member/chat', label: 'Chat', Icon: MessageCircle },
-];
+import { AlertTriangle, UserRound } from 'lucide-react';
+import { isMemberPortalLinkCurrent, memberPortalLinks } from '@/components/portal-navigation-items';
 export function MemberNav() {
   const pathname = usePathname();
   const [approved, setApproved] = useState(false);
@@ -267,9 +252,12 @@ export function MemberNav() {
       if (membershipChannel) void supabase.removeChannel(membershipChannel);
     };
   }, []);
-  const visibleLinks = links.filter((item) => item.href !== '/member/chat' || approved);
+  const visibleLinks = memberPortalLinks.filter((item) => item.href !== '/member/chat' || approved);
   return (
-    <nav aria-label="Member portal navigation" className="border-b border-border/70 bg-background">
+    <nav
+      aria-label="Member portal navigation"
+      className="hidden border-b border-border/70 bg-background lg:block"
+    >
       <div className="page-container flex flex-wrap items-center gap-3 py-2">
         <div className="flex items-center gap-2 border-r border-border pr-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           <UserRound className="h-4 w-4" />
@@ -277,10 +265,7 @@ export function MemberNav() {
         </div>
         <div className="flex flex-1 flex-wrap items-center justify-center gap-1">
           {visibleLinks.map((item) => {
-            const current =
-              item.href === '/member/dashboard'
-                ? pathname === '/member/dashboard'
-                : pathname === item.href || pathname.startsWith(item.href + '/');
+            const current = isMemberPortalLinkCurrent(item.href, pathname);
             const Icon = item.Icon;
             return (
               <PortalNavLink

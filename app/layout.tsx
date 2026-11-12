@@ -5,6 +5,7 @@ import { SiteHeaderStateProvider } from '@/components/site-header-state';
 import { MemberChatNotifications } from '@/components/member-chat-notifications';
 import { PageTitle } from '@/components/page-title';
 import { ClubThemeProvider } from '@/components/club-theme-provider';
+import { BetaNotice } from '@/components/beta-notice';
 
 export async function generateMetadata(): Promise<Metadata> {
   let shortName = 'Tennis Club';
@@ -27,6 +28,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <body>
         <ClubThemeProvider>
           <SiteHeaderStateProvider>
+            <BetaNotice />
             <PageTitle />
             {children}
             <MemberChatNotifications />
