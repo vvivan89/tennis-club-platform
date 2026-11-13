@@ -243,7 +243,7 @@ function AppearanceTopic() {
         <li>
           Choose Light, Dark, or System. System follows the appearance setting on your device.
         </li>
-        <li>Choose an accent color from the selector.</li>
+        <li>Choose Hard, Grass, or Clay from the court-style color options.</li>
         <li>
           Press Save appearance to save your choices to your profile. These settings will be applied
           to all devices where you use the website.

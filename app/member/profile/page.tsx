@@ -300,146 +300,158 @@ export default function ProfilePage() {
             <TennisLoader label="Loading profile" />
           ) : (
             <div className="mt-6 grid items-start gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(300px,1fr)]">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Profile information</CardTitle>
-                  <CardDescription>Update your personal and playing details.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <form onSubmit={save} className="space-y-5">
-                    <label className="block space-y-1.5 text-sm font-medium">
-                      Email (managed by authentication)
-                      <Input value={email} disabled readOnly />
-                    </label>
-                    <label className="block space-y-1.5 text-sm font-medium">
-                      Full name
-                      <Input
-                        autoComplete="name"
-                        value={fullName}
-                        onChange={(e) => setFullName(e.target.value)}
-                        required
-                        maxLength={120}
-                      />
-                    </label>
-                    <label className="block space-y-1.5 text-sm font-medium">
-                      Phone number <span className="text-destructive">*</span>
-                      <Input
-                        type="tel"
-                        autoComplete="tel"
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        onBlur={() => setPhone((v) => formatPhoneNumber(v))}
-                        maxLength={40}
-                        required
-                      />
-                    </label>
-                    <label className="block space-y-1.5 text-sm font-medium">
-                      Date of birth <span className="text-destructive">*</span>
-                      <Input
-                        type="date"
-                        value={dateOfBirth}
-                        max={new Date().toISOString().slice(0, 10)}
-                        onChange={(e) => setDateOfBirth(e.target.value)}
-                        required
-                      />
-                    </label>
-                    <label className="flex items-start gap-3 rounded-lg border border-border p-3 text-sm">
-                      <input
-                        type="checkbox"
-                        className="mt-0.5 h-4 w-4 accent-primary"
-                        checked={showBirthdayEmoji}
-                        onChange={(e) => setShowBirthdayEmoji(e.target.checked)}
-                      />
-                      <span>
-                        <span className="block font-medium">
-                          Show a birthday cake emoji on my profile
-                        </span>
-                        <span className="mt-1 block font-normal text-muted-foreground">
-                          If enabled and your date of birth is set, a cake emoji appears on your
-                          profile on your birthday. Your date of birth is not displayed publicly.
-                        </span>
-                      </span>
-                    </label>
-                    <div className="space-y-3">
-                      <p className="text-sm font-medium">Profile avatar</p>
-                      <div className="flex items-center gap-4">
-                        {avatarUrl ? (
-                          <Image
-                            src={avatarUrl}
-                            alt="Your avatar"
-                            width={64}
-                            height={64}
-                            unoptimized
-                            className="h-16 w-16 rounded-full object-cover"
-                          />
-                        ) : (
-                          <div className="grid h-16 w-16 place-items-center rounded-full bg-secondary text-lg font-semibold">
-                            {fullName
-                              .split(/\s+/)
-                              .filter(Boolean)
-                              .map((part) => part[0])
-                              .slice(0, 2)
-                              .join('')
-                              .toUpperCase() || '?'}
-                          </div>
-                        )}
-                        <label className="text-sm">
-                          <span className="mb-1 block text-muted-foreground">
-                            Upload an image (max 3 MB)
+              <div className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Profile information</CardTitle>
+                    <CardDescription>Update your personal and playing details.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <form onSubmit={save} className="space-y-5">
+                      <label className="block space-y-1.5 text-sm font-medium">
+                        Email (managed by authentication)
+                        <Input value={email} disabled readOnly />
+                      </label>
+                      <label className="block space-y-1.5 text-sm font-medium">
+                        Full name
+                        <Input
+                          autoComplete="name"
+                          value={fullName}
+                          onChange={(e) => setFullName(e.target.value)}
+                          required
+                          maxLength={120}
+                        />
+                      </label>
+                      <label className="block space-y-1.5 text-sm font-medium">
+                        Phone number <span className="text-destructive">*</span>
+                        <Input
+                          type="tel"
+                          autoComplete="tel"
+                          value={phone}
+                          onChange={(e) => setPhone(e.target.value)}
+                          onBlur={() => setPhone((v) => formatPhoneNumber(v))}
+                          maxLength={40}
+                          required
+                        />
+                      </label>
+                      <label className="block space-y-1.5 text-sm font-medium">
+                        Date of birth <span className="text-destructive">*</span>
+                        <Input
+                          type="date"
+                          value={dateOfBirth}
+                          max={new Date().toISOString().slice(0, 10)}
+                          onChange={(e) => setDateOfBirth(e.target.value)}
+                          required
+                        />
+                      </label>
+                      <label className="flex items-start gap-3 rounded-lg border border-border p-3 text-sm">
+                        <input
+                          type="checkbox"
+                          className="mt-0.5 h-4 w-4 accent-primary"
+                          checked={showBirthdayEmoji}
+                          onChange={(e) => setShowBirthdayEmoji(e.target.checked)}
+                        />
+                        <span>
+                          <span className="block font-medium">
+                            Show a birthday cake emoji on my profile
                           </span>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            disabled={avatarBusy}
-                            onChange={(e) => {
-                              void uploadAvatar(e.target.files?.[0]);
-                              e.currentTarget.value = '';
-                            }}
-                          />
+                          <span className="mt-1 block font-normal text-muted-foreground">
+                            If enabled and your date of birth is set, a cake emoji appears on your
+                            profile on your birthday. Your date of birth is not displayed publicly.
+                          </span>
+                        </span>
+                      </label>
+                      <div className="space-y-3">
+                        <p className="text-sm font-medium">Profile avatar</p>
+                        <div className="flex items-center gap-4">
+                          {avatarUrl ? (
+                            <Image
+                              src={avatarUrl}
+                              alt="Your avatar"
+                              width={64}
+                              height={64}
+                              unoptimized
+                              className="h-16 w-16 rounded-full object-cover"
+                            />
+                          ) : (
+                            <div className="grid h-16 w-16 place-items-center rounded-full bg-secondary text-lg font-semibold">
+                              {fullName
+                                .split(/\s+/)
+                                .filter(Boolean)
+                                .map((part) => part[0])
+                                .slice(0, 2)
+                                .join('')
+                                .toUpperCase() || '?'}
+                            </div>
+                          )}
+                          <label className="text-sm">
+                            <span className="mb-1 block text-muted-foreground">
+                              Upload an image (max 3 MB)
+                            </span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              disabled={avatarBusy}
+                              onChange={(e) => {
+                                void uploadAvatar(e.target.files?.[0]);
+                                e.currentTarget.value = '';
+                              }}
+                            />
+                          </label>
+                        </div>
+                        {avatarBusy && (
+                          <p className="text-xs text-muted-foreground">Uploading avatar…</p>
+                        )}
+                      </div>
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <GenderSelect
+                          value={gender}
+                          onChange={setGender}
+                          className="block space-y-1.5 text-sm font-medium"
+                          selectClassName="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        />
+                        <label className="block space-y-1.5 text-sm font-medium">
+                          <span className="block min-h-6">Playing hand (optional)</span>
+                          <select
+                            value={playingHand}
+                            onChange={(e) => setPlayingHand(e.target.value)}
+                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          >
+                            <option value="">Not specified</option>
+                            <option value="right">Right-handed</option>
+                            <option value="left">Left-handed</option>
+                          </select>
                         </label>
                       </div>
-                      {avatarBusy && (
-                        <p className="text-xs text-muted-foreground">Uploading avatar…</p>
-                      )}
-                    </div>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <GenderSelect
-                        value={gender}
-                        onChange={setGender}
-                        className="block space-y-1.5 text-sm font-medium"
-                        selectClassName="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      <TennisSkillLevelSelect
+                        label="Tennis skill rating"
+                        value={tennisSkillLevel}
+                        onChange={setTennisSkillLevel}
+                        placeholder="Select your rating"
+                        selectClassName="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       />
-                      <label className="block space-y-1.5 text-sm font-medium">
-                        <span className="block min-h-6">Playing hand (optional)</span>
-                        <select
-                          value={playingHand}
-                          onChange={(e) => setPlayingHand(e.target.value)}
-                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        >
-                          <option value="">Not specified</option>
-                          <option value="right">Right-handed</option>
-                          <option value="left">Left-handed</option>
-                        </select>
-                      </label>
-                    </div>
-                    <TennisSkillLevelSelect
-                      label="Tennis skill rating"
-                      value={tennisSkillLevel}
-                      onChange={setTennisSkillLevel}
-                      placeholder="Select your rating"
-                      selectClassName="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    />
-                    <div className="flex flex-wrap gap-3">
-                      <Button type="submit" disabled={busy}>
-                        {busy ? <TennisLoader compact label="Saving" /> : 'Save profile'}
-                      </Button>
-                      <Button asChild variant="outline">
-                        <Link href="/member/dashboard">Cancel</Link>
-                      </Button>
-                    </div>
-                  </form>
-                </CardContent>
-              </Card>
+                      <div className="flex flex-wrap gap-3">
+                        <Button type="submit" disabled={busy}>
+                          {busy ? <TennisLoader compact label="Saving" /> : 'Save profile'}
+                        </Button>
+                        <Button asChild variant="outline">
+                          <Link href="/member/dashboard">Cancel</Link>
+                        </Button>
+                      </div>
+                    </form>
+                  </CardContent>
+                </Card>
+                <ProfileAppearanceSettings
+                  onSaved={(savedMessage) => {
+                    setError('');
+                    setMessage(savedMessage);
+                  }}
+                  onError={(saveError) => {
+                    setMessage('');
+                    setError(saveError);
+                  }}
+                />
+              </div>
               <div className="space-y-6">
                 <Card>
                   <CardHeader>
@@ -533,16 +545,6 @@ export default function ProfilePage() {
                     <MemberChatPushSettings />
                   </CardContent>
                 </Card>
-                <ProfileAppearanceSettings
-                  onSaved={(savedMessage) => {
-                    setError('');
-                    setMessage(savedMessage);
-                  }}
-                  onError={(saveError) => {
-                    setMessage('');
-                    setError(saveError);
-                  }}
-                />
               </div>
             </div>
           )}
