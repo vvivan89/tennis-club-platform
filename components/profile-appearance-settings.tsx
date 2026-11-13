@@ -1,18 +1,25 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { requireBrowserUser } from '@/lib/supabase-browser-user';
+import { Monitor, Moon, Sun } from 'lucide-react';
 import { useClubTheme, type ClubThemeMode } from '@/components/club-theme-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { TennisLoader } from '@/components/tennis-loader';
+import { requireBrowserUser } from '@/lib/supabase-browser-user';
 
-const themeModes: Array<{ value: ClubThemeMode; label: string; description: string }> = [
-  { value: 'light', label: 'Light', description: 'Always use the light appearance.' },
-  { value: 'dark', label: 'Dark', description: 'Always use the dark appearance.' },
-  { value: 'system', label: 'System', description: 'Follow your device appearance setting.' },
+const themeModes: Array<{ value: ClubThemeMode; label: string }> = [
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+  { value: 'system', label: 'System' },
 ];
+const accentOptions = [
+  { value: 'blue', label: 'Hard' },
+  { value: 'green', label: 'Grass' },
+  { value: 'orange', label: 'Clay' },
+] as const;
 
 export function ProfileAppearanceSettings({
   onSaved,
@@ -59,55 +66,79 @@ export function ProfileAppearanceSettings({
       </CardHeader>
       <CardContent>
         <form onSubmit={save} className="space-y-5">
-          <fieldset disabled={!preferencesReady || busy} className="space-y-2">
-            <legend className="mb-2 text-sm font-medium">Theme</legend>
-            <div className="grid gap-2 sm:grid-cols-3">
-              {themeModes.map((option) => (
-                <label
-                  key={option.value}
-                  className={`flex cursor-pointer items-start gap-2 rounded-lg border p-3 text-sm ${mode === option.value ? 'border-primary bg-secondary' : 'border-border'}`}
-                >
-                  <input
-                    type="radio"
-                    name="theme-mode"
-                    value={option.value}
-                    checked={mode === option.value}
-                    onChange={() => setMode(option.value)}
-                    className="mt-1 accent-primary"
-                  />
-                  <span>
-                    <span className="block font-medium">{option.label}</span>
-                    <span className="mt-1 block text-xs text-muted-foreground">
-                      {option.description}
-                    </span>
-                  </span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
-          <label className="block space-y-1.5 text-sm font-medium">
-            Court preference (accent color)
-            <select
-              value={accentColor}
-              onChange={(event) =>
-                setAccentColor(event.target.value as 'blue' | 'green' | 'orange')
-              }
+          <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_1px_minmax(0,1fr)] md:gap-6">
+            <fieldset disabled={!preferencesReady || busy} className="space-y-2">
+              <legend className="mb-2 text-sm font-medium">Theme</legend>
+              <div className="grid grid-cols-3 gap-2">
+                {themeModes.map((option) => {
+                  const selected = mode === option.value;
+                  const Icon =
+                    option.value === 'light' ? Sun : option.value === 'dark' ? Moon : Monitor;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => setMode(option.value)}
+                      className={`flex h-[108px] flex-col items-center justify-center gap-1 rounded-lg border p-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${selected ? 'border-primary bg-secondary ring-2 ring-ring/30' : 'border-border hover:bg-muted/60'}`}
+                    >
+                      <Icon className="h-6 w-6" aria-hidden="true" />
+                      <span className="font-medium">{option.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
+            <div
+              className="appearance-settings-divider hidden self-stretch bg-border md:block"
+              aria-hidden="true"
+            />
+            <fieldset
               disabled={!preferencesReady || busy}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              className="space-y-2 border-t border-border pt-5 md:border-t-0 md:pt-0"
             >
-              <option value="blue">Hard (blue)</option>
-              <option value="green">Grass (green)</option>
-              <option value="orange">Clay (brown)</option>
-            </select>
-          </label>
-          {!preferencesReady && (
-            <p className="text-xs text-muted-foreground" role="status">
-              <TennisLoader compact label="Loading saved appearance" />
-            </p>
-          )}
-          <Button type="submit" disabled={!preferencesReady || busy}>
-            {busy ? <TennisLoader compact label="Saving" /> : 'Save appearance'}
-          </Button>
+              <legend className="mb-2 text-sm font-medium">Color scheme</legend>
+              <div className="grid grid-cols-3 gap-2">
+                {accentOptions.map((option) => {
+                  const selected = accentColor === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => setAccentColor(option.value)}
+                      className={`flex h-[108px] flex-col items-center justify-center gap-2 rounded-lg border p-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${selected ? 'border-primary bg-secondary ring-2 ring-ring/30' : 'border-border hover:bg-muted/60'}`}
+                    >
+                      <span
+                        className={`appearance-court appearance-court--${option.value}`}
+                        aria-hidden="true"
+                      >
+                        <span className="appearance-court__surface" />
+                        <Image
+                          src="/images/tennis-court-lines.png"
+                          alt=""
+                          width={512}
+                          height={512}
+                          className="appearance-court__diagram appearance-court__diagram--rotated"
+                        />
+                      </span>
+                      <span className="font-medium">{option.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            {!preferencesReady && (
+              <p className="text-xs text-muted-foreground" role="status">
+                <TennisLoader compact label="Loading saved appearance" />
+              </p>
+            )}
+            <Button type="submit" disabled={!preferencesReady || busy}>
+              {busy ? <TennisLoader compact label="Saving" /> : 'Save appearance'}
+            </Button>
+          </div>
         </form>
       </CardContent>
     </Card>
