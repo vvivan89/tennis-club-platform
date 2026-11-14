@@ -20,6 +20,7 @@ jobs:
     name: Quality checks
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    environment: ci
 
     steps:
       - name: Check out repository
@@ -57,5 +58,5 @@ jobs:
       - name: Build application
         run: pnpm build
         env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL-ci }}
-          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY-ci }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
