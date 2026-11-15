@@ -12,9 +12,9 @@ import { AdminHelpGuide, AdminHelpTopicNav } from '@/components/help-guides/admi
 import { MemberHelpGuide, MemberHelpTopicNav } from '@/components/help-guides/member-guide';
 import { useSiteHeaderState } from '@/components/site-header-state';
 
-type HelpCenterProps = { guide: HelpGuide };
+type HelpCenterProps = { guide: HelpGuide; showNonMemberProfile?: boolean };
 
-export function HelpCenter({ guide }: HelpCenterProps) {
+export function HelpCenter({ guide, showNonMemberProfile = false }: HelpCenterProps) {
   const { shortName } = useSiteHeaderState();
   const titles: Record<HelpGuide, string> = {
     public: 'Public guide',
@@ -34,8 +34,10 @@ export function HelpCenter({ guide }: HelpCenterProps) {
   };
   const sectionLinks: Record<HelpGuide, Array<{ href: string; label: string }>> = {
     public: [
+      { href: '#visitor-account', label: 'Create a non-member account' },
       { href: '#visitor-events', label: 'Browse events and eligibility' },
       { href: '#visitor-tournament', label: 'Public tournament registration' },
+      ...(showNonMemberProfile ? [{ href: '#visitor-profile', label: 'Your profile' }] : []),
     ],
     member: [],
     organizer: [],
@@ -72,7 +74,7 @@ export function HelpCenter({ guide }: HelpCenterProps) {
         )}
       </header>
 
-      {guide === 'public' && <PublicHelpGuide />}
+      {guide === 'public' && <PublicHelpGuide showNonMemberProfile={showNonMemberProfile} />}
       {guide === 'organizer' && <OrganizerHelpGuide />}
       {guide === 'admin' && <AdminHelpGuide />}
       {guide === 'member' && <MemberHelpGuide />}

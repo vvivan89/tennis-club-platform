@@ -20,6 +20,7 @@ export type TournamentEntryFormProps = {
   registrationMode: 'individual' | 'pair';
   setRegistrationMode: Dispatch<SetStateAction<'individual' | 'pair'>>;
   isEventGuest: boolean;
+  hasProfileDetails: boolean;
   entrantName: string;
   setEntrantName: Dispatch<SetStateAction<string>>;
   entrantEmail: string;
@@ -62,6 +63,7 @@ export function TournamentEntryForm(props: TournamentEntryFormProps) {
     registrationMode,
     setRegistrationMode,
     isEventGuest,
+    hasProfileDetails,
     entrantName,
     setEntrantName,
     entrantEmail,
@@ -131,7 +133,12 @@ export function TournamentEntryForm(props: TournamentEntryFormProps) {
           </label>
         )}
       </div>
-      {isEventGuest && (
+      {isEventGuest && hasProfileDetails && (
+        <p className="text-sm text-muted-foreground">
+          Your registration will use the personal details saved in your profile.
+        </p>
+      )}
+      {isEventGuest && !hasProfileDetails && (
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-sm">
             Your full name

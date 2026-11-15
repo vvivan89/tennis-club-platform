@@ -64,8 +64,9 @@ describe('tournament regression fixes', () => {
       '{adminContent && <div className="mb-5">{adminContent}</div>}',
     );
     expect(publicView).toMatch(
-      /\['participants',\s*'matches',\s*'audit'\]\.includes\(ui\.tab\)\s*&&\s*adminContent\s*&&\s*\(!leagueTournament\s*\|\|\s*!\['matches',\s*'audit'\]\.includes\(ui\.tab\)\)/,
+      /\['participants',\s*'matches',\s*'audit'\]\.includes\(visibleTab\)\s*&&\s*adminContent\s*&&\s*\(!leagueTournament\s*\|\|\s*!\['matches',\s*'audit'\]\.includes\(visibleTab\)\)/,
     );
+    expect(publicView).toContain("const visibleTab = registrationOnlyView ? 'overview' : ui.tab;");
   });
 
   it('renders the participant roster only once in the tournament overview', () => {

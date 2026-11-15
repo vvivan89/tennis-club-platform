@@ -2,6 +2,7 @@
 import { TennisLoader } from '@/components/tennis-loader';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { CalendarDays, CheckCircle2, Clock3, CreditCard } from 'lucide-react';
 import { SiteHeader } from '@/components/site-header';
 import { SiteFooter } from '@/components/site-footer';
@@ -59,6 +60,7 @@ const dateWithOrdinal = (v: string | null | undefined) => {
 };
 const getTargetSeason = getMembershipSeason;
 export default function MembershipPortal() {
+  const router = useRouter();
   const [state, setState] = useState<MembershipPortalState>(emptyState);
   const [me, setMe] = useState<Profile | null>(null);
   const [selected, setSelected] = useState('');
@@ -104,6 +106,11 @@ export default function MembershipPortal() {
         .maybeSingle(),
     ]);
     setMe(profile);
+    if (profile?.application_status !== 'approved') {
+      setLoading(false);
+      router.replace('/profile');
+      return;
+    }
     if (cs) setClub(cs);
     setInteracEnabled(methodSettings?.interac_enabled === true);
     setInteracRecipientEmail(methodSettings?.interac_recipient_email || '');
@@ -118,7 +125,7 @@ export default function MembershipPortal() {
       }
     }
     setLoading(false);
-  }, []);
+  }, [router]);
   useEffect(() => {
     void load();
   }, [load]);

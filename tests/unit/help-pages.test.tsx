@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   user: null as null | { id: string },
-  profile: null as null | { role: string; application_status: string },
+  profile: null as null | {
+    role: string;
+    application_status: string;
+    account_kind?: string;
+  },
   redirect: vi.fn((path: string) => {
     throw new Error(`redirect:${path}`);
   }),
@@ -65,7 +69,25 @@ describe('help pages', () => {
   it('renders the public guide for anonymous visitors and hides staff navigation', async () => {
     const result = await HelpPage({ guide: 'public' });
     expect(result.props.children[1].props).toEqual({ role: null, approved: false });
-    expect(result.props.children[2].props).toEqual({ guide: 'public' });
+    expect(result.props.children[2].props).toEqual({
+      guide: 'public',
+      showNonMemberProfile: false,
+    });
+  });
+
+  it('shows the profile topic on the public guide only for signed-in non-members', async () => {
+    mocks.user = { id: 'non-member-1' };
+    mocks.profile = {
+      role: 'member',
+      application_status: 'not_applied',
+      account_kind: 'member',
+    };
+
+    const result = await HelpPage({ guide: 'public' });
+    expect(result.props.children[2].props).toEqual({
+      guide: 'public',
+      showNonMemberProfile: true,
+    });
   });
 
   it('allows approved members their guide and redirects members away from staff guides', async () => {

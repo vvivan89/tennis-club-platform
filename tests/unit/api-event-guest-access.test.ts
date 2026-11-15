@@ -97,7 +97,7 @@ describe('POST /api/events/guest-access', () => {
     });
   });
 
-  it('directs existing member and non-member accounts to sign in', async () => {
+  it('directs approved members to normal sign-in and sends the guest link to existing non-members', async () => {
     mocks.rows.profiles = {
       id: 'member-1',
       account_kind: 'member',
@@ -115,10 +115,9 @@ describe('POST /api/events/guest-access', () => {
       application_status: 'pending',
     };
     const existing = await POST(request({ email: 'a@example.test', eventId }));
-    expect(await existing.json()).toMatchObject({
-      memberLoginRequired: true,
-      message: 'Please log in with your existing Tennis Club account.',
-    });
+    expect(existing.status).toBe(200);
+    expect(await existing.json()).toMatchObject({ sent: true });
+    expect(mocks.otp).toHaveBeenCalledWith(expect.objectContaining({ email: 'a@example.test' }));
   });
 
   it('sends a guest sign-in link with a safe event return path', async () => {

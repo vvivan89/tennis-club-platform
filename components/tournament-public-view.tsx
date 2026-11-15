@@ -86,7 +86,7 @@ export function TournamentPublicView({
     if (eventTitle) document.title = [shortName, eventTitle].filter(Boolean).join(' | ');
   }, [eventTitle, shortName]);
   const hasRules = Boolean(rulesHtml?.trim()) && !leagueTournament;
-  const isEventGuest = !!currentUserId && currentUserAccountKind === 'event_guest';
+  const isEventGuest = !!currentUserId && !currentUserIsApprovedMember;
   const canManageLeagueScores = leagueTournament && Boolean(adminContent);
   const [captainRequestBusy, setCaptainRequestBusy] = useState(false);
   const [captainAssignmentBusy, setCaptainAssignmentBusy] = useState(false);
@@ -432,6 +432,8 @@ export function TournamentPublicView({
     startsAt,
     registrationMode: ui.registrationMode,
   });
+  const registrationOnlyView = !canViewCompetition && allowNonMemberRegistration;
+  const visibleTab = registrationOnlyView ? 'overview' : ui.tab;
   const { submitRegistration } = useTournamentRegistrationSubmit({
     db,
     eventId,
@@ -587,50 +589,54 @@ export function TournamentPublicView({
           priceCents={priceCents}
         />
       )}
-      {(canViewCompetition || !!adminContent || isTeamCaptain) && (
+      {(canViewCompetition || !!adminContent || isTeamCaptain || registrationOnlyView) && (
         <>
-          <TournamentPublicViewControls
-            resultsOnly={resultsOnly}
-            winnerSummaries={visibleWinnerSummaries}
-            adminWinnerPreview={winnerSummaries}
-            isManager={isManager}
-            allScheduledMatchesPlayed={allScheduledMatchesPlayed}
-            winnersAnnounced={winnersAnnounced}
-            announcementBusy={announcementFeedback.busy}
-            onToggleWinnersAnnouncement={() => void toggleWinnerAnnouncement()}
-            rankingsControl={rankingsControl}
-            hasRules={hasRules}
-            leagueTournament={leagueTournament}
-            hasAdminContent={isManager}
-            isTeamCaptain={isTeamCaptain}
-            captainOnlyView={captainOnlyView}
-            tab={ui.tab}
-            setTab={ui.setTab}
-            activeCategory={ui.activeCategory}
-            setActiveCategory={ui.setActiveCategory}
-            format={format}
-            config={config}
-            onAssignCourts={openLeagueCourtModal}
-          />
-          <TournamentGroupOverrideDialog {...groupOverrideActions.dialogProps} />
-          {['participants', 'matches', 'audit'].includes(ui.tab) &&
+          {!registrationOnlyView && (
+            <TournamentPublicViewControls
+              resultsOnly={resultsOnly}
+              winnerSummaries={visibleWinnerSummaries}
+              adminWinnerPreview={winnerSummaries}
+              isManager={isManager}
+              allScheduledMatchesPlayed={allScheduledMatchesPlayed}
+              winnersAnnounced={winnersAnnounced}
+              announcementBusy={announcementFeedback.busy}
+              onToggleWinnersAnnouncement={() => void toggleWinnerAnnouncement()}
+              rankingsControl={rankingsControl}
+              hasRules={hasRules}
+              leagueTournament={leagueTournament}
+              hasAdminContent={isManager}
+              isTeamCaptain={isTeamCaptain}
+              captainOnlyView={captainOnlyView}
+              tab={ui.tab}
+              setTab={ui.setTab}
+              activeCategory={ui.activeCategory}
+              setActiveCategory={ui.setActiveCategory}
+              format={format}
+              config={config}
+              onAssignCourts={openLeagueCourtModal}
+            />
+          )}
+          {!registrationOnlyView && (
+            <TournamentGroupOverrideDialog {...groupOverrideActions.dialogProps} />
+          )}
+          {['participants', 'matches', 'audit'].includes(visibleTab) &&
           adminContent &&
-          (!leagueTournament || !['matches', 'audit'].includes(ui.tab)) ? (
+          (!leagueTournament || !['matches', 'audit'].includes(visibleTab)) ? (
             adminContent
           ) : loading ? (
             <div className="py-6">
               <TennisLoader label="Loading tournament details" />
             </div>
-          ) : ui.tab === 'rules' && hasRules ? (
+          ) : visibleTab === 'rules' && hasRules ? (
             <section className="rounded-lg border border-border p-4" aria-label="Tournament rules">
               <div
                 className="prose prose-sm max-w-none dark:prose-invert"
                 dangerouslySetInnerHTML={{ __html: sanitizeHtml(rulesHtml) }}
               />
             </section>
-          ) : ui.tab === 'overview' ? (
+          ) : visibleTab === 'overview' ? (
             <TournamentOverviewPanel
-              ui={ui}
+              ui={registrationOnlyView ? { ...ui, tab: 'overview' } : ui}
               view={{
                 eventDescription,
                 genderRestriction,
@@ -664,6 +670,7 @@ export function TournamentPublicView({
                 leagueRegistrationCategory,
                 loading,
                 currentUserId,
+                currentUserAccountKind,
                 assignUnassignedPlayer,
                 captainAssignmentBusy,
                 ownLeagueTeamId,

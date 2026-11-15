@@ -396,6 +396,39 @@ describe('tournament component coverage', () => {
       expect(screen.queryByRole('tab', { name: 'Participants' })).not.toBeInTheDocument();
     });
 
+    it('allows public registration while keeping unpublished tournament details hidden', async () => {
+      const user = userEvent.setup();
+      render(
+        <TournamentPublicView
+          eventTitle="Private details tournament"
+          eventId="private-registerable-tournament"
+          currentUserId={null}
+          format="doubles"
+          config={{ categories: ['mixed'], registration_mode: 'both' }}
+          rulesHtml="<p>Private tournament rules</p>"
+          detailsPublic={false}
+          allowNonMemberRegistration
+          eventStatus="published"
+          startsAt="2027-06-01T18:00:00.000Z"
+          endsAt="2027-06-01T21:00:00.000Z"
+          locationQuery="PCTC courts"
+          registrationOpensAt="2026-01-01T00:00:00Z"
+          registrationClosesAt="2027-05-31T18:00:00Z"
+          priceCents={2500}
+        />,
+      );
+
+      expect(
+        await screen.findByRole('heading', { name: 'Tournament registration' }),
+      ).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Register' })).toBeInTheDocument();
+      expect(screen.queryByRole('tablist', { name: 'Tournament details' })).not.toBeInTheDocument();
+      expect(screen.queryByText('Private tournament rules')).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Register' }));
+      expect(screen.getByLabelText('Email')).toBeInTheDocument();
+    });
+
     it('lets approved members view unpublished team tournament details before registering', async () => {
       render(
         <TournamentPublicView
@@ -643,6 +676,7 @@ describe('tournament component coverage', () => {
         <TournamentPublicView
           eventId="event-partner-required-fields"
           currentUserId="member-1"
+          currentUserIsApprovedMember
           currentUserGender="male"
           format="doubles"
           config={{ categories: ['mixed'], registration_mode: 'both' }}
@@ -682,6 +716,7 @@ describe('tournament component coverage', () => {
         <TournamentPublicView
           eventId={`event-partner-gender-${category}`}
           currentUserId="member-1"
+          currentUserIsApprovedMember
           currentUserGender="male"
           format="doubles"
           config={{ categories: [category], registration_mode: 'both' }}
@@ -721,6 +756,7 @@ describe('tournament component coverage', () => {
         <TournamentPublicView
           eventId="event-gender-validation"
           currentUserId="member-1"
+          currentUserIsApprovedMember
           currentUserGender="male"
           format="doubles"
           config={{ categories: ['mixed'], registration_mode: 'doubles' }}
@@ -761,6 +797,7 @@ describe('tournament component coverage', () => {
         <TournamentPublicView
           eventId="event-member-registration"
           currentUserId="member-1"
+          currentUserIsApprovedMember
           format="doubles"
           config={{ categories: ['mixed'], registration_mode: 'doubles' }}
           rulesHtml={null}
@@ -811,6 +848,7 @@ describe('tournament component coverage', () => {
           <TournamentPublicView
             eventId="event-member-singles"
             currentUserId="member-1"
+            currentUserIsApprovedMember
             currentUserGender="male"
             format="singles"
             config={{ categories: ['men'], registration_mode: 'individual' }}
@@ -891,6 +929,7 @@ describe('tournament component coverage', () => {
         <TournamentPublicView
           eventId="event-member-new-partner"
           currentUserId="member-1"
+          currentUserIsApprovedMember
           currentUserGender="male"
           format="doubles"
           config={{ categories: ['mixed'], registration_mode: 'both' }}
@@ -959,6 +998,7 @@ describe('tournament component coverage', () => {
         <TournamentPublicView
           eventId="event-partner-mail-failure"
           currentUserId="member-1"
+          currentUserIsApprovedMember
           currentUserGender="male"
           format="doubles"
           config={{ categories: ['mixed'], registration_mode: 'both' }}
@@ -4270,6 +4310,7 @@ describe('tournament component coverage', () => {
       <TournamentPublicView
         eventId="men-only-doubles"
         currentUserId="member-1"
+        currentUserIsApprovedMember
         format="doubles"
         config={{ categories: ['men'], registration_mode: 'doubles' }}
         rulesHtml={null}
@@ -4880,6 +4921,7 @@ describe('tournament component coverage', () => {
       <TournamentPublicView
         eventId="league-new-player-event"
         currentUserId="new-league-member"
+        currentUserIsApprovedMember
         currentUserGender="female"
         format="doubles"
         config={{ categories: ['women'], registration_mode: 'both' }}
@@ -4914,6 +4956,7 @@ describe('tournament component coverage', () => {
       <TournamentPublicView
         eventId="league-single-fallback-event"
         currentUserId="new-league-single"
+        currentUserIsApprovedMember
         currentUserGender="female"
         format="doubles"
         config={{ categories: ['women'], registration_mode: 'both' }}
@@ -4962,6 +5005,7 @@ describe('tournament component coverage', () => {
       <TournamentPublicView
         eventId="league-pair-event"
         currentUserId="league-member-one"
+        currentUserIsApprovedMember
         currentUserGender="male"
         format="doubles"
         config={{ categories: ['men'], registration_mode: 'both' }}

@@ -1,8 +1,39 @@
 import { FieldTable, LinkButton, Steps, Topic } from '@/components/help-guide-primitives';
+import { ProfileFieldsTable } from '@/components/help-guides/profile-fields-table';
 
-export function PublicHelpGuide() {
+export function PublicHelpGuide({
+  showNonMemberProfile = false,
+}: {
+  showNonMemberProfile?: boolean;
+}) {
   return (
     <section id="public-guide" className="scroll-mt-24 space-y-4">
+      <Topic id="visitor-account" title="Create an account without applying for membership">
+        <p>
+          Anyone can create a regular account. Creating an account gives you a profile; it does not
+          submit a club membership application or grant access to member-only pages. You can apply
+          for membership later from your profile.
+        </p>
+        <Steps>
+          <li>
+            Open <LinkButton href="/signup">Create an account</LinkButton> and enter your name,
+            email, password, phone, date of birth, gender, and tennis skill rating.
+          </li>
+          <li>
+            Follow the account confirmation email if Supabase asks you to confirm your address.
+          </li>
+          <li>
+            Sign in and complete or update your profile. Your account remains a non-member account
+            until you choose <strong>Apply for club membership</strong> and the club approves that
+            application.
+          </li>
+        </Steps>
+        <p>
+          While your membership application is absent or under review, you can use your profile and
+          public pages. Member-only portal pages remain unavailable until your application is
+          approved.
+        </p>
+      </Topic>
       <div className="space-y-4">
         <Topic
           id="visitor-events"
@@ -57,7 +88,7 @@ export function PublicHelpGuide() {
       <Topic
         id="visitor-tournament"
         title="Register for a public doubles tournament"
-        intro="Some tournaments may allow registration without the member account."
+        intro="An organizer can enable public registration for a tournament. You can register with an existing non-member account or start with only an email address."
       >
         <FieldTable
           rows={[
@@ -75,14 +106,16 @@ export function PublicHelpGuide() {
                 'Individual entries can be paired by the organizer. Pair registration automatically registers the partner and reserves your double team.',
             },
             {
-              field: 'Your name and email',
-              value: 'Required for a guest without an account.',
+              field: 'Your personal details',
+              value:
+                'When signed in with a regular account, your name, email, phone, gender, and skill rating come from your profile. If you start without an account, the sign-in link lets you enter the required tournament details after you verify your email.',
               effect:
-                'They identify your provisional entry and let you receive event/payment correspondence.',
+                'Profile details are used for your registration. An email-only entry creates event-only access so you can finish the registration and return to it later.',
             },
             {
               field: 'Phone, skill, and gender',
-              value: 'Phone is optional; skill rating and gender are required for guest entries.',
+              value:
+                'For a signed-in account, update these in your profile. In an email-only guest form, phone may be optional while skill rating and gender are required.',
               effect:
                 'The skill rating appears with tournament participant/pair details when those details are displayed. Gender affects gender-specific and mixed-pair eligibility.',
             },
@@ -97,21 +130,43 @@ export function PublicHelpGuide() {
         />
         <Steps>
           <li>
-            Choose the event category and registration mode first. If you are signing in as an
-            approved member, use the member search to select a partner; a guest enters the partner’s
-            contact details.
+            If you already have an account, sign in first. If you do not, choose Register, enter
+            your email, and follow the one-time sign-in link. The link returns you to the tournament
+            so you can complete registration; an email-only guest can use My Events to return to
+            their entries later. If the email belongs to an approved member, sign in as that member.
           </li>
           <li>
-            Review names, email, partner, category, and the price before submitting. For a paid
-            guest registration the app creates a provisional entry, then asks you to complete Stripe
-            Checkout.
+            Choose the event category and registration mode. Signed-in profile details are used
+            automatically. For a partner entry, choose an existing member or enter the partner’s
+            details; the invited partner may need to confirm before the team can pay.
           </li>
           <li>
-            Finish checkout and wait for the return page to verify payment. The entry is not treated
-            as paid merely because you reached Stripe or returned to the site.
+            Review the entry and fee before submitting. Complete Stripe Checkout if payment is due;
+            the entry is not treated as paid merely because you reached Stripe or returned to the
+            site.
           </li>
         </Steps>
       </Topic>
+      {showNonMemberProfile && (
+        <Topic id="visitor-profile" title="Your profile as a non-member">
+          <p>
+            Your profile works like a member profile for personal and playing information, email
+            preferences, and appearance settings. It does not provide access to member-only portal
+            pages. The profile does not show the chat notification settings available to approved
+            members.
+          </p>
+          <ProfileFieldsTable />
+          <p>
+            The profile also shows your membership application state. You can submit an optional
+            comment with <strong>Apply for club membership</strong>; after submission, the status
+            changes to under review. If an application is declined, you may apply again. Approval is
+            required before member portal access is available.
+          </p>
+          <p>
+            <LinkButton href="/profile">Open your profile</LinkButton>
+          </p>
+        </Topic>
+      )}
     </section>
   );
 }

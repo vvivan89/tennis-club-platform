@@ -23,7 +23,9 @@ const mocks = vi.hoisted(() => ({
   fetch: vi.fn(),
   posts: [] as Array<{ url: string; body: string }>,
   responseData: {} as unknown,
+  router: { replace: vi.fn() },
 }));
+vi.mock('next/navigation', () => ({ useRouter: () => mocks.router }));
 vi.mock('@/lib/supabase-browser', () => ({
   createSupabaseBrowserClient: () => ({
     auth: { getUser: async () => ({ data: { user: mocks.user } }) },
@@ -142,6 +144,7 @@ beforeEach(() => {
     interac_instructions: '',
   };
   mocks.posts = [];
+  mocks.router.replace.mockReset();
   mocks.responseData = state;
   mocks.fetch.mockReset().mockImplementation(async (url: string, init?: RequestInit) => {
     if (init?.method === 'POST') {

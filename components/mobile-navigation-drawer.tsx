@@ -81,6 +81,14 @@ export function MobileNavigationDrawer({
 
   const sections = useMemo<DrawerSection[]>(() => {
     const mainItems = [...mainLinks];
+    if (signedIn && !approved && !isEventGuest) {
+      mainItems.unshift({
+        href: '/profile',
+        label: 'Profile',
+        icon: <UserRound className="h-5 w-5 shrink-0" aria-hidden="true" />,
+        current: pathname === '/profile' || pathname.startsWith('/member/profile'),
+      });
+    }
     if (isEventGuest) {
       mainItems.push({
         href: '/my-events',
@@ -132,7 +140,7 @@ export function MobileNavigationDrawer({
       });
     }
     return result;
-  }, [approved, isAdmin, isEventGuest, isOrganizer, mainLinks, pathname]);
+  }, [approved, isAdmin, isEventGuest, isOrganizer, mainLinks, pathname, signedIn]);
 
   useEffect(() => {
     if (!open) return;

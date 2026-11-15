@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   signUp: vi.fn(),
   reset: vi.fn(),
   rpc: vi.fn(),
+  profileStatus: 'approved',
 }));
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: mocks.replace, refresh: mocks.refresh }),
@@ -23,6 +24,17 @@ vi.mock('@/lib/supabase-browser', () => ({
       resetPasswordForEmail: mocks.reset,
     },
     rpc: mocks.rpc,
+    from: () => {
+      const query = {
+        select: () => query,
+        eq: () => query,
+        maybeSingle: async () => ({
+          data: { application_status: mocks.profileStatus },
+          error: null,
+        }),
+      };
+      return query;
+    },
   }),
 }));
 
@@ -30,9 +42,10 @@ import { AuthForm } from '@/components/auth/auth-form';
 
 beforeEach(() => {
   mocks.next = '/member/dashboard';
+  mocks.profileStatus = 'approved';
   mocks.replace.mockReset();
   mocks.refresh.mockReset();
-  mocks.signIn.mockReset().mockResolvedValue({ error: null });
+  mocks.signIn.mockReset().mockResolvedValue({ data: { user: { id: 'member-1' } }, error: null });
   mocks.signUp.mockReset().mockResolvedValue({ data: { session: null }, error: null });
   mocks.reset.mockReset().mockResolvedValue({ error: null });
   mocks.rpc.mockReset().mockResolvedValue({ error: null });
@@ -79,7 +92,7 @@ describe('AuthForm', () => {
     expect(mocks.replace).not.toHaveBeenCalled();
   });
 
-  it('normalizes signup profile data and shows the pending-confirmation notice', async () => {
+  it('normalizes signup profile data without submitting a membership application', async () => {
     const user = userEvent.setup();
     render(<AuthForm mode="signup" />);
     await user.type(screen.getByLabelText('Full name'), '  New Member  ');
@@ -87,7 +100,6 @@ describe('AuthForm', () => {
     await user.type(screen.getByLabelText(/Date of birth/), '1990-05-14');
     await user.selectOptions(screen.getByLabelText(/Gender/), 'female');
     await user.selectOptions(screen.getByLabelText(/Tennis skill rating/), '3.5');
-    await user.type(screen.getByLabelText(/Comment/), '  Please contact me  ');
     await user.type(screen.getByLabelText('Email'), 'new@example.com');
     await user.type(screen.getByLabelText(/^Password/), 'password123');
     await user.click(screen.getByRole('button', { name: 'Create account' }));
@@ -100,14 +112,15 @@ describe('AuthForm', () => {
             full_name: 'New Member',
             phone: '604.555.0100',
             tennis_skill_level: '3.5',
-            application_comment: 'Please contact me',
             date_of_birth: '1990-05-14',
             gender: 'female',
           },
         }),
       }),
     );
-    expect(await screen.findByRole('status')).toHaveTextContent('application will remain pending');
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'You can apply for club membership',
+    );
     expect(mocks.replace).not.toHaveBeenCalled();
   });
 
@@ -126,7 +139,7 @@ describe('AuthForm', () => {
     await user.type(screen.getByLabelText('Email'), 'new@example.com');
     await user.type(screen.getByLabelText(/^Password/), 'password123');
     await user.click(screen.getByRole('button', { name: 'Create account' }));
-    expect(mocks.replace).toHaveBeenCalledWith('/member/dashboard');
+    expect(mocks.replace).toHaveBeenCalledWith('/profile');
     expect(mocks.refresh).toHaveBeenCalledOnce();
   });
 

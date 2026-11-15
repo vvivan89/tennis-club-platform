@@ -43,6 +43,7 @@ export default async function DashboardPage() {
         .eq('id', 1)
         .maybeSingle(),
     ]);
+  if (profile?.application_status !== 'approved') redirect('/profile');
   const [
     { data: latestMembership },
     { data: familyLink },
@@ -149,31 +150,6 @@ export default async function DashboardPage() {
   const latestPaymentForMembership =
     latestPayment?.business_record_id === latestMembership?.id ? latestPayment : null;
 
-  if (profile?.application_status !== 'approved') {
-    const { clubName, shortName, socialLinks: socials } = getClubDisplay(club);
-    return (
-      <main className="flex min-h-screen flex-col bg-background text-foreground">
-        <SiteHeader clubName={clubName} shortName={shortName} />
-        <div className="page-container flex-1 py-16">
-          <p className="eyebrow">Member application</p>
-          <h1 className="section-title">
-            {profile?.application_status === 'dismissed'
-              ? 'Application not approved'
-              : 'Your registration is pending'}
-          </h1>
-          <p className="mt-4 max-w-2xl text-sm leading-7 text-muted-foreground">
-            {profile?.application_status === 'dismissed'
-              ? 'Your membership application was not approved. Please contact the club if you have questions.'
-              : 'Your account has been created. An administrator must approve your application before member features become available. You can continue browsing public pages while you wait.'}
-          </p>
-          <Button asChild variant="outline" className="mt-6">
-            <Link href="/events">Browse events</Link>
-          </Button>
-        </div>
-        <SiteFooter clubName={clubName} shortName={shortName} socialLinks={socials} />
-      </main>
-    );
-  }
   const registrationEvents = (registrations ?? [])
     .map((row) => (Array.isArray(row.event) ? row.event[0] : row.event))
     .filter((event): event is NonNullable<typeof event> => Boolean(event));

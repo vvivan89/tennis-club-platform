@@ -11,7 +11,7 @@ export type ApplicationRow = {
   phone: string;
   tennis_skill_level: string | null;
   application_comment: string;
-  created_at: string;
+  application_submitted_at: string | null;
 };
 export function AdminApplications({ applications }: { applications: ApplicationRow[] }) {
   const router = useRouter();
@@ -66,7 +66,10 @@ export function AdminApplications({ applications }: { applications: ApplicationR
                   {a.email} · {a.phone} · Rating {a.tennis_skill_level || '—'}
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Applied {new Date(a.created_at).toLocaleString('en-CA')}
+                  Applied{' '}
+                  {a.application_submitted_at
+                    ? new Date(a.application_submitted_at).toLocaleString('en-CA')
+                    : 'date unavailable'}
                 </p>
               </div>
               <div className="flex gap-2">

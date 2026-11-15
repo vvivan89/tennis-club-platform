@@ -52,7 +52,7 @@ export const MemberMenu = memo(function MemberMenu({
           <Button asChild variant="outline" size="sm">
             <Link href="/login" className="inline-flex items-center gap-2">
               <LogIn className="h-4 w-4" />
-              {authReady ? 'Member sign in' : 'Checking session…'}
+              {authReady ? 'Sign in' : 'Checking session…'}
             </Link>
           </Button>
         </div>
@@ -117,6 +117,16 @@ export const MemberMenu = memo(function MemberMenu({
               >
                 <User className="h-4 w-4" />
                 Member Portal
+              </Link>
+            )}
+            {!approved && !isEventGuest && (
+              <Link
+                onClick={() => setOpen(false)}
+                className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
+                href="/profile"
+              >
+                <User className="h-4 w-4" />
+                Profile
               </Link>
             )}
             {isEventGuest && (

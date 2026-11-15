@@ -8,6 +8,7 @@ import {
   Steps,
   Topic,
 } from '@/components/help-guide-primitives';
+import { ProfileFieldsTable } from '@/components/help-guides/profile-fields-table';
 import { helpTopicLinks, useHelpGuideNavigation } from '@/components/help-guides/navigation';
 import { useSiteHeaderState } from '@/components/site-header-state';
 
@@ -118,47 +119,7 @@ function DashboardTopic() {
 function ProfileTopic({ shortName }: { shortName: string }) {
   return (
     <Topic id="member-profile" title="Profile information and eligibility">
-      <FieldTable
-        rows={[
-          {
-            field: 'Required profile fields',
-            value:
-              'Full name, phone number, date of birth, gender, and tennis skill rating are required. Email is managed by authentication and cannot be changed on this page.',
-            effect:
-              'Your gender affects eligibility for gender-specific events and competition categories. Your date of birth supports family membership eligibility and the optional birthday display; it is not shown publicly.',
-          },
-          {
-            field: 'Tennis skill rating',
-            value: 'Choose the rating that best reflects your current level.',
-            effect:
-              'Your selected skill rating appears with your name in participant and results displays that show player details.',
-          },
-          {
-            field: 'Avatar and playing hand',
-            value: 'Upload an avatar and choose your playing hand if desired.',
-            effect:
-              'The avatar identifies you in player lists; playing hand just is profile information not used anywhere.',
-          },
-          {
-            field: 'Email preferences',
-            value: 'Choose the automated event and club email categories you want.',
-            effect:
-              'Preferences control routine notification emails. You can also unsubscribe from a category directly from its email without signing in. Administrators can still send important club-wide announcements regardless of these settings.',
-          },
-          {
-            field: 'Chat notification preference',
-            value: 'Choose Show all, Show only when someone mentions you, or Don’t show.',
-            effect:
-              'This preference controls both in-app chat alerts and browser push notifications, when enabled.',
-          },
-          {
-            field: 'Show birthday emoji',
-            value: 'Enable or disable the profile option.',
-            effect:
-              'When enabled, the cake indicator is shown beside your player identity on all pages.',
-          },
-        ]}
-      />
+      <ProfileFieldsTable includeChatPreference />
       <div className="space-y-3">
         <h4 className="font-semibold">Emails managed by these preferences</h4>
         <ul className="list-disc space-y-2 pl-5">

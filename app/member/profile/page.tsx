@@ -37,6 +37,9 @@ export default function ProfilePage() {
   const [tennisSkillLevel, setTennisSkillLevel] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
   const [gender, setGender] = useState('');
+  const [applicationStatus, setApplicationStatus] = useState('not_applied');
+  const [applicationComment, setApplicationComment] = useState('');
+  const [applicationBusy, setApplicationBusy] = useState(false);
   const [playingHand, setPlayingHand] = useState('');
   const [chatNotificationPreference, setChatNotificationPreference] = useState<
     'all' | 'mentions' | 'none'
@@ -91,20 +94,22 @@ export default function ProfilePage() {
       const { data, error: queryError } = await supabase
         .from('profiles')
         .select(
-          'full_name,phone,date_of_birth,show_birthday_emoji,tennis_skill_level,avatar_url,application_status,gender,playing_hand,email_registration_updates,email_waitlist_updates,email_event_cancellations,email_registration_reminders,email_membership_reminders,email_new_events,email_newsletter,chat_notification_preference',
+          'full_name,phone,date_of_birth,show_birthday_emoji,tennis_skill_level,avatar_url,application_status,application_comment,account_kind,gender,playing_hand,email_registration_updates,email_waitlist_updates,email_event_cancellations,email_registration_reminders,email_membership_reminders,email_new_events,email_newsletter,chat_notification_preference',
         )
         .eq('id', user.id)
         .maybeSingle();
       if (!active) return;
-      if (data && data.application_status !== 'approved') {
-        router.replace('/member/dashboard');
-        return;
-      }
       if (queryError) {
         console.error('[Member profile] Profile query failed', queryError);
         setError('Could not load profile details. Please try again later.');
       }
       if (data) {
+        if (data.account_kind === 'event_guest') {
+          router.replace('/my-events');
+          return;
+        }
+        setApplicationStatus(data.application_status ?? 'not_applied');
+        setApplicationComment(data.application_comment ?? '');
         setFullName(data.full_name ?? '');
         setPhone(formatPhoneNumber(data.phone ?? ''));
         setDateOfBirth(data.date_of_birth ?? '');
@@ -174,6 +179,47 @@ export default function ProfilePage() {
       setError('Could not save profile changes. Please try again.');
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function applyForMembership() {
+    setApplicationBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      if (!fullName.trim()) throw new Error('Full name is required.');
+      if (!phone.trim()) throw new Error('Phone number is required.');
+      if (!dateOfBirth) throw new Error('Date of birth is required.');
+      if (!gender) throw new Error('Select your gender.');
+      if (!tennisSkillLevel) throw new Error('Select your tennis skill rating.');
+      const { db: supabase, user } = await requireBrowserUser('Please sign in again.');
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({
+          full_name: fullName.trim(),
+          phone: formatPhoneNumber(phone.trim()),
+          date_of_birth: dateOfBirth,
+          tennis_skill_level: tennisSkillLevel,
+          gender,
+          playing_hand: playingHand || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', user.id);
+      if (profileError) throw profileError;
+      const { error: applicationError } = await supabase.rpc('submit_membership_application', {
+        p_comment: applicationComment.trim(),
+      });
+      if (applicationError) throw applicationError;
+      setApplicationStatus('pending');
+      setMessage('Your membership application was submitted for review.');
+      router.refresh();
+    } catch (e) {
+      console.error('[Member profile] Membership application failed', e);
+      setError(
+        e instanceof Error ? e.message : 'Could not submit your application. Please try again.',
+      );
+    } finally {
+      setApplicationBusy(false);
     }
   }
 
@@ -282,20 +328,24 @@ export default function ProfilePage() {
   return (
     <main className="flex min-h-screen flex-col bg-background text-foreground">
       <SiteHeader clubName={club.club_name} shortName={club.short_name} />
-      <MemberNav />
+      {applicationStatus === 'approved' && <MemberNav />}
       <FloatingFeedback error={error} message={message} />
       <div className="page-container w-full flex-1 py-12">
         <div className="mx-auto max-w-6xl">
-          <p className="eyebrow">Member portal</p>
+          <p className="eyebrow">
+            {applicationStatus === 'approved' ? 'Member portal' : 'Your account'}
+          </p>
           <h1 className="section-title">
-            Edit profile{' '}
+            {applicationStatus === 'approved' ? 'Edit profile' : 'Profile'}{' '}
             {birthdayVisible ? (
               <span role="img" aria-label="Birthday">
                 🎂
               </span>
             ) : null}
           </h1>
-          <p className="mt-2 text-sm text-muted-foreground">Manage your member details.</p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Manage your personal and playing details.
+          </p>
           {loading ? (
             <TennisLoader label="Loading profile" />
           ) : (
@@ -453,6 +503,52 @@ export default function ProfilePage() {
                 />
               </div>
               <div className="space-y-6">
+                {applicationStatus !== 'approved' && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>
+                        {applicationStatus === 'pending'
+                          ? 'Membership application under review'
+                          : applicationStatus === 'dismissed'
+                            ? 'Membership application not approved'
+                            : 'Non-member account'}
+                      </CardTitle>
+                      <CardDescription>
+                        {applicationStatus === 'pending'
+                          ? 'The club is reviewing your application. Your account will continue to have public access while you wait.'
+                          : applicationStatus === 'dismissed'
+                            ? 'You may submit a new membership application whenever you are ready.'
+                            : 'You can use your profile and access public pages. Apply for club membership whenever you are ready.'}
+                      </CardDescription>
+                    </CardHeader>
+                    {applicationStatus !== 'pending' && (
+                      <CardContent>
+                        <label className="block space-y-1.5 text-sm font-medium">
+                          Application comment (optional)
+                          <textarea
+                            value={applicationComment}
+                            onChange={(event) => setApplicationComment(event.target.value)}
+                            maxLength={3000}
+                            placeholder="Tell the club why you would like to join…"
+                            className="min-h-24 w-full rounded-md border border-input bg-background p-3 text-sm font-normal"
+                          />
+                        </label>
+                        <Button
+                          type="button"
+                          className="mt-4"
+                          disabled={applicationBusy || loading}
+                          onClick={() => void applyForMembership()}
+                        >
+                          {applicationBusy ? (
+                            <TennisLoader compact label="Submitting" />
+                          ) : (
+                            'Apply for club membership'
+                          )}
+                        </Button>
+                      </CardContent>
+                    )}
+                  </Card>
+                )}
                 <Card>
                   <CardHeader>
                     <CardTitle>Email preferences</CardTitle>
@@ -507,44 +603,46 @@ export default function ProfilePage() {
                     </form>
                   </CardContent>
                 </Card>
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Chat notifications</CardTitle>
-                    <CardDescription>
-                      Choose which new chat messages trigger in-app or browser notifications.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <form onSubmit={saveChatNotificationPreference} className="space-y-4">
-                      {(
-                        [
-                          { value: 'all', label: 'Show all' },
-                          { value: 'mentions', label: 'Show only when someone mentions you' },
-                          { value: 'none', label: "Don't show" },
-                        ] as const
-                      ).map((option) => (
-                        <label key={option.value} className="flex items-center gap-3 text-sm">
-                          <input
-                            type="radio"
-                            name="chatNotificationPreference"
-                            value={option.value}
-                            checked={chatNotificationPreference === option.value}
-                            onChange={() => setChatNotificationPreference(option.value)}
-                          />
-                          <span>{option.label}</span>
-                        </label>
-                      ))}
-                      <Button type="submit" disabled={chatPreferencesBusy}>
-                        {chatPreferencesBusy ? (
-                          <TennisLoader compact label="Saving" />
-                        ) : (
-                          'Save chat preferences'
-                        )}
-                      </Button>
-                    </form>
-                    <MemberChatPushSettings />
-                  </CardContent>
-                </Card>
+                {applicationStatus === 'approved' && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Chat notifications</CardTitle>
+                      <CardDescription>
+                        Choose which new chat messages trigger in-app or browser notifications.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <form onSubmit={saveChatNotificationPreference} className="space-y-4">
+                        {(
+                          [
+                            { value: 'all', label: 'Show all' },
+                            { value: 'mentions', label: 'Show only when someone mentions you' },
+                            { value: 'none', label: "Don't show" },
+                          ] as const
+                        ).map((option) => (
+                          <label key={option.value} className="flex items-center gap-3 text-sm">
+                            <input
+                              type="radio"
+                              name="chatNotificationPreference"
+                              value={option.value}
+                              checked={chatNotificationPreference === option.value}
+                              onChange={() => setChatNotificationPreference(option.value)}
+                            />
+                            <span>{option.label}</span>
+                          </label>
+                        ))}
+                        <Button type="submit" disabled={chatPreferencesBusy}>
+                          {chatPreferencesBusy ? (
+                            <TennisLoader compact label="Saving" />
+                          ) : (
+                            'Save chat preferences'
+                          )}
+                        </Button>
+                      </form>
+                      <MemberChatPushSettings />
+                    </CardContent>
+                  </Card>
+                )}
               </div>
             </div>
           )}

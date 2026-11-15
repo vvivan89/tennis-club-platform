@@ -70,6 +70,7 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
     currentUserPhone,
     currentUserGender,
     currentUserSkillLevel,
+    currentUserAccountKind,
     currentUserIsApprovedMember,
     captainRequestBusy,
     requestCaptain,
@@ -338,6 +339,7 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
             priceCents={priceCents}
             registrationOpen={registrationOpen}
             currentUserId={currentUserId}
+            currentUserIsApprovedMember={currentUserIsApprovedMember}
             allowNonMemberRegistration={allowNonMemberRegistration}
             eventSlug={eventSlug}
             eventId={eventId}
@@ -367,6 +369,7 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
               registrationMode={registrationMode}
               setRegistrationMode={setRegistrationMode}
               isEventGuest={isEventGuest}
+              hasProfileDetails={!!currentUserId && currentUserAccountKind === 'member'}
               entrantName={entrantName}
               setEntrantName={setEntrantName}
               entrantEmail={entrantEmail}

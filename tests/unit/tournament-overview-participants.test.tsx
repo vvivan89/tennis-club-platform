@@ -125,6 +125,40 @@ describe('TournamentOverviewParticipants', () => {
     expect(screen.getAllByText('You')).toHaveLength(2);
   });
 
+  it('keeps both players and their skill badges aligned in a pair tile', () => {
+    render(
+      <TournamentOverviewParticipants
+        {...baseProps({
+          pairs: [
+            {
+              id: 'pair-aligned',
+              category: 'open',
+              status: 'confirmed',
+              player_one_id: 'player-one',
+              player_two_id: 'player-two',
+              player_one_name: 'Admin Test Member',
+              player_two_name: 'Vladimir Ivanov',
+              player_one_skill_level: 3.5,
+              player_two_skill_level: 3.5,
+            },
+          ],
+          participants: [
+            { id: 'player-one', display_name: 'Admin Test Member', tennis_skill_level: 3.5 },
+            { id: 'player-two', display_name: 'Vladimir Ivanov', tennis_skill_level: 3.5 },
+          ],
+        })}
+      />,
+    );
+
+    const firstPlayer = screen.getByText('Admin Test Member');
+    const firstIdentity = firstPlayer.closest('span.inline-flex');
+    const pairRow = firstIdentity?.parentElement;
+
+    expect(pairRow).toHaveClass('flex', 'items-center');
+    expect(pairRow).toContainElement(screen.getByText('Vladimir Ivanov'));
+    expect(pairRow).toContainElement(screen.getAllByText('3.5')[1]);
+  });
+
   it('shows League list assignments, legacy scheduled courts, and unpaired players', () => {
     render(
       <TournamentOverviewParticipants

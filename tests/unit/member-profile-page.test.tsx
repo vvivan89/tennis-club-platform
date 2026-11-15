@@ -179,10 +179,13 @@ describe('Member profile page', () => {
     await waitFor(() => expect(mocks.routerReplace).toHaveBeenCalledWith('/login?next=/profile'));
   });
 
-  it('redirects unapproved profiles and loads approved profile data', async () => {
+  it('shows application status to unapproved profiles and loads approved profile data', async () => {
     mocks.profile = { ...mocks.profile, application_status: 'pending' };
     const { unmount } = render(<ProfilePage />);
-    await waitFor(() => expect(mocks.routerReplace).toHaveBeenCalledWith('/member/dashboard'));
+    expect(
+      await screen.findByRole('heading', { name: 'Membership application under review' }),
+    ).toBeInTheDocument();
+    expect(mocks.routerReplace).not.toHaveBeenCalled();
     unmount();
     mocks.routerReplace.mockReset();
     mocks.profile = { ...mocks.profile, application_status: 'approved' };
@@ -200,7 +203,7 @@ describe('Member profile page', () => {
     mocks.profileError = null;
     mocks.profile = null as unknown as Record<string, unknown>;
     render(<ProfilePage />);
-    expect(await screen.findByRole('heading', { name: 'Edit profile' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Profile' })).toBeInTheDocument();
   });
 
   it('uses empty field values and enabled defaults when optional profile data is null', async () => {

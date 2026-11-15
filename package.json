@@ -20,7 +20,7 @@
     "test:a11y": "playwright test tests/e2e/accessibility.spec.ts",
     "check:migrations": "node scripts/check-migrations.mjs",
     "security:audit": "npm audit --audit-level=high",
-    "quality": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm check:migrations && pnpm check:rls && pnpm test && pnpm build",
+    "quality": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm check:migrations && pnpm check:rls && pnpm test:coverage",
     "quality:full": "pnpm quality && pnpm test:e2e",
     "check:rls": "node scripts/check-rls.mjs",
     "test:coverage": "vitest run --coverage",

@@ -9,6 +9,7 @@ export function TournamentRegistrationStatus({
   priceCents,
   registrationOpen,
   currentUserId,
+  currentUserIsApprovedMember,
   allowNonMemberRegistration,
   eventSlug,
   eventId,
@@ -31,6 +32,7 @@ export function TournamentRegistrationStatus({
   priceCents: number;
   registrationOpen: boolean;
   currentUserId: string | null;
+  currentUserIsApprovedMember: boolean;
   allowNonMemberRegistration: boolean;
   eventSlug: string;
   eventId: string;
@@ -138,6 +140,10 @@ export function TournamentRegistrationStatus({
             </form>
           )}
         </div>
+      ) : !currentUserIsApprovedMember && !allowNonMemberRegistration ? (
+        <p className="mt-3 text-sm text-muted-foreground">
+          This tournament is limited to approved club members.
+        </p>
       ) : leagueTournament && ownLeagueTeamId ? (
         ownEntries.some((entry) => entry.category === leagueRegistrationCategory) ? (
           <p className="mt-3 text-sm text-muted-foreground">

@@ -17,7 +17,7 @@ const application = {
   phone: '604.555.0100',
   tennis_skill_level: '3.5',
   application_comment: 'Interested in doubles',
-  created_at: '2026-01-01T00:00:00Z',
+  application_submitted_at: '2026-01-01T00:00:00Z',
 };
 const member = (overrides: Partial<MemberRow> = {}): MemberRow => ({
   id: 'member-1',

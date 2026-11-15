@@ -487,22 +487,26 @@ export function TournamentOverviewParticipants({
                           key={pair.id}
                           className={`rounded-md border p-3 text-sm ${isOwnPair(pair.id) ? 'border-primary/40 bg-primary/[0.04]' : 'border-border'}`}
                         >
-                          {player(
-                            pair.player_one_id,
-                            pair.player_one_name,
-                            pair.player_one_skill_level,
-                          )}{' '}
-                          +{' '}
-                          {player(
-                            pair.player_two_id,
-                            pair.player_two_name,
-                            pair.player_two_skill_level,
-                          )}
-                          {isOwnPair(pair.id) && (
-                            <span className="ml-2 inline-flex rounded-full bg-primary/10 px-1.5 py-0.5 align-middle text-[10px] font-medium text-primary">
-                              You
+                          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                            {player(
+                              pair.player_one_id,
+                              pair.player_one_name,
+                              pair.player_one_skill_level,
+                            )}
+                            <span aria-hidden="true" className="shrink-0 text-muted-foreground">
+                              +
                             </span>
-                          )}
+                            {player(
+                              pair.player_two_id,
+                              pair.player_two_name,
+                              pair.player_two_skill_level,
+                            )}
+                            {isOwnPair(pair.id) && (
+                              <span className="inline-flex shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                                You
+                              </span>
+                            )}
+                          </div>
                         </div>
                       ))}
                     {participants

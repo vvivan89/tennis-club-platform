@@ -5,9 +5,12 @@ export function AdminMembershipGuide() {
     <div className="space-y-5">
       <Topic id="admin-applications" title="Review membership applications">
         <p>
-          New member accounts are not approved members until an administrator accepts the
-          application. Pending applications are available in Membership → Applications and are
-          excluded from member directories, player selectors, rankings, and member counts.
+          Creating an account does not submit a membership application. A non-member account appears
+          in Membership → Applications only after its signed-in user chooses{' '}
+          <strong>Apply for club membership</strong>. Until an administrator approves that
+          application, the account is not an approved member and is excluded from member
+          directories, player selectors, rankings, and member counts. Users may apply again if an
+          earlier application was declined.
         </p>
         <Steps>
           <li>
