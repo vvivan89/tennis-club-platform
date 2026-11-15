@@ -9,6 +9,7 @@ import {
   type TournamentConfig,
 } from '@/lib/tournament-config';
 import type { EventFormValues } from '@/components/event-form-types';
+import { TournamentRegistrationDiscountConfigurator } from '@/components/tournament-registration-discount-configurator';
 
 type AvailableCompetition = {
   id: string;
@@ -574,6 +575,13 @@ export function EventCompetitionFields({
             <p role="alert" className="text-sm text-destructive">
               Tournament events cannot be recurring. Turn off repeat-event to continue.
             </p>
+          )}
+          {!v.is_league_tournament && (
+            <TournamentRegistrationDiscountConfigurator
+              config={v.tournament_config}
+              format={v.tournament_format}
+              onChange={(config) => change('tournament_config', config)}
+            />
           )}
         </section>
       )}

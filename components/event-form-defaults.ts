@@ -148,6 +148,12 @@ export const initialEventFormValues: EventFormValues = {
     ranking_priority: ['matches_won', 'sets_won', 'games_won'],
     schedule: { match_minutes: 60, break_minutes: 15 },
     scoring_template: 'best_of_three',
+    registration_discounts: {
+      stack_enabled: false,
+      second_category: { enabled: false, type: 'percent', percent: 10 },
+      pair_registration: { enabled: false, type: 'percent', percent: 10 },
+      approved_member: { enabled: false, type: 'percent', percent: 10 },
+    },
   },
   tournament_rules_html: '',
   allow_non_member_registration: false,

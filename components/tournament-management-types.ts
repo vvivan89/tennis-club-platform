@@ -16,6 +16,11 @@ export type Participant = {
   category: string;
   payment_status: string;
   amount_cents: number;
+  base_amount_cents?: number;
+  discount_cents?: number;
+  pricing_details?: {
+    appliedDiscounts?: Array<{ label: string; discountCents: number }>;
+  };
   display_name: string;
   email: string | null;
   phone: string | null;

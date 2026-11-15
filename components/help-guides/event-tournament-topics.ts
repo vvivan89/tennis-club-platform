@@ -16,6 +16,7 @@ export const sharedEventTournamentTopics = [
   ['events', 'admin-event-replacement', 'Replace an event participant'],
   ['events', 'admin-event-courts', 'Assign event courts'],
   ['tournaments', 'admin-tournament-entries', 'Tournament participants'],
+  ['tournaments', 'admin-tournament-discounts', 'Registration discounts'],
   ['tournaments', 'admin-tournament-round-robin', 'Round robin groups and matches'],
   ['tournaments', 'admin-tournament-automated-draw', 'Automated draws'],
   ['tournaments', 'admin-tournament-scheduling', 'Automated scheduling'],

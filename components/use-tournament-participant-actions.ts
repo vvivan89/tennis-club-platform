@@ -54,7 +54,6 @@ export function useTournamentParticipantActions({
   db,
   eventId,
   leagueId,
-  priceCents,
   leagueTournament,
   leagueGender,
   isTeam,
@@ -66,7 +65,6 @@ export function useTournamentParticipantActions({
   db: Db;
   eventId: string;
   leagueId: string | null;
-  priceCents: number;
   leagueTournament: boolean;
   leagueGender: string | null;
   isTeam: boolean;
@@ -451,16 +449,14 @@ export function useTournamentParticipantActions({
     }
     await runAction(
       () =>
-        db.from('tournament_participants').insert({
-          event_id: eventId,
-          user_id: selected?.id ?? null,
-          category: targetCategory,
-          amount_cents: priceCents,
-          payment_status: priceCents > 0 ? 'pending' : 'not_required',
-          display_name: selected?.full_name || participantName.trim(),
-          email: selected?.email || participantEmail.trim() || null,
-          phone: participantPhone.trim() || null,
-          gender: registrationGender,
+        db.rpc('register_tournament_participant_admin', {
+          p_event_id: eventId,
+          p_user_id: selected?.id ?? null,
+          p_category: targetCategory,
+          p_display_name: selected?.full_name || participantName.trim(),
+          p_email: selected?.email || participantEmail.trim() || null,
+          p_phone: participantPhone.trim() || null,
+          p_gender: registrationGender,
         }),
       'Participant added.',
     );

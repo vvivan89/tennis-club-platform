@@ -146,6 +146,11 @@ export function PublicHelpGuide({
             site.
           </li>
         </Steps>
+        <p>
+          If the organizer configured a discount, the tournament page describes the available rules.
+          After registration, your entry shows the base fee, discount, and amount due. For a pair
+          payment, the total is the sum of both participants’ amounts.
+        </p>
       </Topic>
       {showNonMemberProfile && (
         <Topic id="visitor-profile" title="Your profile as a non-member">

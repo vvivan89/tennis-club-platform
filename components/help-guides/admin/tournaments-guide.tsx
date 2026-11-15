@@ -53,6 +53,47 @@ export function AdminTournamentsGuide() {
         </Callout>
       </Topic>
 
+      <Topic id="admin-tournament-discounts" title="Configure tournament registration discounts">
+        <p>
+          Standalone tournaments can apply discounts automatically to each participant’s entry. The
+          event’s configured price remains the base fee; the final amount is calculated and saved by
+          the database when an entry is created. League pricing is not changed by these settings.
+        </p>
+        <FieldTable
+          rows={[
+            {
+              field: 'Second category',
+              value: 'For doubles tournaments, choose a percentage or fixed CAD discount.',
+              effect:
+                'Applies to each player’s second active category entry. It is not shown for team tournaments, where each player registers once.',
+            },
+            {
+              field: 'Pair registration',
+              value: 'For doubles tournaments, configure a percentage or fixed CAD discount.',
+              effect:
+                'Applies separately to newly created participant entries in a pair registration. If an existing participant entry is paired, its saved price is not changed.',
+            },
+            {
+              field: 'Approved club member',
+              value: 'Choose a percentage or fixed CAD discount.',
+              effect:
+                'Applies to an approved member account, whether or not membership dues are paid. Event-only and unapproved accounts do not qualify.',
+            },
+            {
+              field: 'Allow discounts to stack',
+              value: 'Enable to combine all discounts that apply to a participant.',
+              effect:
+                'When disabled, only the largest eligible discount applies. When enabled, discounts are combined and capped at that participant’s base entry fee.',
+            },
+          ]}
+        />
+        <p>
+          The tournament page lists the configured discounts. After registration, each player’s
+          entry shows its base fee, applied discount, and amount due. Paying for a pair totals the
+          two saved participant amounts, which can differ if only one player qualifies for a rule.
+        </p>
+      </Topic>
+
       <Topic id="admin-tournament-round-robin" title="Round robin groups, allocations, and matches">
         <p>
           In a round robin, every pair or team plays every other entry assigned to the same group.

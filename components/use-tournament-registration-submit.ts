@@ -2,7 +2,7 @@ import type { Dispatch, FormEvent, SetStateAction } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isGenderEligibleForCategory } from '@/lib/tournament-config';
 import type { Participant, PartnerMember } from '@/components/tournament-public-view-types';
-import { categoryLabel } from '@/components/tournament-public-view-format';
+import { categoryLabel, formatMoney } from '@/components/tournament-public-view-format';
 
 export function useTournamentRegistrationSubmit({
   db,
@@ -201,17 +201,34 @@ export function useTournamentRegistrationSubmit({
         amountCents?: number;
         partnerParticipantId?: string | null;
         paymentStatus?: string;
+        partnerPaymentStatus?: string;
         partnerEmail?: string | null;
+        partnerAmountCents?: number;
+        discountCents?: number;
+        partnerDiscountCents?: number;
       };
-      const amountDue = (result.amountCents ?? priceCents) > 0;
+      const ownAmountDue = result.paymentStatus
+        ? ['pending', 'failed'].includes(result.paymentStatus)
+          ? (result.amountCents ?? priceCents)
+          : 0
+        : priceCents;
+      const partnerAmountDue = ['pending', 'failed'].includes(result.partnerPaymentStatus ?? '')
+        ? (result.partnerAmountCents ?? 0)
+        : 0;
+      const amountDue = ownAmountDue + partnerAmountDue > 0;
+      const previousPaymentApplied =
+        result.paymentStatus === 'paid' && (result.amountCents ?? 0) > 0;
       let statusMessage =
-        amountDue && result.paymentStatus === 'paid'
+        previousPaymentApplied && partnerAmountDue === 0
           ? 'Your previous non-refunded payment was applied to this category.'
           : amountDue
             ? result.partnerParticipantId
               ? 'Registration saved. Your team can pay after your partner confirms.'
               : 'Registration saved. Payment is pending; you can pay when ready.'
             : 'Registration confirmed.';
+      const totalDiscount = (result.discountCents ?? 0) + (result.partnerDiscountCents ?? 0);
+      if (totalDiscount > 0)
+        statusMessage += ` ${formatMoney(totalDiscount)} discount applied to your registration${result.partnerParticipantId ? ' and partner' : ''}.`;
       if (result.partnerParticipantId) {
         try {
           await requestPartnerInvitation(result.partnerParticipantId);

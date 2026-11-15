@@ -412,6 +412,12 @@ function CompetitionTopics() {
           lineups as they become available. Event details marked private are visible to members
           according to the event’s publication settings.
         </p>
+        <p>
+          Some tournaments offer discounts for an approved member, pair registration, or a second
+          doubles category. The event page shows configured discounts; after registration, your
+          entry shows the discount applied and amount due. A pair payment totals both players’ saved
+          amounts, which can differ by eligibility.
+        </p>
       </Topic>
       <Topic id="member-pair-registration" title="Register and pay with a partner">
         <h4 className="font-semibold">Create a pair entry</h4>

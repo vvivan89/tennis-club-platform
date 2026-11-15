@@ -7,6 +7,7 @@ import { GenderSelect } from '@/components/gender-select';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import type { Member, Pair, Participant, Team } from '@/components/tournament-management-types';
 import { TournamentEntryGroupingPanel } from '@/components/tournament-entry-grouping-panel';
+import { formatMoney } from '@/components/tournament-public-view-format';
 
 type ActionResult = { error: { message: string } | null };
 export type Props = {
@@ -287,6 +288,12 @@ export function TournamentParticipantManagementPanel(props: Props) {
                       {priceCents > 0 && p.payment_status === 'pending' && (
                         <p className="mt-1 text-xs text-warning-foreground dark:text-warning-foreground">
                           Pending payment — registration is awaiting payment confirmation.
+                        </p>
+                      )}
+                      {(p.discount_cents ?? 0) > 0 && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Base {formatMoney(p.base_amount_cents ?? p.amount_cents)} · Discount{' '}
+                          {formatMoney(p.discount_cents ?? 0)} · Due {formatMoney(p.amount_cents)}
                         </p>
                       )}
                     </div>

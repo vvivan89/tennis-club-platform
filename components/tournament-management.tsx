@@ -149,7 +149,7 @@ export function TournamentManagement({
         : db
             .from('tournament_participants')
             .select(
-              'id,user_id,team_id,category,payment_status,amount_cents,display_name,email,phone,gender,gender_override,status,captain_requested',
+              'id,user_id,team_id,category,payment_status,amount_cents,base_amount_cents,discount_cents,pricing_details,display_name,email,phone,gender,gender_override,status,captain_requested',
             )
       )
         .eq('event_id', eventId)
@@ -361,7 +361,6 @@ export function TournamentManagement({
     db,
     eventId,
     leagueId,
-    priceCents,
     leagueTournament,
     leagueGender,
     isTeam,

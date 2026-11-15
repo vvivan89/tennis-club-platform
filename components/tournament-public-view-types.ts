@@ -54,6 +54,11 @@ export type OwnTournamentEntry = {
   category: string;
   payment_status: string;
   amount_cents: number;
+  base_amount_cents?: number;
+  discount_cents?: number;
+  pricing_details?: {
+    appliedDiscounts?: Array<{ label: string; discountCents: number }>;
+  };
   display_name?: string;
   email?: string;
   phone?: string | null;
@@ -66,6 +71,11 @@ export type OwnTournamentEntry = {
   partner_phone?: string | null;
   partner_gender?: string | null;
   partner_skill_level?: number | null;
+  partner_amount_cents?: number | null;
+  partner_discount_cents?: number | null;
+  partner_pricing_details?: {
+    appliedDiscounts?: Array<{ label: string; discountCents: number }>;
+  } | null;
   partner_confirmation_status?: string | null;
   partner_is_league_team?: boolean;
   captain_requested?: boolean;

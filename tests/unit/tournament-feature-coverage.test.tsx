@@ -834,7 +834,10 @@ describe('tournament component coverage', () => {
     });
 
     it.each([
-      [{ participantId: 'single-free-entry', amountCents: 0 }, 'Registration confirmed.'],
+      [
+        { participantId: 'single-free-entry', amountCents: 0, paymentStatus: 'not_required' },
+        'Registration confirmed.',
+      ],
       [
         { participantId: 'single-prepaid-entry', amountCents: 1500, paymentStatus: 'paid' },
         'Your previous non-refunded payment was applied to this category.',
@@ -2286,17 +2289,16 @@ describe('tournament component coverage', () => {
     await user.click(screen.getByRole('button', { name: 'Add participant' }));
 
     await waitFor(() =>
-      expect(supabaseMocks.writes).toContainEqual({
-        table: 'tournament_participants',
-        operation: 'insert',
-        values: expect.objectContaining({
-          display_name: 'Taylor Guest',
-          email: 'taylor@example.com',
-          phone: '604-555-0199',
-          gender: 'female',
-          category: 'mixed',
-          payment_status: 'pending',
-          amount_cents: 1500,
+      expect(supabaseMocks.rpcArgs).toContainEqual({
+        name: 'register_tournament_participant_admin',
+        args: expect.objectContaining({
+          p_event_id: 'event-new-participant',
+          p_user_id: null,
+          p_category: 'mixed',
+          p_display_name: 'Taylor Guest',
+          p_email: 'taylor@example.com',
+          p_phone: '604-555-0199',
+          p_gender: 'female',
         }),
       }),
     );
@@ -2513,19 +2515,16 @@ describe('tournament component coverage', () => {
     await user.click(screen.getByRole('option', { name: /^Taylor League/ }));
     await user.click(screen.getByRole('button', { name: 'Add participant' }));
     await waitFor(() =>
-      expect(supabaseMocks.writes).toContainEqual(
-        expect.objectContaining({
-          table: 'tournament_participants',
-          operation: 'insert',
-          values: expect.objectContaining({
-            event_id: 'league-event-3',
-            user_id: 'new-league-player',
-            category: 'women',
-            display_name: 'Taylor League',
-            gender: 'female',
-          }),
+      expect(supabaseMocks.rpcArgs).toContainEqual({
+        name: 'register_tournament_participant_admin',
+        args: expect.objectContaining({
+          p_event_id: 'league-event-3',
+          p_user_id: 'new-league-player',
+          p_category: 'women',
+          p_display_name: 'Taylor League',
+          p_gender: 'female',
         }),
-      ),
+      }),
     );
     expect(supabaseMocks.rpcArgs).not.toContainEqual(
       expect.objectContaining({ name: 'register_league_event_team' }),
@@ -2642,18 +2641,17 @@ describe('tournament component coverage', () => {
     await user.selectOptions(screen.getByLabelText(/Gender/), 'male');
     await user.click(screen.getByRole('button', { name: 'Add participant' }));
     await waitFor(() =>
-      expect(supabaseMocks.writes).toContainEqual(
-        expect.objectContaining({
-          table: 'tournament_participants',
-          operation: 'insert',
-          values: expect.objectContaining({
-            display_name: 'Guest Player',
-            email: null,
-            phone: null,
-            gender: 'male',
-          }),
+      expect(supabaseMocks.rpcArgs).toContainEqual({
+        name: 'register_tournament_participant_admin',
+        args: expect.objectContaining({
+          p_event_id: 'guest-without-contact',
+          p_user_id: null,
+          p_display_name: 'Guest Player',
+          p_email: null,
+          p_phone: null,
+          p_gender: 'male',
         }),
-      ),
+      }),
     );
   });
 

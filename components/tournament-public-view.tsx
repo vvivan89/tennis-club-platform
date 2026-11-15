@@ -587,6 +587,8 @@ export function TournamentPublicView({
           registrationOpensAt={registrationOpensAt}
           registrationClosesAt={registrationClosesAt}
           priceCents={priceCents}
+          discounts={config?.registration_discounts}
+          format={format}
         />
       )}
       {(canViewCompetition || !!adminContent || isTeamCaptain || registrationOnlyView) && (
