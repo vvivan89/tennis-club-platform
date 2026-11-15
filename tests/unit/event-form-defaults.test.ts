@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { getEventTypeFormUpdate, initialEventFormValues } from '@/components/event-form-defaults';
+import {
+  getEventTypeFormUpdate,
+  initialEventFormValues,
+  leagueTournamentConfig,
+} from '@/components/event-form-defaults';
 
 describe('event type form defaults', () => {
   it('keeps Social events and recurring behavior unchanged', () => {
@@ -34,5 +38,15 @@ describe('event type form defaults', () => {
     });
     expect(result.recurring).toBe(false);
     expect(result.seedSeries).toBe(false);
+  });
+
+  it('maps a Mixed League to the mixed doubles registration category', () => {
+    expect(leagueTournamentConfig(initialEventFormValues.tournament_config, 'mixed')).toMatchObject(
+      {
+        categories: ['mixed'],
+        phases: { round_robin: true },
+        registration_mode: 'both',
+      },
+    );
   });
 });

@@ -61,7 +61,6 @@ export default async function EventDetailsPage({
     : { data: [] };
   const numberedEvent = withEventSeriesNumbers([event], seriesSessions ?? [])[0];
   const eventTitle = eventDisplayTitle(numberedEvent);
-  const displayEvent = { ...event, title: eventTitle };
   const [{ data: league }, { data: leagueSnapshot }, { data: leagueEventMatches }] =
     event.social_doubles_ladder_id
       ? await Promise.all([
@@ -78,6 +77,11 @@ export default async function EventDetailsPage({
           db.from('tournament_public_matches').select('status').eq('event_id', event.id),
         ])
       : [{ data: null }, { data: null }, { data: null }];
+  const displayEvent = {
+    ...event,
+    title: eventTitle,
+    ladder_gender: league?.gender ?? event.ladder_gender ?? null,
+  };
   const isLeagueTournament = league?.competition_type === 'league';
   if (event.slug && params.slug !== event.slug)
     redirect(eventPath({ id: event.id, slug: event.slug }));

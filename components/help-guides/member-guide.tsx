@@ -488,7 +488,8 @@ function CompetitionTopics() {
           A player without a fixed team can register as a new player under the choices allowed by
           the League. An organizer can assign a partner/team; once assigned, subsequent League
           events use the fixed-team registration rule. The League’s configured gender determines its
-          category, so there is no category selection on the registration form.
+          category, so there is no category selection on the registration form. In a Mixed League,
+          each team must have exactly one male and one female player.
         </p>
         <p>
           Review the event’s registration, payment, schedule, and standings sections for your
@@ -501,7 +502,8 @@ function CompetitionTopics() {
           Register for each published Ladder session during its registration window. The session
           category checks your profile gender. Once entries are set, players are allocated to courts
           and subsessions according to the Ladder’s setup; automatic court assignment groups players
-          for that session. Play the scheduled matches and report scores on the session page where
+          for that session. In a Mixed Ladder, every doubles side must contain exactly one male and
+          one female player. Play the scheduled matches and report scores on the session page where
           score entry is available.
         </p>
         <p>

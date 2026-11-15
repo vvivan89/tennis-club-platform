@@ -1725,7 +1725,7 @@ describe('tournament component coverage', () => {
     );
   });
 
-  it('reports when pairing succeeds but partner confirmation invitations fail', async () => {
+  it('automatically confirms admin-created pairs without sending partner invitations', async () => {
     supabaseMocks.data.tournament_participants = [
       {
         id: 'invite-error-one',
@@ -1756,13 +1756,8 @@ describe('tournament component coverage', () => {
         status: 'registered',
       },
     ];
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: false,
-        json: async () => ({ error: 'Email service unavailable.' }),
-      }),
-    );
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
     const user = userEvent.setup();
     render(
       <TournamentManagement
@@ -1783,10 +1778,8 @@ describe('tournament component coverage', () => {
     await user.click(screen.getByRole('option', { name: /^Riley Two/ }));
     await user.click(screen.getByRole('button', { name: 'Create pair' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Pair created, but confirmation invitations could not be sent: Email service unavailable.',
-    );
-    expect(fetch).toHaveBeenCalledWith('/api/events/partner-invitations', expect.any(Object));
+    expect(await screen.findByText('Doubles pair created.')).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(supabaseMocks.rpcCalls).toContain('admin_create_tournament_pair');
   });
 
@@ -1949,10 +1942,8 @@ describe('tournament component coverage', () => {
       },
     ];
     supabaseMocks.rpcData.admin_require_pair_confirmation = true;
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ failed: 0 }) }),
-    );
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
     supabaseMocks.data.tournament_matches = [
       {
         id: 'future-match',
@@ -2016,6 +2007,7 @@ describe('tournament component coverage', () => {
       name: 'admin_require_pair_confirmation',
       args: { p_pair_id: 'pair-1' },
     });
+    expect(fetchMock).not.toHaveBeenCalled();
 
     unmount();
     const [existingPair] = supabaseMocks.data.tournament_pairs as Array<Record<string, unknown>>;

@@ -1,6 +1,7 @@
 import { useMemo, type Dispatch, type SetStateAction } from 'react';
 import type { FormEvent } from 'react';
 import { isGenderEligibleForCategory } from '@/lib/tournament-config';
+import { doublesCategoryForGender, isStrictMixedDoublesPair } from '@/lib/league-gender';
 import type { MemberOption } from '@/components/searchable-member-select';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import type { Match, Member, Pair, Participant } from '@/components/tournament-management-types';
@@ -173,6 +174,13 @@ export function useTournamentParticipantActions({
     const partner = activeParticipants.find((item) => item.id === selectedPartnerId);
     const gender = participant.gender_override || participant.gender;
     const partnerGender = partner?.gender_override || partner?.gender;
+    if (leagueTournament && pairCategory === 'mixed') {
+      if (!['male', 'female'].includes(gender?.trim().toLowerCase() || ''))
+        return 'Mixed League teams require a verified male/female gender.';
+      if (partner && !isStrictMixedDoublesPair(gender, partnerGender))
+        return 'Mixed League teams require one male and one female player.';
+      return '';
+    }
     if (pairCategory === 'mixed' && gender && !isGenderEligibleForCategory('mixed', gender))
       return 'Mixed doubles requires male/female gender when gender is specified';
     if (
@@ -219,6 +227,11 @@ export function useTournamentParticipantActions({
     const partnerId = side === 1 ? pair.player_two_id : pair.player_one_id;
     const partner = participants.find((item) => item.id === partnerId);
     const partnerGender = partner?.gender_override || partner?.gender;
+    if (leagueTournament && pair.category === 'mixed') {
+      if (!isStrictMixedDoublesPair(gender, partnerGender))
+        return 'Mixed League teams require one male and one female player.';
+      return '';
+    }
     if (pair.category === 'mixed' && gender && !isGenderEligibleForCategory('mixed', gender))
       return 'Mixed doubles requires male/female gender when gender is specified';
     if (
@@ -370,9 +383,7 @@ export function useTournamentParticipantActions({
     const targetCategory = isTeam
       ? 'team'
       : leagueTournament
-        ? leagueGender === 'male'
-          ? 'men'
-          : 'women'
+        ? doublesCategoryForGender(leagueGender)
         : activeCategory;
     if (
       leagueTournament &&
@@ -388,8 +399,8 @@ export function useTournamentParticipantActions({
       return;
     }
     const selectedGender = selected?.gender || null;
-    if (selected && !selectedGender) {
-      setError('The selected member must add a gender to their profile before registration.');
+    if (selected && !selectedGender && !participantGender) {
+      setError('Select a tournament gender override for this member.');
       return;
     }
     if (!selected && !participantGender) {
@@ -521,6 +532,12 @@ export function useTournamentParticipantActions({
       );
       return;
     }
+    if (leagueTournament && pairCategory === 'mixed') {
+      if (!isStrictMixedDoublesPair(genderOf(a), genderOf(b))) {
+        setError('Mixed League teams require one male and one female player.');
+        return;
+      }
+    }
     if (
       pairCategory === 'mixed' &&
       [genderOf(a), genderOf(b)].some(
@@ -542,35 +559,18 @@ export function useTournamentParticipantActions({
       );
       return;
     }
-    let pairCreated = false;
     const created = await runAction(async () => {
-      const { error } = await db.rpc('admin_create_tournament_pair', {
+      return db.rpc('admin_create_tournament_pair', {
         p_event_id: eventId,
         p_category: pairCategory,
         p_one: pairOne,
         p_two: pairTwo,
       });
-      if (error) return { error };
-      pairCreated = true;
-      const response = await fetch('/api/events/partner-invitations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ participantIds: [pairOne, pairTwo] }),
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok)
-        return {
-          error: {
-            message: `Pair created, but confirmation invitations could not be sent: ${result.error || 'retry the invitations.'}`,
-          },
-        };
-      return { error: null };
     }, 'Doubles pair created.');
-    if (created || pairCreated) {
+    if (created) {
       setPairOne('');
       setPairTwo('');
     }
-    if (pairCreated && !created) await refresh();
   }
   async function replacePairPlayer(pair: Pair, side: 1 | 2): Promise<boolean> {
     const replacementId = replacementParticipantId;
@@ -645,20 +645,6 @@ export function useTournamentParticipantActions({
         p_pair_id: pair.id,
       });
       if (confirmationError) throw new Error(confirmationError.message);
-      const invitationResponse = await fetch('/api/events/partner-invitations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          participantIds: [
-            changes.player_one_id || pair.player_one_id,
-            changes.player_two_id || pair.player_two_id,
-          ],
-        }),
-      });
-      if (!invitationResponse.ok)
-        throw new Error(
-          'Pair updated, but a confirmation invitation could not be sent. Retry the invitation from the event registration page.',
-        );
       for (const match of matches.filter(
         (m) =>
           (m.pair_one_id === pair.id || m.pair_two_id === pair.id) &&

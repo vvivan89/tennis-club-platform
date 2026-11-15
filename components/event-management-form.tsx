@@ -27,6 +27,7 @@ import {
   previewRegistrationWeekday,
   seedEventSeriesFields,
 } from '@/components/event-form-defaults';
+import { doublesCategoryForGender } from '@/lib/league-gender';
 
 export function EventManagementForm({
   event,
@@ -40,7 +41,7 @@ export function EventManagementForm({
     social_doubles_ladder_id?: string | null;
     is_league_tournament?: boolean;
     league_name?: string | null;
-    ladder_gender?: 'male' | 'female' | null;
+    ladder_gender?: 'male' | 'female' | 'mixed' | null;
     ladder_position_points?: number[] | null;
     ladder_ranking_priority?: string[] | null;
   };
@@ -91,8 +92,8 @@ export function EventManagementForm({
   useEffect(() => {
     const selected = availableLadders.find((ladder) => ladder.id === v.ladder_existing_id);
     if (!selected) return;
-    change('ladder_gender', selected.gender as 'male' | 'female');
-    change('gender_restriction', selected.gender);
+    change('ladder_gender', selected.gender as 'male' | 'female' | 'mixed');
+    change('gender_restriction', selected.gender === 'mixed' ? null : selected.gender);
     change(
       'ladder_points',
       (selected.position_points ?? [2, 1, -1, -2]) as [number, number, number, number],
@@ -109,12 +110,12 @@ export function EventManagementForm({
     if (!selected) return;
     setV((previous) => ({
       ...previous,
-      ladder_gender: selected.gender as 'male' | 'female',
-      gender_restriction: selected.gender,
+      ladder_gender: selected.gender as 'male' | 'female' | 'mixed',
+      gender_restriction: selected.gender === 'mixed' ? null : selected.gender,
       ladder_name: selected.name,
       tournament_config: {
         ...(selected.tournament_config ?? previous.tournament_config),
-        categories: [selected.gender === 'male' ? 'men' : 'women'],
+        categories: [doublesCategoryForGender(selected.gender)],
         phases: { round_robin: true },
         group_count: 1,
         teams_per_group: 4,
@@ -146,13 +147,6 @@ export function EventManagementForm({
   function change<K extends keyof EventFormValues>(key: K, value: EventFormValues[K]) {
     setV((prev) => ({ ...prev, [key]: value }));
   }
-  const ladderOptions = availableLadders
-    .filter((ladder) => ladder.gender === v.ladder_gender)
-    .map((ladder) => (
-      <option key={ladder.id} value={ladder.id}>
-        {ladder.name}
-      </option>
-    ));
   function handleEventTypeChange(value: string) {
     const result = getEventTypeFormUpdate(value, v);
     setV((previous) => ({ ...previous, ...result.update }));
@@ -215,8 +209,8 @@ export function EventManagementForm({
           throw new Error('Registration cutoff must be after registration opens.');
       }
       if (v.event_type === 'social_doubles_ladder') {
-        if (!['male', 'female'].includes(v.ladder_gender))
-          throw new Error("Choose men's or women's ladder.");
+        if (!['male', 'female', 'mixed'].includes(v.ladder_gender))
+          throw new Error("Choose a men's, women's, or mixed doubles ladder category.");
         if (!v.ladder_existing_id) {
           const ladderName = v.ladder_name.trim();
           if (!ladderName) throw new Error('Enter a name for this ladder.');
@@ -238,8 +232,8 @@ export function EventManagementForm({
         }
       }
       if (v.is_league_tournament && v.event_type === 'tournament') {
-        if (!['male', 'female'].includes(v.ladder_gender))
-          throw new Error('Choose a league gender.');
+        if (!['male', 'female', 'mixed'].includes(v.ladder_gender))
+          throw new Error("Choose a men's, women's, or mixed League category.");
         if (!v.league_existing_id && !v.ladder_name.trim())
           throw new Error('Enter a name for this league.');
       }
@@ -258,7 +252,12 @@ export function EventManagementForm({
       const common = {
         title: v.title.trim(),
         description: v.description.trim(),
-        gender_restriction: v.event_type === 'party' ? null : v.gender_restriction || null,
+        gender_restriction:
+          v.event_type === 'party' ||
+          ((v.is_league_tournament || v.event_type === 'social_doubles_ladder') &&
+            v.ladder_gender === 'mixed')
+            ? null
+            : v.gender_restriction || null,
         capacity:
           v.event_type === 'tournament'
             ? Number(v.capacity) > 0
@@ -677,7 +676,7 @@ export function EventManagementForm({
           .from('events')
           .update({
             social_doubles_ladder_id: leagueId,
-            gender_restriction: v.ladder_gender,
+            gender_restriction: v.ladder_gender === 'mixed' ? null : v.ladder_gender,
             tournament_format: 'doubles',
             tournament_config: leagueTournamentConfig(v.tournament_config, v.ladder_gender),
           })
@@ -737,7 +736,6 @@ export function EventManagementForm({
         change={change}
         recurring={recurring}
         availableLadders={availableLadders}
-        ladderOptions={ladderOptions}
         generateRulesText={generateRulesText}
       />
       <EventSchedulingFields

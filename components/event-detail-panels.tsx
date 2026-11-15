@@ -389,7 +389,7 @@ export function EventScoresPanel({
   setDeletingScore: (score: EventScoreRow) => void;
   clearError: () => void;
   currentUserCanAddScore: boolean;
-  event: { starts_at: string; status: string; event_type: string };
+  event: { starts_at: string; status: string; event_type: string; ladder_gender?: string | null };
   eventHasStarted: boolean;
   formatDateTime: (value: string) => string;
   addScore: (event: FormEvent<HTMLFormElement>) => void;
@@ -548,7 +548,9 @@ export function EventScoresPanel({
             <h3 className="font-semibold">Add a score</h3>
             <p className="mt-1 text-xs text-muted-foreground">
               {event.event_type === 'social_doubles_ladder'
-                ? 'Choose any partner for each score. The other players on the court are your opponents.'
+                ? event.ladder_gender === 'mixed'
+                  ? 'Each doubles side must have one male and one female player. Choose an eligible partner; the other two players are your opponents.'
+                  : 'Choose any partner for each score. The other players on the court are your opponents.'
                 : isManager
                   ? 'Choose any court and time slot. For a four-player court, select two players on one team; the remaining players are their opponents.'
                   : 'Choose a court and time slot you are assigned to. On a four-player court, select your partner; the other two players become your opponents automatically.'}

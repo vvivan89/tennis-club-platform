@@ -1,5 +1,6 @@
 import type { TournamentConfig } from '@/lib/tournament-config';
 import type { EventFormValues } from '@/components/event-form-types';
+import { doublesCategoryForGender } from '@/lib/league-gender';
 
 export const localValue = (value?: string | null) =>
   value
@@ -14,7 +15,7 @@ export const leagueTournamentConfig = (
   ladderGender: string,
 ) => ({
   ...config,
-  categories: [ladderGender === 'male' ? 'men' : 'women'],
+  categories: [doublesCategoryForGender(ladderGender)],
   phases: { round_robin: true },
   group_count: 1,
   teams_per_group: 4,

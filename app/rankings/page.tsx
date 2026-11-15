@@ -63,7 +63,7 @@ export default async function RankingsPage({ searchParams: searchParamsPromise }
   const ladders = (laddersRaw ?? []) as Array<{
     id: string;
     name: string;
-    gender: 'male' | 'female';
+    gender: 'male' | 'female' | 'mixed';
     position_points: number[];
     ranking_priority: string[];
     starts_at: string;

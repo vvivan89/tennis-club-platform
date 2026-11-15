@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { isGenderEligibleForCategory } from '@/lib/tournament-config';
 import type { Participant, PartnerMember } from '@/components/tournament-public-view-types';
 import { categoryLabel, formatMoney } from '@/components/tournament-public-view-format';
+import { isStrictMixedDoublesPair } from '@/lib/league-gender';
 
 export function useTournamentRegistrationSubmit({
   db,
@@ -153,6 +154,13 @@ export function useTournamentRegistrationSubmit({
         throw new Error(
           'Mixed doubles requires one male and one female player when both genders are known.',
         );
+      if (
+        leagueTournament &&
+        entryCategory === 'mixed' &&
+        effectiveRegistrationMode === 'pair' &&
+        !isStrictMixedDoublesPair(entrantGenderValue, partnerGenderValue)
+      )
+        throw new Error('Mixed League teams require one male and one female player.');
 
       const partnerRegistrationArgs = {
         p_partner_name: useNewPartner ? partnerName.trim() : null,

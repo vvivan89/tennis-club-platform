@@ -329,13 +329,14 @@ export function AdminEventsGuide() {
           rows={[
             {
               field: 'League gender',
-              value: 'Choose Men’s or Women’s.',
+              value: 'Choose Men’s, Women’s, or Mixed doubles.',
               effect:
-                'Sets the fixed League category and participant eligibility; registration does not ask for a separate category.',
+                'Sets the fixed League category; registration does not ask for a separate category. Mixed League teams must contain exactly one male and one female player.',
             },
             {
               field: 'Associate with existing League',
-              value: 'Select a same-gender League or leave the selector on creating a new League.',
+              value:
+                'Select a League with the same category or leave the selector on creating a new League.',
               effect: 'Associated events share the League identity and cumulative standings.',
             },
             {
@@ -420,12 +421,14 @@ export function AdminEventsGuide() {
           rows={[
             {
               field: 'Ladder gender',
-              value: 'Choose Men’s or Women’s.',
-              effect: 'Sets registration eligibility and which existing Ladder can be associated.',
+              value: 'Choose Men’s, Women’s, or Mixed doubles.',
+              effect:
+                'Sets registration eligibility and which existing Ladder can be associated. Mixed Ladder scores require each doubles side to contain one male and one female player.',
             },
             {
               field: 'Existing Ladder or Ladder name',
-              value: 'Associate with a same-gender Ladder or create a new unique Ladder name.',
+              value:
+                'Associate with a Ladder of the same category or create a new unique Ladder name.',
               effect:
                 'Associated sessions contribute to the same running ranking; session title remains independent.',
             },

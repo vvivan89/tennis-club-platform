@@ -1,6 +1,7 @@
 import { getTournamentRegistrationOptions } from '@/components/tournament-registration-options';
 import type { Team } from '@/components/tournament-public-view-types';
 import type { TournamentConfig } from '@/lib/tournament-config';
+import { doublesCategoryForGender } from '@/lib/league-gender';
 
 export function getTournamentPublicRegistrationState({
   detailsPublic,
@@ -50,7 +51,9 @@ export function getTournamentPublicRegistrationState({
     !leagueTournament &&
     !!currentUserId &&
     teams.some((team) => team.captain_user_id === currentUserId);
-  const leagueRegistrationCategory = leagueGender === 'male' ? 'men' : 'women';
+  const leagueRegistrationCategory = leagueGender
+    ? doublesCategoryForGender(leagueGender)
+    : config?.categories?.[0] || 'women';
   const registrationGender = isEventGuest
     ? entrantGender || null
     : currentUserId

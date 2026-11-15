@@ -130,7 +130,7 @@ export default async function MemberStatsPage({ searchParams: searchParamsPromis
   const ladders = (laddersRaw ?? []) as Array<{
     id: string;
     name: string;
-    gender: 'male' | 'female';
+    gender: 'male' | 'female' | 'mixed';
     competition_type: string;
   }>;
   const leagues = ladders.filter(

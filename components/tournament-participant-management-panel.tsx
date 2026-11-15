@@ -94,6 +94,7 @@ export function TournamentParticipantManagementPanel(props: Props) {
     setParticipantGender,
     setPendingRemoveParticipant,
   } = props;
+  const selectedMember = members.find((member) => member.id === memberId);
   return (
     <div className="space-y-5">
       <div className="grid gap-5 xl:grid-cols-2">
@@ -207,6 +208,21 @@ export function TournamentParticipantManagementPanel(props: Props) {
                   })}
               />
             </label>
+            {memberId && !selectedMember?.gender && (
+              <div className="space-y-1">
+                <GenderSelect
+                  value={participantGender}
+                  onChange={setParticipantGender}
+                  label="Tournament gender override"
+                  className="block text-sm"
+                  selectClassName="block h-10 w-full rounded-md border border-input bg-background px-3"
+                />
+                <p className="text-xs text-muted-foreground">
+                  This sets the player&apos;s gender for this tournament only; it does not change
+                  their profile.
+                </p>
+              </div>
+            )}
             {!memberId && !leagueTournament && (
               <>
                 <Input

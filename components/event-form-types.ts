@@ -27,7 +27,7 @@ export type EventFormValues = {
   tournament_rules_html: string;
   allow_non_member_registration: boolean;
   tournament_details_public: boolean;
-  ladder_gender: 'male' | 'female';
+  ladder_gender: 'male' | 'female' | 'mixed';
   ladder_points: [number, number, number, number];
   ladder_ranking_priority: string[];
   ladder_carryover: 'none' | 'position' | 'full';

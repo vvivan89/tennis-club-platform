@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { RichTextEditor } from '@/components/rich-text-editor';
@@ -10,6 +9,7 @@ import {
 } from '@/lib/tournament-config';
 import type { EventFormValues } from '@/components/event-form-types';
 import { TournamentRegistrationDiscountConfigurator } from '@/components/tournament-registration-discount-configurator';
+import { doublesCategoryForGender } from '@/lib/league-gender';
 
 type AvailableCompetition = {
   id: string;
@@ -29,16 +29,21 @@ export function EventCompetitionFields({
   change,
   recurring,
   availableLadders,
-  ladderOptions,
   generateRulesText,
 }: {
   v: EventFormValues;
   change: ChangeValue;
   recurring: boolean;
   availableLadders: AvailableCompetition[];
-  ladderOptions: ReactNode;
   generateRulesText: (values: EventFormValues) => string;
 }) {
+  const ladderOptions = availableLadders
+    .filter((ladder) => ladder.gender === v.ladder_gender)
+    .map((ladder) => (
+      <option key={ladder.id} value={ladder.id}>
+        {ladder.name}
+      </option>
+    ));
   return (
     <>
       {v.event_type === 'tournament' && (
@@ -61,9 +66,9 @@ export function EventCompetitionFields({
                   <select
                     value={v.ladder_gender}
                     onChange={(e) => {
-                      const gender = e.target.value as 'male' | 'female';
+                      const gender = e.target.value as 'male' | 'female' | 'mixed';
                       change('ladder_gender', gender);
-                      change('gender_restriction', gender);
+                      change('gender_restriction', gender === 'mixed' ? null : gender);
                       if (
                         v.league_existing_id &&
                         availableLadders.find((league) => league.id === v.league_existing_id)
@@ -72,13 +77,14 @@ export function EventCompetitionFields({
                         change('league_existing_id', '');
                       change('tournament_config', {
                         ...v.tournament_config,
-                        categories: [gender === 'male' ? 'men' : 'women'],
+                        categories: [doublesCategoryForGender(gender)],
                       });
                     }}
                     className="block h-10 w-full rounded-md border border-input bg-background px-3"
                   >
                     <option value="male">Men&apos;s</option>
                     <option value="female">Women&apos;s</option>
+                    <option value="mixed">Mixed doubles</option>
                   </select>
                 </label>
                 <label className="space-y-1 text-sm font-medium">
@@ -594,14 +600,15 @@ export function EventCompetitionFields({
               <select
                 value={v.ladder_gender}
                 onChange={(e) => {
-                  const gender = e.target.value as 'male' | 'female';
+                  const gender = e.target.value as 'male' | 'female' | 'mixed';
                   change('ladder_gender', gender);
-                  change('gender_restriction', gender);
+                  change('gender_restriction', gender === 'mixed' ? null : gender);
                 }}
                 className="block h-10 w-full rounded-md border border-input bg-background px-3"
               >
                 <option value="male">Men&apos;s</option>
                 <option value="female">Women&apos;s</option>
+                <option value="mixed">Mixed doubles</option>
               </select>
             </label>
             <label className="space-y-1 text-sm font-medium">
