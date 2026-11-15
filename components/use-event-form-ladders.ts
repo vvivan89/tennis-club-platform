@@ -12,6 +12,8 @@ type EventFormLadder = {
   competition_type?: string;
   tournament_config?: TournamentConfig | null;
   tournament_rules_html?: string | null;
+  minimum_tennis_skill_level?: number | null;
+  maximum_tennis_skill_level?: number | null;
 };
 
 export function useEventFormLadders() {
@@ -21,7 +23,7 @@ export function useEventFormLadders() {
     void db
       .from('social_doubles_ladders')
       .select(
-        'id,name,gender,ends_at,position_points,ranking_priority,competition_type,tournament_config,tournament_rules_html',
+        'id,name,gender,ends_at,position_points,ranking_priority,competition_type,tournament_config,tournament_rules_html,minimum_tennis_skill_level,maximum_tennis_skill_level',
       )
       .order('ends_at', { ascending: false, nullsFirst: false })
       .then(({ data }) => setAvailableLadders((data ?? []) as EventFormLadder[]));

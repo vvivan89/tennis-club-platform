@@ -10,6 +10,7 @@ import {
 import type { EventFormValues } from '@/components/event-form-types';
 import { TournamentRegistrationDiscountConfigurator } from '@/components/tournament-registration-discount-configurator';
 import { doublesCategoryForGender } from '@/lib/league-gender';
+import { EventSkillRestrictions } from '@/components/event-skill-restrictions';
 
 type AvailableCompetition = {
   id: string;
@@ -46,6 +47,7 @@ export function EventCompetitionFields({
     ));
   return (
     <>
+      {v.event_type === 'tournament' && <EventSkillRestrictions values={v} change={change} />}
       {v.event_type === 'tournament' && (
         <section className="space-y-5 rounded-xl border border-border p-5">
           <div>
@@ -582,14 +584,17 @@ export function EventCompetitionFields({
               Tournament events cannot be recurring. Turn off repeat-event to continue.
             </p>
           )}
-          {!v.is_league_tournament && (
-            <TournamentRegistrationDiscountConfigurator
-              config={v.tournament_config}
-              format={v.tournament_format}
-              onChange={(config) => change('tournament_config', config)}
-            />
-          )}
         </section>
+      )}
+      {v.event_type === 'tournament' && !v.is_league_tournament && (
+        <TournamentRegistrationDiscountConfigurator
+          config={v.tournament_config}
+          format={v.tournament_format}
+          onChange={(config) => change('tournament_config', config)}
+        />
+      )}
+      {v.event_type === 'social_doubles_ladder' && (
+        <EventSkillRestrictions values={v} change={change} />
       )}
       {v.event_type === 'social_doubles_ladder' && (
         <section className="sm:col-span-2 space-y-4 rounded-lg border border-border p-4">

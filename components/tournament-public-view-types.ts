@@ -158,6 +158,8 @@ export type TournamentPublicViewProps = {
   registrationOpensAt: string;
   registrationClosesAt: string | null;
   priceCents: number;
+  minimumTennisSkillLevel?: number | null;
+  maximumTennisSkillLevel?: number | null;
   interacEnabled?: boolean;
   resultsOnly?: boolean;
   rankingsControl?: ReactNode;

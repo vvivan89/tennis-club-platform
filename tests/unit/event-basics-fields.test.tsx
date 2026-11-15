@@ -37,6 +37,8 @@ function values(overrides: Partial<EventFormValues> = {}): EventFormValues {
     ladder_name: '',
     league_existing_id: '',
     is_league_tournament: false,
+    minimum_tennis_skill_level: '',
+    maximum_tennis_skill_level: '',
     ...overrides,
   };
 }

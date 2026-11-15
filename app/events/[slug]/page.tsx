@@ -66,7 +66,9 @@ export default async function EventDetailsPage({
       ? await Promise.all([
           db
             .from('social_doubles_ladders')
-            .select('id,name,competition_type,gender')
+            .select(
+              'id,name,competition_type,gender,minimum_tennis_skill_level,maximum_tennis_skill_level',
+            )
             .eq('id', event.social_doubles_ladder_id)
             .maybeSingle(),
           db
@@ -81,6 +83,14 @@ export default async function EventDetailsPage({
     ...event,
     title: eventTitle,
     ladder_gender: league?.gender ?? event.ladder_gender ?? null,
+    minimum_tennis_skill_level:
+      league?.minimum_tennis_skill_level ??
+      event.tournament_config?.minimum_tennis_skill_level ??
+      null,
+    maximum_tennis_skill_level:
+      league?.maximum_tennis_skill_level ??
+      event.tournament_config?.maximum_tennis_skill_level ??
+      null,
   };
   const isLeagueTournament = league?.competition_type === 'league';
   if (event.slug && params.slug !== event.slug)
@@ -349,6 +359,8 @@ export default async function EventDetailsPage({
               registrationOpensAt={event.registration_opens_at}
               registrationClosesAt={event.registration_closes_at}
               priceCents={event.price_cents ?? 0}
+              minimumTennisSkillLevel={displayEvent.minimum_tennis_skill_level}
+              maximumTennisSkillLevel={displayEvent.maximum_tennis_skill_level}
               interacEnabled={interacEnabled}
               leagueTournament={isLeagueTournament}
               leagueId={event.social_doubles_ladder_id ?? null}

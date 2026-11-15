@@ -66,6 +66,8 @@ export function TournamentPublicView({
   registrationOpensAt,
   registrationClosesAt,
   priceCents,
+  minimumTennisSkillLevel = null,
+  maximumTennisSkillLevel = null,
   interacEnabled = false,
   resultsOnly = false,
   rankingsControl,
@@ -587,6 +589,8 @@ export function TournamentPublicView({
           registrationOpensAt={registrationOpensAt}
           registrationClosesAt={registrationClosesAt}
           priceCents={priceCents}
+          minimumTennisSkillLevel={minimumTennisSkillLevel}
+          maximumTennisSkillLevel={maximumTennisSkillLevel}
           discounts={config?.registration_discounts}
           format={format}
         />

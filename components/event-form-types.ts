@@ -36,6 +36,8 @@ export type EventFormValues = {
   ladder_name: string;
   league_existing_id: string;
   is_league_tournament: boolean;
+  minimum_tennis_skill_level: string;
+  maximum_tennis_skill_level: string;
 };
 
 export type OrganizerOption = {

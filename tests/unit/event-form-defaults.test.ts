@@ -49,4 +49,16 @@ describe('event type form defaults', () => {
       },
     );
   });
+
+  it('preserves optional skill bounds when switching to League configuration', () => {
+    const result = getEventTypeFormUpdate('league_tournament', {
+      ...initialEventFormValues,
+      minimum_tennis_skill_level: '3.0',
+      maximum_tennis_skill_level: '4.5',
+    });
+    expect(result.update.tournament_config).toMatchObject({
+      minimum_tennis_skill_level: 3,
+      maximum_tennis_skill_level: 4.5,
+    });
+  });
 });

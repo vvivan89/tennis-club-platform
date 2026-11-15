@@ -25,6 +25,8 @@ export type TournamentRegistrationDiscounts = {
 
 export type TournamentConfig = {
   categories?: string[];
+  minimum_tennis_skill_level?: number | null;
+  maximum_tennis_skill_level?: number | null;
   show_overall_results?: boolean;
   phases?: TournamentPhaseSettings;
   group_count?: number;
