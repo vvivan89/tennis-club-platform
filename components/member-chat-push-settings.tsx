@@ -122,9 +122,9 @@ export function MemberChatPushSettings() {
   return (
     <div className="space-y-3 border-t border-border pt-4">
       <p className="text-sm text-muted-foreground">
-        Browser alerts can notify you about new chat messages when this site is closed. Your Show
-        all / mentions / don’t show preference still applies. This enables push notifications on
-        this device only.
+        Browser alerts can notify you about new chat messages even when this site is closed. Only
+        notifications selected above will be shown. This enables push notifications on this device
+        only.
       </p>
       <Button
         type="button"

@@ -487,17 +487,13 @@ describe('server-rendered data pages', () => {
     });
   });
 
-  it('redirects anonymous dashboard visitors and shows application status for unapproved members', async () => {
+  it('redirects anonymous dashboard visitors and routes unapproved accounts to Profile', async () => {
     mocks.user = null;
     await expect(MemberDashboardPage()).rejects.toThrow('redirect:/login?next=/dashboard');
 
     mocks.user = { id: 'member-1' };
     mocks.singles.profiles = { application_status: 'dismissed' };
-    const page = await MemberDashboardPage();
-    const { container } = render(page);
-    expect(screen.getByRole('heading', { name: 'Application not approved' })).toBeInTheDocument();
-    expect(container).toHaveTextContent('Please contact the club if you have questions.');
-    expect(screen.getByRole('link', { name: 'Browse events' })).toHaveAttribute('href', '/events');
+    await expect(MemberDashboardPage()).rejects.toThrow('redirect:/profile');
   });
 
   it('summarizes approved member activity and displays active suspension and birthday status', async () => {

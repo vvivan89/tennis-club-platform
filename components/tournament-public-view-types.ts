@@ -36,6 +36,8 @@ export type Participant = {
   is_member?: boolean;
   avatar_url?: string | null;
   birthday_emoji_visible?: boolean;
+  group_number?: number | null;
+  seed?: number | null;
 };
 
 export type PartnerMember = { id: string; full_name: string; gender: string | null };
@@ -54,6 +56,11 @@ export type OwnTournamentEntry = {
   category: string;
   payment_status: string;
   amount_cents: number;
+  base_amount_cents?: number;
+  discount_cents?: number;
+  pricing_details?: {
+    appliedDiscounts?: Array<{ label: string; discountCents: number }>;
+  };
   display_name?: string;
   email?: string;
   phone?: string | null;
@@ -66,6 +73,11 @@ export type OwnTournamentEntry = {
   partner_phone?: string | null;
   partner_gender?: string | null;
   partner_skill_level?: number | null;
+  partner_amount_cents?: number | null;
+  partner_discount_cents?: number | null;
+  partner_pricing_details?: {
+    appliedDiscounts?: Array<{ label: string; discountCents: number }>;
+  } | null;
   partner_confirmation_status?: string | null;
   partner_is_league_team?: boolean;
   captain_requested?: boolean;
@@ -136,6 +148,8 @@ export type TournamentPublicViewProps = {
   currentUserPhone?: string;
   currentUserSkillLevel?: string | null;
   currentUserGender?: string | null;
+  currentUserDateOfBirth?: string | null;
+  currentUserGuardians?: Array<{ name: string; email: string; phone: string }>;
   format: string | null;
   config: TournamentConfig | null;
   rulesHtml: string | null;
@@ -148,6 +162,8 @@ export type TournamentPublicViewProps = {
   registrationOpensAt: string;
   registrationClosesAt: string | null;
   priceCents: number;
+  minimumTennisSkillLevel?: number | null;
+  maximumTennisSkillLevel?: number | null;
   interacEnabled?: boolean;
   resultsOnly?: boolean;
   rankingsControl?: ReactNode;

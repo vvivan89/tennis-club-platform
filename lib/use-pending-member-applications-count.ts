@@ -29,8 +29,7 @@ export function usePendingMemberApplicationsCount(enabled: boolean) {
         const { count: pendingCount, error } = await db
           .from('profiles')
           .select('id', { count: 'exact', head: true })
-          .eq('application_status', 'pending')
-          .eq('account_kind', 'member');
+          .eq('application_status', 'pending');
         if (active && !error) setCount(pendingCount ?? 0);
       } while (active && refreshQueued);
       fetching = false;

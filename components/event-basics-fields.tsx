@@ -61,7 +61,9 @@ export function EventBasicsFields({
                 ? 'league_tournament'
                 : v.tournament_format === 'team'
                   ? 'team_tournament'
-                  : 'doubles_tournament'
+                  : v.tournament_format === 'singles'
+                    ? 'singles_tournament'
+                    : 'doubles_tournament'
               : v.event_type === 'social_doubles_ladder'
                 ? 'social_doubles_ladder'
                 : v.event_type === 'party'
@@ -72,6 +74,7 @@ export function EventBasicsFields({
           className="block h-10 w-full rounded-md border border-input bg-background px-3"
         >
           <option value="doubles_tournament">Doubles tournament</option>
+          <option value="singles_tournament">Singles tournament</option>
           <option value="league_tournament">League</option>
           <option value="social">Social event</option>
           <option value="party">Party</option>

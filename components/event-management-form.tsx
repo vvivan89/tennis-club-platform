@@ -19,14 +19,17 @@ import { useEventFormLadders } from '@/components/use-event-form-ladders';
 import { type EventFormValues, type OrganizerOption } from '@/components/event-form-types';
 import {
   generateRulesText,
+  buildCommonEventFields,
+  createInitialEventFormValues,
   getFirstSeriesDate,
   getEventTypeFormUpdate,
-  initialEventFormValues as initial,
   leagueTournamentConfig,
   localValue,
   previewRegistrationWeekday,
   seedEventSeriesFields,
 } from '@/components/event-form-defaults';
+import { doublesCategoryForGender } from '@/lib/league-gender';
+import { tennisSkillInputValue } from '@/lib/tennis-skill-range';
 
 export function EventManagementForm({
   event,
@@ -40,7 +43,7 @@ export function EventManagementForm({
     social_doubles_ladder_id?: string | null;
     is_league_tournament?: boolean;
     league_name?: string | null;
-    ladder_gender?: 'male' | 'female' | null;
+    ladder_gender?: 'male' | 'female' | 'mixed' | null;
     ladder_position_points?: number[] | null;
     ladder_ranking_priority?: string[] | null;
   };
@@ -49,50 +52,14 @@ export function EventManagementForm({
   showOrganizerField?: boolean;
 }) {
   const router = useRouter();
-  const [v, setV] = useState<EventFormValues>({
-    ...initial,
-    ...event,
-    ladder_existing_id: event?.ladder_existing_id ?? event?.social_doubles_ladder_id ?? '',
-    league_existing_id: event?.is_league_tournament ? (event?.social_doubles_ladder_id ?? '') : '',
-    is_league_tournament: event?.is_league_tournament ?? false,
-    ladder_name: event?.ladder_name ?? event?.league_name ?? '',
-    ladder_gender:
-      event?.ladder_gender ?? (event?.gender_restriction === 'female' ? 'female' : 'male'),
-    ladder_points: (event?.ladder_points ??
-      event?.ladder_position_points ??
-      initial.ladder_points) as [number, number, number, number],
-    ladder_ranking_priority: event?.ladder_ranking_priority ?? initial.ladder_ranking_priority,
-    organizer_id: event?.organizer_id ?? event?.created_by ?? currentUserId,
-    members_only:
-      event?.event_type === 'tournament' || event?.event_type === 'party'
-        ? false
-        : (event?.members_only ?? true),
-    description: event?.description ?? '',
-    gender_restriction: event?.gender_restriction ?? null,
-    location: event?.location ?? initial.location,
-    notes: event?.notes ?? '',
-    starts_at: localValue(event?.starts_at),
-    ends_at: localValue(event?.ends_at),
-    registration_opens_at: localValue(event?.registration_opens_at),
-    registration_closes_at: localValue(event?.registration_closes_at),
-    price_cents: event?.price_cents ?? 0,
-    allow_plus_one: event?.allow_plus_one ?? false,
-    guest_price_cents: event?.guest_price_cents ?? 0,
-    capacity: event?.capacity ?? 16,
-    court_count: event?.court_count ?? 4,
-    tournament_format: event?.tournament_format ?? 'doubles',
-    tournament_config: event?.tournament_config ?? initial.tournament_config,
-    tournament_rules_html: event?.tournament_rules_html ?? '',
-    allow_non_member_registration: event?.allow_non_member_registration ?? false,
-    tournament_details_public: event?.tournament_details_public ?? true,
-  });
+  const [v, setV] = useState<EventFormValues>(createInitialEventFormValues(event, currentUserId));
   const [applyToSeries, setApplyToSeries] = useState(false);
   const availableLadders = useEventFormLadders();
   useEffect(() => {
     const selected = availableLadders.find((ladder) => ladder.id === v.ladder_existing_id);
     if (!selected) return;
-    change('ladder_gender', selected.gender as 'male' | 'female');
-    change('gender_restriction', selected.gender);
+    change('ladder_gender', selected.gender as 'male' | 'female' | 'mixed');
+    change('gender_restriction', selected.gender === 'mixed' ? null : selected.gender);
     change(
       'ladder_points',
       (selected.position_points ?? [2, 1, -1, -2]) as [number, number, number, number],
@@ -100,6 +67,14 @@ export function EventManagementForm({
     change(
       'ladder_ranking_priority',
       selected.ranking_priority ?? ['games_won', 'sets_won', 'games_difference'],
+    );
+    change(
+      'minimum_tennis_skill_level',
+      tennisSkillInputValue(selected.minimum_tennis_skill_level),
+    );
+    change(
+      'maximum_tennis_skill_level',
+      tennisSkillInputValue(selected.maximum_tennis_skill_level),
     );
   }, [v.ladder_existing_id, availableLadders]);
   useEffect(() => {
@@ -109,12 +84,14 @@ export function EventManagementForm({
     if (!selected) return;
     setV((previous) => ({
       ...previous,
-      ladder_gender: selected.gender as 'male' | 'female',
-      gender_restriction: selected.gender,
+      ladder_gender: selected.gender as 'male' | 'female' | 'mixed',
+      gender_restriction: selected.gender === 'mixed' ? null : selected.gender,
       ladder_name: selected.name,
+      minimum_tennis_skill_level: tennisSkillInputValue(selected.minimum_tennis_skill_level),
+      maximum_tennis_skill_level: tennisSkillInputValue(selected.maximum_tennis_skill_level),
       tournament_config: {
         ...(selected.tournament_config ?? previous.tournament_config),
-        categories: [selected.gender === 'male' ? 'men' : 'women'],
+        categories: [doublesCategoryForGender(selected.gender)],
         phases: { round_robin: true },
         group_count: 1,
         teams_per_group: 4,
@@ -146,13 +123,6 @@ export function EventManagementForm({
   function change<K extends keyof EventFormValues>(key: K, value: EventFormValues[K]) {
     setV((prev) => ({ ...prev, [key]: value }));
   }
-  const ladderOptions = availableLadders
-    .filter((ladder) => ladder.gender === v.ladder_gender)
-    .map((ladder) => (
-      <option key={ladder.id} value={ladder.id}>
-        {ladder.name}
-      </option>
-    ));
   function handleEventTypeChange(value: string) {
     const result = getEventTypeFormUpdate(value, v);
     setV((previous) => ({ ...previous, ...result.update }));
@@ -196,7 +166,9 @@ export function EventManagementForm({
         throw new Error(
           v.tournament_format === 'team'
             ? 'Enable at least one team match category.'
-            : 'Enable at least one doubles category.',
+            : v.tournament_format === 'singles'
+              ? 'Enable at least one singles category.'
+              : 'Enable at least one doubles category.',
         );
       if (
         v.event_type === 'tournament' &&
@@ -215,8 +187,8 @@ export function EventManagementForm({
           throw new Error('Registration cutoff must be after registration opens.');
       }
       if (v.event_type === 'social_doubles_ladder') {
-        if (!['male', 'female'].includes(v.ladder_gender))
-          throw new Error("Choose men's or women's ladder.");
+        if (!['male', 'female', 'mixed'].includes(v.ladder_gender))
+          throw new Error("Choose a men's, women's, or mixed doubles ladder category.");
         if (!v.ladder_existing_id) {
           const ladderName = v.ladder_name.trim();
           if (!ladderName) throw new Error('Enter a name for this ladder.');
@@ -238,11 +210,23 @@ export function EventManagementForm({
         }
       }
       if (v.is_league_tournament && v.event_type === 'tournament') {
-        if (!['male', 'female'].includes(v.ladder_gender))
-          throw new Error('Choose a league gender.');
+        if (!['male', 'female', 'mixed'].includes(v.ladder_gender))
+          throw new Error("Choose a men's, women's, or mixed League category.");
         if (!v.league_existing_id && !v.ladder_name.trim())
           throw new Error('Enter a name for this league.');
       }
+      const skillRangeApplies =
+        v.event_type === 'social_doubles_ladder' ||
+        v.is_league_tournament ||
+        (v.event_type === 'tournament' &&
+          ['doubles', 'singles'].includes(v.tournament_format ?? ''));
+      if (
+        skillRangeApplies &&
+        v.minimum_tennis_skill_level &&
+        v.maximum_tennis_skill_level &&
+        Number(v.minimum_tennis_skill_level) > Number(v.maximum_tennis_skill_level)
+      )
+        throw new Error('Minimum tennis skill cannot exceed maximum tennis skill.');
       if (v.event_type !== 'tournament' && v.capacity < 1)
         throw new Error('Maximum attendees must be at least 1.');
       if (v.event_type === 'tournament' && v.tournament_format !== 'team') {
@@ -255,69 +239,11 @@ export function EventManagementForm({
             );
         }
       }
-      const common = {
-        title: v.title.trim(),
-        description: v.description.trim(),
-        gender_restriction: v.event_type === 'party' ? null : v.gender_restriction || null,
-        capacity:
-          v.event_type === 'tournament'
-            ? Number(v.capacity) > 0
-              ? Number(v.capacity)
-              : 1000000
-            : Number(v.capacity),
-        price_cents: Math.round(Number(v.price_cents)),
-        allow_plus_one: v.event_type === 'party' && v.allow_plus_one,
-        guest_price_cents:
-          v.event_type === 'party' && v.allow_plus_one
-            ? Math.round(Number(v.guest_price_cents))
-            : 0,
-        members_only: ['tournament', 'party'].includes(v.event_type) ? false : v.members_only,
-        status: v.status,
-        location: v.location.trim(),
-        notes: v.notes.trim(),
-        waitlist_enabled: v.event_type === 'party' ? false : v.waitlist_enabled,
-        court_count: Number(v.court_count),
-        event_type: v.event_type,
-        ladder_gender: v.event_type === 'social_doubles_ladder' ? v.ladder_gender : null,
-        ladder_position_points: v.event_type === 'social_doubles_ladder' ? v.ladder_points : null,
-        ladder_ranking_priority:
-          v.event_type === 'social_doubles_ladder' ? v.ladder_ranking_priority : null,
-        tournament_format: v.event_type === 'tournament' ? v.tournament_format : null,
-        tournament_config:
-          v.event_type === 'tournament'
-            ? {
-                ...v.tournament_config,
-                ...(v.tournament_format === 'team'
-                  ? {
-                      category_capacities: Object.fromEntries(
-                        Object.entries(v.tournament_config.category_capacities ?? {}).filter(
-                          ([category]) => category !== 'team',
-                        ),
-                      ),
-                    }
-                  : {}),
-                total_capacity:
-                  Number(v.capacity) > 0 && Number(v.capacity) < 1000000
-                    ? Number(v.capacity)
-                    : null,
-              }
-            : {},
-        tournament_rules_html:
-          v.event_type === 'tournament' && !v.is_league_tournament ? v.tournament_rules_html : '',
-        allow_non_member_registration:
-          v.event_type === 'tournament' ? v.allow_non_member_registration : false,
-        tournament_details_public:
-          v.event_type === 'tournament' ? v.tournament_details_public : false,
-        social_doubles_ladder_id: v.is_league_tournament
-          ? v.league_existing_id || null
-          : v.event_type === 'party'
-            ? null
-            : undefined,
-        organizer_id: showOrganizerField
-          ? v.organizer_id || currentUserId
-          : v.organizer_id || event?.created_by || currentUserId,
-        updated_at: new Date().toISOString(),
-      };
+      const common = buildCommonEventFields(v, {
+        currentUserId,
+        existingCreatorId: event?.created_by,
+        showOrganizerField,
+      });
       if (v.id) {
         const datesOnly = {
           starts_at: starts.toISOString(),
@@ -357,11 +283,36 @@ export function EventManagementForm({
             .update({
               name: v.ladder_name.trim() || event?.league_name || v.title.trim(),
               gender: v.ladder_gender,
-              tournament_config: leagueTournamentConfig(v.tournament_config, v.ladder_gender),
+              tournament_config: leagueTournamentConfig(
+                v.tournament_config,
+                v.ladder_gender,
+                v.minimum_tennis_skill_level,
+                v.maximum_tennis_skill_level,
+              ),
+              minimum_tennis_skill_level: v.minimum_tennis_skill_level
+                ? Number(v.minimum_tennis_skill_level)
+                : null,
+              maximum_tennis_skill_level: v.maximum_tennis_skill_level
+                ? Number(v.maximum_tennis_skill_level)
+                : null,
               tournament_rules_html: '',
             })
             .eq('id', v.league_existing_id);
           if (leagueError) throw leagueError;
+        }
+        if (v.event_type === 'social_doubles_ladder' && v.ladder_existing_id) {
+          const { error: ladderError } = await db
+            .from('social_doubles_ladders')
+            .update({
+              minimum_tennis_skill_level: v.minimum_tennis_skill_level
+                ? Number(v.minimum_tennis_skill_level)
+                : null,
+              maximum_tennis_skill_level: v.maximum_tennis_skill_level
+                ? Number(v.maximum_tennis_skill_level)
+                : null,
+            })
+            .eq('id', v.ladder_existing_id);
+          if (ladderError) throw ladderError;
         }
         if (v.status === 'cancelled') {
           dispatchEventNotificationsInBackground(notifyIds, 'Event management');
@@ -488,6 +439,12 @@ export function EventManagementForm({
             .insert({
               name: v.ladder_name.trim(),
               gender: v.ladder_gender,
+              minimum_tennis_skill_level: v.minimum_tennis_skill_level
+                ? Number(v.minimum_tennis_skill_level)
+                : null,
+              maximum_tennis_skill_level: v.maximum_tennis_skill_level
+                ? Number(v.maximum_tennis_skill_level)
+                : null,
               position_points: v.ladder_points,
               ranking_priority: v.ladder_ranking_priority,
               carryover_mode: v.ladder_carryover,
@@ -623,6 +580,20 @@ export function EventManagementForm({
             }
           }
         }
+        if (v.ladder_existing_id) {
+          const { error: ladderError } = await db
+            .from('social_doubles_ladders')
+            .update({
+              minimum_tennis_skill_level: v.minimum_tennis_skill_level
+                ? Number(v.minimum_tennis_skill_level)
+                : null,
+              maximum_tennis_skill_level: v.maximum_tennis_skill_level
+                ? Number(v.maximum_tennis_skill_level)
+                : null,
+            })
+            .eq('id', v.ladder_existing_id);
+          if (ladderError) throw ladderError;
+        }
         const { error: linkError } = await db
           .from('events')
           .update({
@@ -645,6 +616,12 @@ export function EventManagementForm({
             .insert({
               name: v.ladder_name.trim() || v.title.trim(),
               gender: v.ladder_gender,
+              minimum_tennis_skill_level: v.minimum_tennis_skill_level
+                ? Number(v.minimum_tennis_skill_level)
+                : null,
+              maximum_tennis_skill_level: v.maximum_tennis_skill_level
+                ? Number(v.maximum_tennis_skill_level)
+                : null,
               position_points: [0, 0, 0, 0],
               ranking_priority: v.tournament_config.ranking_priority ?? [
                 'matches_won',
@@ -656,7 +633,12 @@ export function EventManagementForm({
               created_by: user.id,
               competition_type: 'league',
               season: String(starts.getFullYear()),
-              tournament_config: leagueTournamentConfig(v.tournament_config, v.ladder_gender),
+              tournament_config: leagueTournamentConfig(
+                v.tournament_config,
+                v.ladder_gender,
+                v.minimum_tennis_skill_level,
+                v.maximum_tennis_skill_level,
+              ),
               tournament_rules_html: '',
             })
             .select('id')
@@ -668,7 +650,18 @@ export function EventManagementForm({
           .from('social_doubles_ladders')
           .update({
             gender: v.ladder_gender,
-            tournament_config: leagueTournamentConfig(v.tournament_config, v.ladder_gender),
+            tournament_config: leagueTournamentConfig(
+              v.tournament_config,
+              v.ladder_gender,
+              v.minimum_tennis_skill_level,
+              v.maximum_tennis_skill_level,
+            ),
+            minimum_tennis_skill_level: v.minimum_tennis_skill_level
+              ? Number(v.minimum_tennis_skill_level)
+              : null,
+            maximum_tennis_skill_level: v.maximum_tennis_skill_level
+              ? Number(v.maximum_tennis_skill_level)
+              : null,
             tournament_rules_html: '',
           })
           .eq('id', leagueId);
@@ -677,9 +670,14 @@ export function EventManagementForm({
           .from('events')
           .update({
             social_doubles_ladder_id: leagueId,
-            gender_restriction: v.ladder_gender,
+            gender_restriction: v.ladder_gender === 'mixed' ? null : v.ladder_gender,
             tournament_format: 'doubles',
-            tournament_config: leagueTournamentConfig(v.tournament_config, v.ladder_gender),
+            tournament_config: leagueTournamentConfig(
+              v.tournament_config,
+              v.ladder_gender,
+              v.minimum_tennis_skill_level,
+              v.maximum_tennis_skill_level,
+            ),
           })
           .in(
             'id',
@@ -737,7 +735,6 @@ export function EventManagementForm({
         change={change}
         recurring={recurring}
         availableLadders={availableLadders}
-        ladderOptions={ladderOptions}
         generateRulesText={generateRulesText}
       />
       <EventSchedulingFields

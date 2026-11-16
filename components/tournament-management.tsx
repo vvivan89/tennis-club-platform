@@ -20,6 +20,7 @@ import type {
   Pair,
   Participant,
   Team,
+  UnderagePlayer,
 } from '@/components/tournament-management-types';
 import { useTournamentMatchActions } from '@/components/use-tournament-match-actions';
 import { useTournamentDrawActions } from '@/components/use-tournament-draw-actions';
@@ -48,6 +49,7 @@ export function TournamentManagement({
   leagueGender = null,
   captainMode = false,
   captainTeamId = null,
+  canViewGuardianDetails = false,
 }: {
   eventId: string;
   leagueId?: string | null;
@@ -61,10 +63,12 @@ export function TournamentManagement({
   leagueGender?: string | null;
   captainMode?: boolean;
   captainTeamId?: string | null;
+  canViewGuardianDetails?: boolean;
 }) {
   const db = createSupabaseBrowserClient();
   const [teams, setTeams] = useState<Team[]>([]);
   const [participants, setParticipants] = useState<Participant[]>([]);
+  const [underagePlayers, setUnderagePlayers] = useState<Record<string, UnderagePlayer>>({});
   const [pairs, setPairs] = useState<Pair[]>([]);
   const [matches, setMatches] = useState<Match[]>([]);
   const [matchPlayers, setMatchPlayers] = useState<MatchPlayer[]>([]);
@@ -78,7 +82,9 @@ export function TournamentManagement({
   >(captainMode ? 'matches' : 'participants');
   const [matchGrouping, setMatchGrouping] = useState<'group' | 'round'>('group');
   const [activeCategory, setActiveCategory] = useState<string>(
-    (config?.categories ?? ['mixed', 'men', 'women'])[0] ?? 'mixed',
+    (config?.categories ??
+      (format === 'singles' ? ['all', 'men', 'women'] : ['mixed', 'men', 'women']))[0] ??
+      (format === 'singles' ? 'all' : 'mixed'),
   );
   const [replaceTarget, setReplaceTarget] = useState<{ pair: Pair; side: 1 | 2 } | null>(null);
   const [pendingDeleteMatch, setPendingDeleteMatch] = useState<Match | null>(null);
@@ -120,7 +126,9 @@ export function TournamentManagement({
     {},
   );
   const [matchCategory, setMatchCategory] = useState(
-    (config?.categories ?? ['mixed', 'men', 'women'])[0] ?? 'mixed',
+    (config?.categories ??
+      (format === 'singles' ? ['all', 'men', 'women'] : ['mixed', 'men', 'women']))[0] ??
+      (format === 'singles' ? 'all' : 'mixed'),
   );
   const [matchPhase, setMatchPhase] = useState(
     format === 'team' ? 'team_round_robin' : 'round_robin',
@@ -149,7 +157,7 @@ export function TournamentManagement({
         : db
             .from('tournament_participants')
             .select(
-              'id,user_id,team_id,category,payment_status,amount_cents,display_name,email,phone,gender,gender_override,status,captain_requested',
+              'id,user_id,team_id,category,payment_status,amount_cents,base_amount_cents,discount_cents,pricing_details,display_name,email,phone,gender,gender_override,status,captain_requested,group_number,seed',
             )
       )
         .eq('event_id', eventId)
@@ -208,6 +216,15 @@ export function TournamentManagement({
     setParticipants((previous) =>
       JSON.stringify(previous) === JSON.stringify(nextParticipants) ? previous : nextParticipants,
     );
+    if (!captainMode && canViewGuardianDetails) {
+      try {
+        const response = await fetch(`/api/admin/events/${eventId}/underage-players`);
+        const result = response.ok ? await response.json() : null;
+        setUnderagePlayers(result?.players ?? {});
+      } catch {
+        setUnderagePlayers({});
+      }
+    }
     if (leagueTournament && !leagueEligibilityResult.error) {
       setLeagueMemberEligibility(
         Object.fromEntries(
@@ -251,7 +268,7 @@ export function TournamentManagement({
       JSON.stringify(previous) === JSON.stringify(nextAuditRows) ? previous : nextAuditRows,
     );
     window.dispatchEvent(new CustomEvent('pctc-tournament-data-refresh', { detail: { eventId } }));
-  }, [captainMode, db, eventId, leagueTournament, setError]);
+  }, [canViewGuardianDetails, captainMode, db, eventId, leagueTournament, setError]);
 
   useEffect(() => {
     const closeOutsideMenus = (event: PointerEvent) => {
@@ -357,11 +374,11 @@ export function TournamentManagement({
     };
   }, [db, eventId, refresh]);
   const isTeam = format === 'team';
+  const isSingles = format === 'singles';
   const participantActions = useTournamentParticipantActions({
     db,
     eventId,
     leagueId,
-    priceCents,
     leagueTournament,
     leagueGender,
     isTeam,
@@ -422,10 +439,12 @@ export function TournamentManagement({
   } = participantActions;
   const matchSideOptionsState = useTournamentMatchSideOptions({
     isTeam,
+    isSingles,
     activeCategory,
     config,
     teams,
     pairs,
+    participants,
     matches,
     matchOne,
     matchTwo,
@@ -533,12 +552,14 @@ export function TournamentManagement({
     courtCount,
     activeCategory,
     isTeam,
+    isSingles,
     matchCategory,
     matchPhase,
     config,
     enabledPhases,
     scheduleTimings,
     teams,
+    participants,
     pairs,
     matches,
     matchPlayers,
@@ -565,6 +586,7 @@ export function TournamentManagement({
     enabledPhases,
     phases,
     isTeam,
+    isSingles,
     activeCategory,
     matchCategory,
     matchPhase,
@@ -581,6 +603,7 @@ export function TournamentManagement({
   const adminMatchView = useTournamentAdminMatchView({
     matches,
     isTeam,
+    isSingles,
     activeCategory,
     matchCategory,
     matchPhase,
@@ -589,6 +612,7 @@ export function TournamentManagement({
     courtCount,
     teams,
     pairs,
+    participants,
   });
   const { adminMatchList } = adminMatchView;
 
@@ -618,10 +642,12 @@ export function TournamentManagement({
         <TournamentParticipantManagementPanel
           eventId={eventId}
           isTeam={isTeam}
+          isSingles={isSingles}
           leagueTournament={leagueTournament}
           activeCategory={activeCategory}
           members={members}
           participants={participants}
+          underagePlayers={underagePlayers}
           pairs={pairs}
           teams={teams}
           groupCount={Math.max(1, Number(config?.group_count ?? 2))}
@@ -678,6 +704,7 @@ export function TournamentManagement({
           {...adminMatchView}
           {...courtActions}
           isTeam={isTeam}
+          isSingles={isSingles}
           captainMode={captainMode}
           captainTeamId={captainTeamId}
           busy={busy}

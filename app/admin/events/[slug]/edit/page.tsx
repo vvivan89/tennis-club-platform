@@ -50,7 +50,9 @@ export default async function EditEventPage({
   const { data: leagueConfig } = event.social_doubles_ladder_id
     ? await db
         .from('social_doubles_ladders')
-        .select('id,name,competition_type,tournament_config,tournament_rules_html,gender')
+        .select(
+          'id,name,competition_type,tournament_config,tournament_rules_html,gender,minimum_tennis_skill_level,maximum_tennis_skill_level',
+        )
         .eq('id', event.social_doubles_ladder_id)
         .maybeSingle()
     : { data: null };
@@ -62,6 +64,8 @@ export default async function EditEventPage({
           league_name: leagueConfig.name,
           ladder_name: leagueConfig.name,
           ladder_gender: leagueConfig.gender,
+          minimum_tennis_skill_level: String(leagueConfig.minimum_tennis_skill_level ?? ''),
+          maximum_tennis_skill_level: String(leagueConfig.maximum_tennis_skill_level ?? ''),
           tournament_config: leagueConfig.tournament_config,
           tournament_rules_html: leagueConfig.tournament_rules_html,
         }
@@ -102,8 +106,11 @@ export default async function EditEventPage({
           startsAt={event.starts_at}
           hideRegistrationManagement={
             event.event_type === 'tournament' &&
-            (event.tournament_format === 'doubles' || event.tournament_format === 'team')
+            (event.tournament_format === 'doubles' ||
+              event.tournament_format === 'singles' ||
+              event.tournament_format === 'team')
           }
+          hideCourtAssignment={event.event_type === 'tournament'}
         />
         <p className="mt-6 text-sm">
           <Link className="text-primary underline" href={eventPath(event)}>

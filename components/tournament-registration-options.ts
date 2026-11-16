@@ -17,12 +17,16 @@ export function getTournamentRegistrationOptions({
   registrationGender: string | null;
   currentUserId: string | null;
 }) {
-  const enabledDoublesCategories = (config?.categories ?? ['mixed', 'men', 'women']).filter(
-    (category: string) => ['mixed', 'men', 'women'].includes(category),
+  const singles = format === 'singles';
+  const defaults = singles ? ['all', 'men', 'women'] : ['mixed', 'men', 'women'];
+  const enabledCategories = (config?.categories ?? defaults).filter((category: string) =>
+    singles
+      ? ['all', 'men', 'women'].includes(category)
+      : ['mixed', 'men', 'women'].includes(category),
   );
   const hasGenderEligibleCategory =
     format === 'team' ||
-    enabledDoublesCategories.some((category: string) =>
+    enabledCategories.some((category: string) =>
       isGenderEligibleForCategory(category, registrationGender),
     );
   const availableCategories = (
@@ -33,7 +37,7 @@ export function getTournamentRegistrationOptions({
         : [leagueRegistrationCategory]
       : format === 'team'
         ? ['team']
-        : (config?.categories ?? ['mixed', 'men', 'women']).filter(
+        : enabledCategories.filter(
             (category: string) =>
               !ownCategories.includes(category) &&
               !(category === 'men' && ownCategories.includes('women')) &&

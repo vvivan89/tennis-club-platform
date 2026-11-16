@@ -130,7 +130,7 @@ export default async function MemberStatsPage({ searchParams: searchParamsPromis
   const ladders = (laddersRaw ?? []) as Array<{
     id: string;
     name: string;
-    gender: 'male' | 'female';
+    gender: 'male' | 'female' | 'mixed';
     competition_type: string;
   }>;
   const leagues = ladders.filter(
@@ -144,7 +144,7 @@ export default async function MemberStatsPage({ searchParams: searchParamsPromis
         .from('events')
         .select('id,title,tournament_config')
         .eq('event_type', 'tournament')
-        .eq('tournament_format', 'doubles')
+        .in('tournament_format', ['doubles', 'singles'])
         .is('social_doubles_ladder_id', null)
         .in('status', ['published', 'cancelled'])
         .in('id', [...participatedEventIds])

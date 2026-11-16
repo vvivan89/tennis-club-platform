@@ -8,6 +8,7 @@ import {
   Steps,
   Topic,
 } from '@/components/help-guide-primitives';
+import { ProfileFieldsTable } from '@/components/help-guides/profile-fields-table';
 import { helpTopicLinks, useHelpGuideNavigation } from '@/components/help-guides/navigation';
 import { useSiteHeaderState } from '@/components/site-header-state';
 
@@ -33,6 +34,7 @@ const topics = [
   ['events', 'member-event-payments', 'Pay event fees'],
   ['events', 'member-event-scores', 'Report event scores'],
   ['competitions', 'member-tournament-entry', 'Tournament registration'],
+  ['competitions', 'member-singles-tournament', 'Singles tournaments'],
   ['competitions', 'member-pair-registration', 'Register and pay with a partner'],
   ['competitions', 'member-league-entry', 'League registration'],
   ['competitions', 'member-ladder-entry', 'Social Doubles Ladder'],
@@ -118,47 +120,7 @@ function DashboardTopic() {
 function ProfileTopic({ shortName }: { shortName: string }) {
   return (
     <Topic id="member-profile" title="Profile information and eligibility">
-      <FieldTable
-        rows={[
-          {
-            field: 'Required profile fields',
-            value:
-              'Full name, phone number, date of birth, gender, and tennis skill rating are required. Email is managed by authentication and cannot be changed on this page.',
-            effect:
-              'Your gender affects eligibility for gender-specific events and competition categories. Your date of birth supports family membership eligibility and the optional birthday display; it is not shown publicly.',
-          },
-          {
-            field: 'Tennis skill rating',
-            value: 'Choose the rating that best reflects your current level.',
-            effect:
-              'Your selected skill rating appears with your name in participant and results displays that show player details.',
-          },
-          {
-            field: 'Avatar and playing hand',
-            value: 'Upload an avatar and choose your playing hand if desired.',
-            effect:
-              'The avatar identifies you in player lists; playing hand just is profile information not used anywhere.',
-          },
-          {
-            field: 'Email preferences',
-            value: 'Choose the automated event and club email categories you want.',
-            effect:
-              'Preferences control routine notification emails. You can also unsubscribe from a category directly from its email without signing in. Administrators can still send important club-wide announcements regardless of these settings.',
-          },
-          {
-            field: 'Chat notification preference',
-            value: 'Choose Show all, Show only when someone mentions you, or Don’t show.',
-            effect:
-              'This preference controls both in-app chat alerts and browser push notifications, when enabled.',
-          },
-          {
-            field: 'Show birthday emoji',
-            value: 'Enable or disable the profile option.',
-            effect:
-              'When enabled, the cake indicator is shown beside your player identity on all pages.',
-          },
-        ]}
-      />
+      <ProfileFieldsTable includeChatPreference />
       <div className="space-y-3">
         <h4 className="font-semibold">Emails managed by these preferences</h4>
         <ul className="list-disc space-y-2 pl-5">
@@ -243,7 +205,7 @@ function AppearanceTopic() {
         <li>
           Choose Light, Dark, or System. System follows the appearance setting on your device.
         </li>
-        <li>Choose an accent color from the selector.</li>
+        <li>Choose Hard, Grass, or Clay from the court-style color options.</li>
         <li>
           Press Save appearance to save your choices to your profile. These settings will be applied
           to all devices where you use the website.
@@ -434,10 +396,10 @@ function CompetitionTopics() {
       <Topic id="member-tournament-entry" title="Register for a tournament">
         <p>
           Tournament registration choices depend on its format and the organizer’s settings. A
-          doubles event may offer enabled gender categories and individual or partner registration.
-          A team tournament normally registers each player once; organizers or captains then assign
-          players to teams. Public guest registration is available only on tournaments configured to
-          accept it.
+          doubles event may offer enabled gender categories and individual or partner registration;
+          Singles uses individual entries only. A team tournament normally registers each player
+          once; organizers or captains then assign players to teams. Public guest registration is
+          available only on tournaments configured to accept it.
         </p>
         <p>
           For a partner entry, select an existing member or provide the guest details the form
@@ -450,6 +412,37 @@ function CompetitionTopics() {
           Tournament pages can show groups, draws, schedules, results, standings, and published
           lineups as they become available. Event details marked private are visible to members
           according to the event’s publication settings.
+        </p>
+        <p>
+          If a Singles or Doubles tournament shows a minimum or maximum skill rating, your profile
+          rating must fall within the displayed inclusive range. A rating is required when either
+          limit is set; for a Doubles pair, both players must qualify.
+        </p>
+        <p>
+          Some tournaments offer discounts for an approved member, pair registration in Doubles, or
+          a second category in Singles or Doubles. The event page shows configured discounts; after
+          registration, your entry shows the discount applied and amount due. A pair payment totals
+          both players’ saved amounts, which can differ by eligibility.
+        </p>
+      </Topic>
+      <Topic id="member-singles-tournament" title="Register for a Singles tournament">
+        <p>
+          Singles tournaments use individual entries and the same tournament schedule, score,
+          standings, and results pages as Doubles. There is no partner selection or pair
+          registration. Choose an enabled category: All gender, Men’s singles, or Women’s singles.
+          You may enter up to two eligible categories, but you cannot enter both Men’s and Women’s
+          singles in the same tournament.
+        </p>
+        <p>
+          If the event shows a minimum or maximum tennis skill rating, your profile rating must be
+          within that inclusive range to register. You need a profile rating whenever a restriction
+          is set. Update your rating in your profile if it is missing or out of range.
+        </p>
+        <p>
+          A second-category discount may apply when you register in another eligible category. The
+          registration page shows the applicable discount and amount due for each entry. Once
+          registered, view your category’s group, matches, schedule, standings, and results on the
+          tournament page.
         </p>
       </Topic>
       <Topic id="member-pair-registration" title="Register and pay with a partner">
@@ -521,7 +514,13 @@ function CompetitionTopics() {
           A player without a fixed team can register as a new player under the choices allowed by
           the League. An organizer can assign a partner/team; once assigned, subsequent League
           events use the fixed-team registration rule. The League’s configured gender determines its
-          category, so there is no category selection on the registration form.
+          category, so there is no category selection on the registration form. In a Mixed League,
+          each team must have exactly one male and one female player.
+        </p>
+        <p>
+          If the League shows a minimum or maximum skill rating, your profile rating must be within
+          that inclusive range; a rating is required whenever either limit is set. Mixed League
+          eligibility also requires one male and one female player on each team.
         </p>
         <p>
           Review the event’s registration, payment, schedule, and standings sections for your
@@ -534,8 +533,14 @@ function CompetitionTopics() {
           Register for each published Ladder session during its registration window. The session
           category checks your profile gender. Once entries are set, players are allocated to courts
           and subsessions according to the Ladder’s setup; automatic court assignment groups players
-          for that session. Play the scheduled matches and report scores on the session page where
+          for that session. In a Mixed Ladder, every doubles side must contain exactly one male and
+          one female player. Play the scheduled matches and report scores on the session page where
           score entry is available.
+        </p>
+        <p>
+          If the Ladder session shows a minimum or maximum skill rating, your profile rating must be
+          within that inclusive range. A profile rating is required whenever either limit is set. In
+          a Mixed Ladder, each doubles side must still have exactly one male and one female player.
         </p>
         <p>
           Ladder standings use the configured ranking metrics and points for session positions.

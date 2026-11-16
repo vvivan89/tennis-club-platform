@@ -8,6 +8,8 @@ function baseProps(
 ): ComponentProps<typeof TournamentOverviewParticipants> {
   return {
     canViewCompetition: true,
+    canViewGuardianDetails: false,
+    underagePlayers: {},
     format: 'individual',
     teams: [],
     activeCategory: 'open',
@@ -32,6 +34,51 @@ function baseProps(
 }
 
 describe('TournamentOverviewParticipants', () => {
+  it('shows underage guardian details only to authorized event managers', () => {
+    const participant = {
+      id: 'underage-player',
+      event_id: 'event-1',
+      team_id: null,
+      category: 'all',
+      display_name: 'Young Player',
+      gender: 'female',
+      status: 'registered',
+      tennis_skill_level: 3.5,
+    };
+    const underagePlayers = {
+      'underage-player': {
+        age: 14,
+        guardians: [{ name: 'Morgan Parent', email: 'morgan@example.test', phone: null }],
+      },
+    };
+    const { rerender } = render(
+      <TournamentOverviewParticipants
+        {...baseProps({
+          format: 'singles',
+          activeCategory: 'all',
+          participants: [participant],
+          canViewGuardianDetails: true,
+          underagePlayers,
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Underage player, age 14/ }));
+    expect(screen.getByRole('alertdialog')).toHaveTextContent('Morgan Parent');
+
+    rerender(
+      <TournamentOverviewParticipants
+        {...baseProps({
+          format: 'singles',
+          activeCategory: 'all',
+          participants: [participant],
+          underagePlayers,
+        })}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: /Underage player/ })).not.toBeInTheDocument();
+  });
+
   it('hides participant sections when they are not viewable or have no entries', () => {
     const { rerender } = render(<TournamentOverviewParticipants {...baseProps()} />);
     expect(screen.queryByLabelText('Registered Participants')).not.toBeInTheDocument();
@@ -64,6 +111,31 @@ describe('TournamentOverviewParticipants', () => {
     expect(screen.getByText('Alex')).toBeInTheDocument();
     expect(screen.getByText('You')).toBeInTheDocument();
     expect(screen.getByText('4')).toBeInTheDocument();
+  });
+
+  it('vertically aligns the Singles You badge with the player identity', () => {
+    render(
+      <TournamentOverviewParticipants
+        {...baseProps({
+          format: 'singles',
+          activeCategory: 'all',
+          participants: [
+            {
+              id: 'singles-player',
+              category: 'all',
+              status: 'registered',
+              display_name: 'Taylor Player',
+              avatar_url: 'https://example.test/avatar.png',
+            },
+          ],
+          ownParticipantIds: ['singles-player'],
+        })}
+      />,
+    );
+
+    const badge = screen.getByText('You');
+    expect(badge).toHaveClass('shrink-0', 'items-center');
+    expect(badge.parentElement).toHaveClass('flex', 'items-center');
   });
 
   it('shows active pairs and unpaired participants while filtering withdrawn and other categories', () => {
@@ -123,6 +195,40 @@ describe('TournamentOverviewParticipants', () => {
     expect(screen.queryByText('Other')).not.toBeInTheDocument();
     expect(screen.queryByText('Already paired')).not.toBeInTheDocument();
     expect(screen.getAllByText('You')).toHaveLength(2);
+  });
+
+  it('keeps both players and their skill badges aligned in a pair tile', () => {
+    render(
+      <TournamentOverviewParticipants
+        {...baseProps({
+          pairs: [
+            {
+              id: 'pair-aligned',
+              category: 'open',
+              status: 'confirmed',
+              player_one_id: 'player-one',
+              player_two_id: 'player-two',
+              player_one_name: 'Admin Test Member',
+              player_two_name: 'Vladimir Ivanov',
+              player_one_skill_level: 3.5,
+              player_two_skill_level: 3.5,
+            },
+          ],
+          participants: [
+            { id: 'player-one', display_name: 'Admin Test Member', tennis_skill_level: 3.5 },
+            { id: 'player-two', display_name: 'Vladimir Ivanov', tennis_skill_level: 3.5 },
+          ],
+        })}
+      />,
+    );
+
+    const firstPlayer = screen.getByText('Admin Test Member');
+    const firstIdentity = firstPlayer.closest('span.inline-flex');
+    const pairRow = firstIdentity?.parentElement;
+
+    expect(pairRow).toHaveClass('flex', 'items-center');
+    expect(pairRow).toContainElement(screen.getByText('Vladimir Ivanov'));
+    expect(pairRow).toContainElement(screen.getAllByText('3.5')[1]);
   });
 
   it('shows League list assignments, legacy scheduled courts, and unpaired players', () => {

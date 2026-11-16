@@ -4,6 +4,9 @@ export type EventInfo = {
   title: string;
   description: string | null;
   gender_restriction?: string | null;
+  ladder_gender?: string | null;
+  minimum_tennis_skill_level?: number | null;
+  maximum_tennis_skill_level?: number | null;
   event_type: string;
   starts_at: string;
   ends_at: string | null;

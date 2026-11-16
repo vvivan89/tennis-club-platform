@@ -165,7 +165,7 @@ export function TournamentOwnRegistrationList({
               ['paid', 'not_required'].includes(pairPayment.player_two_payment_status);
             const eitherPartnerPaid =
               !!pairPayment &&
-              ['paid', 'not_required'].some((status) =>
+              ['paid'].some((status) =>
                 [
                   pairPayment.player_one_payment_status,
                   pairPayment.player_two_payment_status,
@@ -191,7 +191,8 @@ export function TournamentOwnRegistrationList({
               ? tournamentPaymentActionKey(teamParticipantIds, 'interac')
               : '';
             const teamInteracRequest = teamInteracKey ? interacRequests[teamInteracKey] : undefined;
-            const teamInteracAmount = entry.amount_cents * 2;
+            const partnerAmount = entry.partner_amount_cents ?? entry.amount_cents;
+            const teamInteracAmount = entry.amount_cents + partnerAmount;
             const pendingInteracRequest = selfInteracRequest || teamInteracRequest;
             const canPaySelf =
               entry.confirmation_status === 'confirmed' &&
@@ -205,7 +206,7 @@ export function TournamentOwnRegistrationList({
               !!pairPayment &&
               !teamFullyPaid &&
               !eitherPartnerPaid &&
-              entry.amount_cents > 0;
+              teamInteracAmount > 0;
             const paymentOptions: PaymentOption[] = [];
             if (canPaySelf) {
               paymentOptions.push({
@@ -260,7 +261,7 @@ export function TournamentOwnRegistrationList({
                 className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border p-3"
               >
                 <div className="min-w-0">
-                  <p className="font-medium">{categoryLabel(entry.category)}</p>
+                  <p className="font-medium">{categoryLabel(entry.category, format)}</p>
                   <p className="mt-1 text-sm">{entry.display_name || currentUserName}</p>
                   <p className="text-xs text-muted-foreground">
                     {entry.email || currentUserEmail} ·{' '}
@@ -281,6 +282,18 @@ export function TournamentOwnRegistrationList({
                       ? ` · Partner: ${entry.partner_name || 'Partner'} · ${partnerPending ? 'Awaiting partner confirmation' : 'Partner confirmed'}${entryPair ? ` · Team payment: ${teamFullyPaid ? 'Paid' : 'Pending'}` : ''}`
                       : ''}
                   </p>
+                  {(entry.discount_cents ?? 0) > 0 && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Entry fee {formatMoney(entry.base_amount_cents ?? entry.amount_cents)}
+                      {entry.pricing_details?.appliedDiscounts?.map((discount) => (
+                        <span key={discount.label}>
+                          {' · '}
+                          {discount.label} −{formatMoney(discount.discountCents)}
+                        </span>
+                      ))}{' '}
+                      · Due {formatMoney(entry.amount_cents)}
+                    </p>
+                  )}
                   {entry.partner_id && (
                     <p className="text-xs text-muted-foreground">
                       Partner details: {entry.partner_name || 'Name not provided'} ·{' '}
@@ -288,6 +301,13 @@ export function TournamentOwnRegistrationList({
                       {entry.partner_phone || 'Phone not provided'} ·{' '}
                       {entry.partner_gender || 'Gender not specified'} · Rating{' '}
                       {entry.partner_skill_level ?? 'not specified'}
+                      {(entry.partner_discount_cents ?? 0) > 0 && (
+                        <>
+                          {' · '}
+                          Partner due {formatMoney(partnerAmount)} after{' '}
+                          {formatMoney(entry.partner_discount_cents ?? 0)} discount
+                        </>
+                      )}
                     </p>
                   )}
                 </div>

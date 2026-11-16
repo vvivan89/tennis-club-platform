@@ -8,7 +8,7 @@ import {
   tournamentRankingMetric,
 } from '@/lib/tournament-standings';
 import type { MemberOption } from '@/components/searchable-member-select';
-import type { Match, Pair, Team } from '@/components/tournament-management-types';
+import type { Match, Pair, Participant, Team } from '@/components/tournament-management-types';
 import {
   effectiveTournamentGroup,
   hasSingleTournamentGroup,
@@ -17,10 +17,12 @@ import {
 
 type Props = {
   isTeam: boolean;
+  isSingles: boolean;
   activeCategory: string;
   config: TournamentConfig | null;
   teams: Team[];
   pairs: Pair[];
+  participants: Participant[];
   matches: Match[];
   matchOne: string;
   matchTwo: string;
@@ -30,10 +32,12 @@ type Props = {
 
 export function useTournamentMatchSideOptions({
   isTeam,
+  isSingles,
   activeCategory,
   config,
   teams,
   pairs,
+  participants,
   matches,
   matchOne,
   matchTwo,
@@ -41,7 +45,7 @@ export function useTournamentMatchSideOptions({
   matchPhase,
 }: Props) {
   const singleGroup = hasSingleTournamentGroup(config);
-  function groupPlaceDescription(entry: Team | Pair): string {
+  function groupPlaceDescription(entry: Team | Pair | Participant): string {
     const groupNumber = effectiveTournamentGroup(entry.group_number, config);
     if (!groupNumber) return 'No group assigned';
     if (singleGroup) return 'Single group';
@@ -50,7 +54,11 @@ export function useTournamentMatchSideOptions({
     const groupEntries = (
       isTeam
         ? teams
-        : pairs.filter((pair) => pair.status !== 'withdrawn' && pair.category === activeCategory)
+        : isSingles
+          ? participants.filter(
+              (player) => player.status === 'registered' && player.category === activeCategory,
+            )
+          : pairs.filter((pair) => pair.status !== 'withdrawn' && pair.category === activeCategory)
     ).filter((item) => effectiveTournamentGroup(item.group_number, config) === groupNumber);
     const groupMatches = matches.filter(
       (match) =>
@@ -65,7 +73,11 @@ export function useTournamentMatchSideOptions({
     if (!playedMatches.length) return singleGroup ? '' : `Group ${groupNumber}`;
 
     const stats = groupEntries.map((side) =>
-      accumulateSideStats(createSideStats(side), playedMatches, isTeam),
+      accumulateSideStats(
+        createSideStats(side),
+        playedMatches,
+        isTeam ? true : isSingles ? 'singles' : false,
+      ),
     );
     const priority = tournamentRankingPriority(config, isTeam);
     const metric = tournamentRankingMetric;
@@ -76,8 +88,18 @@ export function useTournamentMatchSideOptions({
         priority,
         metric,
         (first, second) =>
-          compareTournamentHeadToHead(playedMatches, first.side.id, second.side.id, isTeam),
-        (row) => ('name' in row.side ? row.side.name : row.side.player_one_name || ''),
+          compareTournamentHeadToHead(
+            playedMatches,
+            first.side.id,
+            second.side.id,
+            isTeam ? true : isSingles ? 'singles' : false,
+          ),
+        (row) =>
+          'name' in row.side
+            ? row.side.name
+            : 'display_name' in row.side
+              ? row.side.display_name
+              : row.side.player_one_name || '',
       ),
     );
     const place = stats.findIndex((row) => row.side.id === entry.id) + 1;
@@ -93,7 +115,11 @@ export function useTournamentMatchSideOptions({
     const roundRobinPhase = isTeam ? 'team_round_robin' : 'round_robin';
     const sides = isTeam
       ? teams
-      : pairs.filter((pair) => pair.status !== 'withdrawn' && pair.category === activeCategory);
+      : isSingles
+        ? participants.filter(
+            (player) => player.status === 'registered' && player.category === activeCategory,
+          )
+        : pairs.filter((pair) => pair.status !== 'withdrawn' && pair.category === activeCategory);
     const completedGroups = new Set<number>();
     for (let group = 1; group <= groupCount; group += 1) {
       const groupEntries = sides.filter(
@@ -117,13 +143,13 @@ export function useTournamentMatchSideOptions({
     return Array.from({ length: groupCount * promote }, (_, index) => {
       const group = Math.floor(index / promote) + 1;
       const rank = (index % promote) + 1;
-      const label = `Group ${group} Team ${rank}`;
+      const label = `Group ${group} ${isSingles ? 'Player' : 'Team'} ${rank}`;
       return { group, label, rank };
     })
       .filter(({ group }) => !completedGroups.has(group))
       .map(({ group, label, rank }) => ({
         id: `slot:${label}`,
-        full_name: singleGroup ? `Team ${rank}` : label,
+        full_name: singleGroup ? `${isSingles ? 'Player' : 'Team'} ${rank}` : label,
         statusText: singleGroup
           ? `Expected qualifier · Place ${rank}`
           : `Expected qualifier · Group ${group} · Place ${rank}`,
@@ -135,9 +161,13 @@ export function useTournamentMatchSideOptions({
       ? side === 1
         ? match.team_one_id
         : match.team_two_id
-      : side === 1
-        ? match.pair_one_id
-        : match.pair_two_id;
+      : isSingles
+        ? side === 1
+          ? match.player_one_participant_id
+          : match.player_two_participant_id
+        : side === 1
+          ? match.pair_one_id
+          : match.pair_two_id;
     if (id) return id;
     // In a generated BYE match, winner_side identifies the real entrant.
     // Preselect BYE only on the opposing side, not on both empty-ID sides.
@@ -149,7 +179,7 @@ export function useTournamentMatchSideOptions({
         slot_two?: string | null;
       };
       const label = side === 1 ? notes.slot_one : notes.slot_two;
-      return label && /^Group \d+ Team \d+$/.test(label) ? `slot:${label}` : '';
+      return label && /^Group \d+ (?:Team|Player) \d+$/.test(label) ? `slot:${label}` : '';
     } catch {
       return '';
     }
@@ -160,22 +190,37 @@ export function useTournamentMatchSideOptions({
       ? side === 1
         ? match.team_two_id
         : match.team_one_id
-      : side === 1
-        ? match.pair_two_id
-        : match.pair_one_id;
+      : isSingles
+        ? side === 1
+          ? match.player_two_participant_id
+          : match.player_one_participant_id
+        : side === 1
+          ? match.pair_two_id
+          : match.pair_one_id;
     const otherGroup = effectiveTournamentGroup(
       isTeam
         ? teams.find((team) => team.id === otherId)?.group_number
-        : pairs.find((pair) => pair.id === otherId)?.group_number,
+        : isSingles
+          ? participants.find((player) => player.id === otherId)?.group_number
+          : pairs.find((pair) => pair.id === otherId)?.group_number,
       config,
     );
     const otherSlotValue = matchSideValue(match, side === 1 ? 2 : 1);
     const entries = (
       isTeam
         ? teams
-        : pairs.filter((pair) => pair.status !== 'withdrawn' && pair.category === match.category)
+        : isSingles
+          ? participants.filter(
+              (player) => player.status === 'registered' && player.category === match.category,
+            )
+          : pairs.filter((pair) => pair.status !== 'withdrawn' && pair.category === match.category)
     ).map((item): MemberOption => {
-      const name = 'name' in item ? item.name : `${item.player_one_name} + ${item.player_two_name}`;
+      const name =
+        'name' in item
+          ? item.name
+          : 'display_name' in item
+            ? item.display_name
+            : `${item.player_one_name} + ${item.player_two_name}`;
       const itemGroup = effectiveTournamentGroup(item.group_number, config);
       const sameGroupRule =
         match.phase.includes('round_robin') && otherGroup && itemGroup !== otherGroup;
@@ -237,8 +282,10 @@ export function useTournamentMatchSideOptions({
       group_number: null,
       round_number: 1,
       match_number: 0,
-      pair_one_id: isTeam ? null : firstId,
-      pair_two_id: isTeam ? null : secondId,
+      pair_one_id: isTeam || isSingles ? null : firstId,
+      pair_two_id: isTeam || isSingles ? null : secondId,
+      player_one_participant_id: isSingles ? firstId : null,
+      player_two_participant_id: isSingles ? secondId : null,
       team_one_id: isTeam ? firstId : null,
       team_two_id: isTeam ? secondId : null,
       scheduled_at: null,

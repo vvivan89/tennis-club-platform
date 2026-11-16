@@ -50,7 +50,7 @@ const knockoutBracket = readFileSync(
   'utf8',
 );
 const drawActions = readFileSync(
-  join(process.cwd(), 'components/use-tournament-draw-actions.ts'),
+  join(process.cwd(), 'components/create-tournament-knockout-draw-action.ts'),
   'utf8',
 );
 const rankings = readFileSync(join(process.cwd(), 'lib/rankings-data.ts'), 'utf8');
@@ -103,6 +103,7 @@ describe('tournament management foundation', () => {
     expect(form).toContain('team_two_sets_bonus_third');
     expect(form).toContain('two_sets_then_third');
     expect(participantGrouping).toContain('Random group draw');
+    expect(management).toContain('captain_requested,group_number,seed');
     expect(matchScheduleControls).toContain('Create draw');
     expect(matchScheduleControls).toContain('Suggest schedule');
     expect(publicGroupStandings).toContain('Group standings');

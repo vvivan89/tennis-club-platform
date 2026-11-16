@@ -61,13 +61,14 @@ export default async function EventDetailsPage({
     : { data: [] };
   const numberedEvent = withEventSeriesNumbers([event], seriesSessions ?? [])[0];
   const eventTitle = eventDisplayTitle(numberedEvent);
-  const displayEvent = { ...event, title: eventTitle };
   const [{ data: league }, { data: leagueSnapshot }, { data: leagueEventMatches }] =
     event.social_doubles_ladder_id
       ? await Promise.all([
           db
             .from('social_doubles_ladders')
-            .select('id,name,competition_type,gender')
+            .select(
+              'id,name,competition_type,gender,minimum_tennis_skill_level,maximum_tennis_skill_level',
+            )
             .eq('id', event.social_doubles_ladder_id)
             .maybeSingle(),
           db
@@ -78,6 +79,19 @@ export default async function EventDetailsPage({
           db.from('tournament_public_matches').select('status').eq('event_id', event.id),
         ])
       : [{ data: null }, { data: null }, { data: null }];
+  const displayEvent = {
+    ...event,
+    title: eventTitle,
+    ladder_gender: league?.gender ?? event.ladder_gender ?? null,
+    minimum_tennis_skill_level:
+      league?.minimum_tennis_skill_level ??
+      event.tournament_config?.minimum_tennis_skill_level ??
+      null,
+    maximum_tennis_skill_level:
+      league?.maximum_tennis_skill_level ??
+      event.tournament_config?.maximum_tennis_skill_level ??
+      null,
+  };
   const isLeagueTournament = league?.competition_type === 'league';
   if (event.slug && params.slug !== event.slug)
     redirect(eventPath({ id: event.id, slug: event.slug }));
@@ -86,7 +100,7 @@ export default async function EventDetailsPage({
       ? await db
           .from('profiles')
           .select(
-            'role,application_status,account_kind,email,full_name,phone,tennis_skill_level,gender',
+            'role,application_status,account_kind,email,full_name,phone,tennis_skill_level,gender,date_of_birth',
           )
           .eq('id', user.id)
           .maybeSingle()
@@ -118,7 +132,7 @@ export default async function EventDetailsPage({
       ? db
           .from('profiles')
           .select(
-            'role,application_status,account_kind,email,full_name,phone,tennis_skill_level,gender',
+            'role,application_status,account_kind,email,full_name,phone,tennis_skill_level,gender,date_of_birth',
           )
           .eq('id', user.id)
           .maybeSingle()
@@ -129,6 +143,26 @@ export default async function EventDetailsPage({
       ? db.rpc('event_organizer_contacts', { p_event_id: event.id })
       : Promise.resolve({ data: [] }),
   ]);
+  let currentUserGuardians: Array<{ name: string; email: string; phone: string }> = [];
+  if (event.event_type === 'tournament' && user) {
+    const { data: privateDetails } = await db
+      .from('player_private_details')
+      .select('id')
+      .eq('profile_id', user.id)
+      .maybeSingle();
+    if (privateDetails) {
+      const { data: guardianRows } = await db
+        .from('player_legal_guardians')
+        .select('full_name,email,phone')
+        .eq('private_details_id', privateDetails.id)
+        .order('created_at');
+      currentUserGuardians = (guardianRows ?? []).map((guardian) => ({
+        name: guardian.full_name,
+        email: guardian.email ?? '',
+        phone: guardian.phone ?? '',
+      }));
+    }
+  }
   const organizerContacts = memberOrganizerContacts?.length
     ? memberOrganizerContacts
     : publicOrganizerContacts;
@@ -314,6 +348,7 @@ export default async function EventDetailsPage({
                     leagueGender={league?.gender ?? null}
                     captainMode={!isManager && isTeamCaptain}
                     captainTeamId={captainTeam?.id ?? null}
+                    canViewGuardianDetails={isManager}
                   />
                 ) : null
               }
@@ -333,6 +368,8 @@ export default async function EventDetailsPage({
               currentUserPhone={profile?.phone ?? ''}
               currentUserSkillLevel={profile?.tennis_skill_level ?? null}
               currentUserGender={profile?.gender ?? null}
+              currentUserDateOfBirth={profile?.date_of_birth ?? null}
+              currentUserGuardians={currentUserGuardians}
               format={event.tournament_format}
               config={event.tournament_config ?? {}}
               rulesHtml={event.tournament_rules_html ?? ''}
@@ -345,6 +382,8 @@ export default async function EventDetailsPage({
               registrationOpensAt={event.registration_opens_at}
               registrationClosesAt={event.registration_closes_at}
               priceCents={event.price_cents ?? 0}
+              minimumTennisSkillLevel={displayEvent.minimum_tennis_skill_level}
+              maximumTennisSkillLevel={displayEvent.maximum_tennis_skill_level}
               interacEnabled={interacEnabled}
               leagueTournament={isLeagueTournament}
               leagueId={event.social_doubles_ladder_id ?? null}

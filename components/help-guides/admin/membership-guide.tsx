@@ -5,9 +5,12 @@ export function AdminMembershipGuide() {
     <div className="space-y-5">
       <Topic id="admin-applications" title="Review membership applications">
         <p>
-          New member accounts are not approved members until an administrator accepts the
-          application. Pending applications are available in Membership → Applications and are
-          excluded from member directories, player selectors, rankings, and member counts.
+          Creating an account does not submit a membership application. A non-member account appears
+          in Membership → Applications only after its signed-in user chooses{' '}
+          <strong>Apply for club membership</strong>. Until an administrator approves that
+          application, the account is not an approved member and is excluded from member
+          directories, player selectors, rankings, and member counts. Users may apply again if an
+          earlier application was declined.
         </p>
         <Steps>
           <li>
@@ -52,6 +55,13 @@ export function AdminMembershipGuide() {
                 'Both are required when inviting a member and when a member edits their profile.',
               effect:
                 'Birth date contributes to family adult/child limits; gender affects eligibility for gender-specific events.',
+            },
+            {
+              field: 'Parent/legal guardian contacts',
+              value:
+                'When the invited person is under 18, add at least one guardian name and an email address or phone number. Add additional guardians when needed.',
+              effect:
+                'Guardian contacts are stored privately and are available to authorized event managers from the underage player badge on tournament participant tiles.',
             },
           ]}
         />

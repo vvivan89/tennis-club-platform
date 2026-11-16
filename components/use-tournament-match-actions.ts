@@ -209,13 +209,17 @@ export function useTournamentMatchActions({
     const inferredGroup = effectiveTournamentGroup(
       isTeam
         ? teams.find((t) => t.id === firstId)?.group_number
-        : pairs.find((p) => p.id === firstId)?.group_number,
+        : format === 'singles'
+          ? participants.find((p) => p.id === firstId)?.group_number
+          : pairs.find((p) => p.id === firstId)?.group_number,
       config,
     );
     const secondGroup = effectiveTournamentGroup(
       isTeam
         ? teams.find((t) => t.id === secondId)?.group_number
-        : pairs.find((p) => p.id === secondId)?.group_number,
+        : format === 'singles'
+          ? participants.find((p) => p.id === secondId)?.group_number
+          : pairs.find((p) => p.id === secondId)?.group_number,
       config,
     );
     if (
@@ -242,6 +246,9 @@ export function useTournamentMatchActions({
     if (teamMatch) {
       payload.team_one_id = firstId;
       payload.team_two_id = secondId;
+    } else if (format === 'singles') {
+      payload.player_one_participant_id = firstId;
+      payload.player_two_participant_id = secondId;
     } else {
       payload.pair_one_id = firstId;
       payload.pair_two_id = secondId;
@@ -257,7 +264,7 @@ export function useTournamentMatchActions({
         .single();
       if (createError || !createdMatch)
         throw new Error(createError?.message || 'Could not create match.');
-      if (!teamMatch) {
+      if (!teamMatch && format !== 'singles') {
         const firstPair = firstId ? pairs.find((pair) => pair.id === firstId) : null;
         const secondPair = secondId ? pairs.find((pair) => pair.id === secondId) : null;
         const playerAssignments = [
@@ -339,18 +346,22 @@ export function useTournamentMatchActions({
       .map((player) => player.participant_id);
     const participantIds = assigned.length
       ? assigned
-      : !isTeam
-        ? (() => {
-            const one = pairs.find((pair) => pair.id === candidate.pair_one_id);
-            const two = pairs.find((pair) => pair.id === candidate.pair_two_id);
-            return [
-              one?.player_one_id,
-              one?.player_two_id,
-              two?.player_one_id,
-              two?.player_two_id,
-            ].filter((id): id is string => !!id);
-          })()
-        : [];
+      : !isTeam && format === 'singles'
+        ? [candidate.player_one_participant_id, candidate.player_two_participant_id].filter(
+            (id): id is string => !!id,
+          )
+        : !isTeam
+          ? (() => {
+              const one = pairs.find((pair) => pair.id === candidate.pair_one_id);
+              const two = pairs.find((pair) => pair.id === candidate.pair_two_id);
+              return [
+                one?.player_one_id,
+                one?.player_two_id,
+                two?.player_one_id,
+                two?.player_two_id,
+              ].filter((id): id is string => !!id);
+            })()
+          : [];
     return new Set(
       participantIds.map((id) => {
         const participant = participants.find((item) => item.id === id);
@@ -505,16 +516,24 @@ export function useTournamentMatchActions({
       ? side === 1
         ? 'team_one_id'
         : 'team_two_id'
-      : side === 1
-        ? 'pair_one_id'
-        : 'pair_two_id';
+      : format === 'singles'
+        ? side === 1
+          ? 'player_one_participant_id'
+          : 'player_two_participant_id'
+        : side === 1
+          ? 'pair_one_id'
+          : 'pair_two_id';
     const otherId = teamMatch
       ? side === 1
         ? match.team_two_id
         : match.team_one_id
-      : side === 1
-        ? match.pair_two_id
-        : match.pair_one_id;
+      : format === 'singles'
+        ? side === 1
+          ? match.player_two_participant_id
+          : match.player_one_participant_id
+        : side === 1
+          ? match.pair_two_id
+          : match.pair_one_id;
     let otherSlotLabel: string | null = null;
     try {
       const otherNotes = JSON.parse(match.notes || '{}') as {
@@ -541,13 +560,17 @@ export function useTournamentMatchActions({
       const selectedGroup = effectiveTournamentGroup(
         teamMatch
           ? teams.find((team) => team.id === selectedId)?.group_number
-          : pairs.find((pair) => pair.id === selectedId)?.group_number,
+          : format === 'singles'
+            ? participants.find((participant) => participant.id === selectedId)?.group_number
+            : pairs.find((pair) => pair.id === selectedId)?.group_number,
         config,
       );
       const otherGroup = effectiveTournamentGroup(
         teamMatch
           ? teams.find((team) => team.id === otherId)?.group_number
-          : pairs.find((pair) => pair.id === otherId)?.group_number,
+          : format === 'singles'
+            ? participants.find((participant) => participant.id === otherId)?.group_number
+            : pairs.find((pair) => pair.id === otherId)?.group_number,
         config,
       );
       if (!selectedGroup || selectedGroup !== otherGroup) {
@@ -605,7 +628,7 @@ export function useTournamentMatchActions({
         })
         .eq('id', match.id);
       if (updateError) throw new Error(updateError.message);
-      if (!teamMatch) {
+      if (!teamMatch && format !== 'singles') {
         const { error: deleteError } = await db
           .from('tournament_match_players')
           .delete()
@@ -637,11 +660,13 @@ export function useTournamentMatchActions({
     courtCount,
     config,
     isTeam,
+    isSingles: format === 'singles',
     activeCategory,
     matchCategory,
     matchPhase,
     matches,
     pairs,
+    participants,
     teams,
     setBusy,
     setError,

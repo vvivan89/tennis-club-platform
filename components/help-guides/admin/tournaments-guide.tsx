@@ -51,17 +51,112 @@ export function AdminTournamentsGuide() {
           participant information first, record why the override is needed, and never mark an
           unverified payment as paid.
         </Callout>
+        <p>
+          When an under-18 player has a birthdate and guardian contacts on file, their participant
+          tile shows an <strong>Under 18</strong> badge with their age. Select the badge to review
+          the recorded parent/legal guardian names and contact details. This information is only
+          available to authorized event managers and is not shown on the public tournament page.
+        </p>
+      </Topic>
+
+      <Topic id="admin-tournament-discounts" title="Configure tournament registration discounts">
+        <p>
+          Standalone tournaments can apply discounts automatically to each participant’s entry. The
+          event’s configured price remains the base fee; the final amount is calculated and saved by
+          the database when an entry is created. League pricing is not changed by these settings.
+        </p>
+        <FieldTable
+          rows={[
+            {
+              field: 'Second category',
+              value:
+                'For Singles or Doubles tournaments, choose a percentage or fixed CAD discount.',
+              effect:
+                'Applies to each player’s second active category entry when the format supports multiple categories. It is not shown for team tournaments, where each player registers once.',
+            },
+            {
+              field: 'Pair registration',
+              value: 'For doubles tournaments, configure a percentage or fixed CAD discount.',
+              effect:
+                'Applies separately to newly created participant entries in a pair registration. If an existing participant entry is paired, its saved price is not changed.',
+            },
+            {
+              field: 'Approved club member',
+              value: 'Choose a percentage or fixed CAD discount.',
+              effect:
+                'Applies to an approved member account, whether or not membership dues are paid. Event-only and unapproved accounts do not qualify.',
+            },
+            {
+              field: 'Allow discounts to stack',
+              value: 'Enable to combine all discounts that apply to a participant.',
+              effect:
+                'When disabled, only the largest eligible discount applies. When enabled, discounts are combined and capped at that participant’s base entry fee.',
+            },
+          ]}
+        />
+        <p>
+          The tournament page lists the configured discounts. After registration, each player’s
+          entry shows its base fee, applied discount, and amount due. Paying for a pair totals the
+          two saved participant amounts, which can differ if only one player qualifies for a rule.
+        </p>
+      </Topic>
+
+      <Topic id="admin-tournament-formats" title="Singles and Doubles tournament formats">
+        <p>
+          Singles and Doubles use the same tournament tools for groups, phases, scoring, scheduling,
+          standings, and results. The key difference is what one entry and one side of a match
+          represent: an individual player in Singles, and a pair in Doubles.
+        </p>
+        <FieldTable
+          rows={[
+            {
+              field: 'Entries and match sides',
+              value:
+                'Singles matches use one registered player per side; Doubles uses one pair per side.',
+              effect:
+                'The match list, draw, standings, and results display the corresponding player or pair. A Doubles pair represents two players, so each Doubles match has four players on court; a Singles match has two.',
+            },
+            {
+              field: 'Create and assign matches',
+              value:
+                'Select the active category and phase. Create matches manually or use Suggest schedule to generate missing round-robin matchups from the group entries.',
+              effect:
+                'Singles match sides select individual registered players; Doubles match sides select pairs. The selected event category and phase keep each match in the correct draw.',
+            },
+            {
+              field: 'Assign courts and times',
+              value:
+                'Run Suggest schedule for the selected phase, or edit a match to assign its date, time, and court manually.',
+              effect:
+                'The scheduler treats each Singles match as one court booking for two players and each Doubles match as one booking for two pairs. It uses the event’s available court count and avoids overlapping court and player assignments; review proposed assignments and adjust as needed.',
+            },
+            {
+              field: 'Scoring and advancement',
+              value:
+                'Use the configured scoring template for either format and record the match result in its category and phase.',
+              effect:
+                'Both formats use the same result validation, group ranking, promotion, and knockout advancement rules configured for the tournament.',
+            },
+          ]}
+        />
+        <p>
+          Singles tournament setup—including its All gender, Men’s singles, and Women’s singles
+          categories, individual registration, discounts, skill restrictions, capacity, and public
+          visibility—is documented under Events → Singles tournaments. Use that topic for creation
+          choices; this topic explains how the two tournament formats behave during competition.
+        </p>
       </Topic>
 
       <Topic id="admin-tournament-round-robin" title="Round robin groups, allocations, and matches">
         <p>
-          In a round robin, every pair or team plays every other entry assigned to the same group.
-          Group count and entries per group come from the tournament configuration.
+          In a round robin, every tournament entry plays every other entry assigned to the same
+          group. Group count and entries per group come from the tournament configuration.
         </p>
         <Steps>
           <li>
             Add eligible participant entries. Doubles players must be formed into pairs; team
-            tournament participants must be assigned to teams before those entries can play.
+            tournament participants must be assigned to teams before those entries can play. Singles
+            entries are individual players.
           </li>
           <li>
             Allocate each pair or team with its Group selector. If the tournament has multiple
@@ -91,13 +186,13 @@ export function AdminTournamentsGuide() {
               field: 'Random group draw',
               value: 'Available when more than one group is configured.',
               effect:
-                'Randomly distributes pairs or teams across groups as evenly as possible, then reconciles unplayed round-robin matchups.',
+                'Randomly distributes eligible entries across groups as evenly as possible, then reconciles unplayed round-robin matchups.',
             },
             {
               field: 'Create draw for knockout only',
               value: 'Use Create draw in the Preliminary knockout or Final/Team knockout phase.',
               effect:
-                'Randomly pairs the eligible entries into a knockout bracket. If the count is not a power of two, the bracket includes byes for automatic advancement.',
+                'Randomly pairs the eligible entries into a knockout bracket. Entries are pairs in Doubles, teams in Team tournaments, and individual players in Singles. If the count is not a power of two, the bracket includes byes for automatic advancement.',
             },
             {
               field: 'Create draw after round robin',

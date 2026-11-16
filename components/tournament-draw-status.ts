@@ -8,6 +8,7 @@ export function getTournamentDrawStatus({
   enabledPhases,
   phases,
   isTeam,
+  isSingles = false,
   activeCategory,
   matchCategory = activeCategory,
   matchPhase,
@@ -20,6 +21,7 @@ export function getTournamentDrawStatus({
   enabledPhases: Record<string, boolean | undefined>;
   phases: ReadonlyArray<readonly [string, string]>;
   isTeam: boolean;
+  isSingles?: boolean;
   activeCategory: string;
   matchCategory?: string;
   matchPhase: string;
@@ -60,8 +62,12 @@ export function getTournamentDrawStatus({
 
   const currentBracketEntrantCount = isTeam
     ? teams.length
-    : pairs.filter((pair) => pair.status !== 'withdrawn' && pair.category === activeCategory)
-        .length;
+    : isSingles
+      ? participants.filter(
+          (player) => player.status === 'registered' && player.category === activeCategory,
+        ).length
+      : pairs.filter((pair) => pair.status !== 'withdrawn' && pair.category === activeCategory)
+          .length;
   const bracketUsesRoundRobinPromotion =
     matchPhase === (isTeam ? 'team_knockout' : 'final_knockout') &&
     (isTeam ? enabledPhases.team_round_robin !== false : enabledPhases.round_robin !== false);
@@ -69,7 +75,11 @@ export function getTournamentDrawStatus({
   const assignedGroupCount = new Set(
     (isTeam
       ? teams
-      : pairs.filter((pair) => pair.status !== 'withdrawn' && pair.category === activeCategory)
+      : isSingles
+        ? participants.filter(
+            (player) => player.status === 'registered' && player.category === activeCategory,
+          )
+        : pairs.filter((pair) => pair.status !== 'withdrawn' && pair.category === activeCategory)
     )
       .map((entry) => entry.group_number)
       .filter((group): group is number => group != null),
@@ -90,7 +100,9 @@ export function getTournamentDrawStatus({
       .flatMap((match) => {
         const ids = isTeam
           ? [match.team_one_id, match.team_two_id]
-          : [match.pair_one_id, match.pair_two_id];
+          : isSingles
+            ? [match.player_one_participant_id ?? null, match.player_two_participant_id ?? null]
+            : [match.pair_one_id, match.pair_two_id];
         const slots = parseBracketSlots(match.notes);
         return ids.map(
           (id, index) =>

@@ -40,6 +40,9 @@
   --overlay: #000000;
   --overlay-foreground: #ffffff;
   --toast-shadow: 0 8px 22px rgb(23 38 56 / 16%);
+  --court-swatch-blue: #4b91c7;
+  --court-swatch-green: #54854c;
+  --court-swatch-orange: #cb7849;
 }
 
 .dark {
@@ -77,6 +80,49 @@
   --overlay: #000000;
   --overlay-foreground: #ffffff;
   --toast-shadow: 0 8px 22px rgb(237 244 252 / 12%);
+}
+
+.appearance-court {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border-radius: 0.25rem;
+}
+
+.appearance-court__surface {
+  position: absolute;
+  inset-block: 0;
+  left: 21.8%;
+  width: 56.4%;
+}
+
+.appearance-court--blue .appearance-court__surface {
+  background: var(--court-swatch-blue);
+}
+
+.appearance-court--green .appearance-court__surface {
+  background: var(--court-swatch-green);
+}
+
+.appearance-court--orange .appearance-court__surface {
+  background: var(--court-swatch-orange);
+}
+
+.appearance-court__diagram {
+  position: absolute;
+  top: -16.6667%;
+  left: 0;
+  width: 100%;
+  height: 133.3333%;
+  object-fit: contain;
+  filter: invert(1);
+  mix-blend-mode: screen;
+}
+
+.appearance-court__diagram--rotated {
+  transform: scaleX(1.2) scaleY(0.75) rotate(90deg);
 }
 
 :root[data-accent='green'] {

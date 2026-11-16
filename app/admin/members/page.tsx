@@ -83,10 +83,11 @@ export default async function MembersAdminPage({
   if (tab === 'applications') {
     const { data, error } = await db
       .from('profiles')
-      .select('id,full_name,email,phone,tennis_skill_level,application_comment,created_at')
+      .select(
+        'id,full_name,email,phone,tennis_skill_level,application_comment,application_submitted_at',
+      )
       .eq('application_status', 'pending')
-      .eq('account_kind', 'member')
-      .order('created_at');
+      .order('application_submitted_at', { ascending: true });
     return (
       <main className="flex min-h-screen flex-col bg-background text-foreground">
         <AdminNav />
@@ -96,7 +97,7 @@ export default async function MembersAdminPage({
           <p className="eyebrow">Club administration</p>
           <h1 className="section-title">Membership applications</h1>
           <p className="mt-3 mb-7 text-sm text-muted-foreground">
-            New accounts remain unapproved until an administrator accepts their application.
+            Accounts become membership applicants only after the user submits an application.
           </p>
           {error ? null : <AdminApplications applications={data ?? []} />}
         </div>

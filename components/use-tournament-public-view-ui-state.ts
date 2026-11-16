@@ -5,6 +5,7 @@ import type {
   TournamentPartnerConfirmation as TournamentPartnerConfirmationData,
   TournamentPublicViewProps,
 } from '@/components/tournament-public-view-types';
+import { emptyLegalGuardian, type LegalGuardian } from '@/lib/player-guardian-details';
 
 type UiStateArgs = {
   resultsOnly: boolean;
@@ -16,6 +17,8 @@ type UiStateArgs = {
   currentUserEmail: string | null;
   currentUserPhone: string;
   currentUserGender: string | null;
+  currentUserDateOfBirth: string | null;
+  currentUserGuardians: LegalGuardian[];
   currentUserSkillLevel: string | null;
   hasRules: boolean;
 };
@@ -30,6 +33,8 @@ export function useTournamentPublicViewUiState({
   currentUserEmail,
   currentUserPhone,
   currentUserGender,
+  currentUserDateOfBirth,
+  currentUserGuardians,
   currentUserSkillLevel,
   hasRules,
 }: UiStateArgs) {
@@ -115,10 +120,15 @@ export function useTournamentPublicViewUiState({
     window.history.replaceState({}, '', url.toString());
   }, [tab, tabInitialized]);
   const [activeCategory, setActiveCategory] = useState<string>(
-    (config?.categories ?? ['mixed', 'men', 'women'])[0] ?? 'mixed',
+    (config?.categories ??
+      (format === 'singles' ? ['all', 'men', 'women'] : ['mixed', 'men', 'women']))[0] ??
+      (format === 'singles' ? 'all' : 'mixed'),
   );
   const [registrationCategory, setRegistrationCategory] = useState(
-    format === 'team' ? 'team' : ((config?.categories ?? ['mixed'])[0] ?? 'mixed'),
+    format === 'team'
+      ? 'team'
+      : ((config?.categories ?? (format === 'singles' ? ['all', 'men', 'women'] : ['mixed']))[0] ??
+          (format === 'singles' ? 'all' : 'mixed')),
   );
   const [registrationMode, setRegistrationMode] = useState<'individual' | 'pair'>(
     config?.registration_mode === 'doubles' ? 'pair' : 'individual',
@@ -129,6 +139,10 @@ export function useTournamentPublicViewUiState({
   const [entrantPhone, setEntrantPhone] = useState(currentUserPhone);
   const [entrantGender, setEntrantGender] = useState(currentUserGender || '');
   const [entrantSkillLevel, setEntrantSkillLevel] = useState(currentUserSkillLevel || '');
+  const [entrantDateOfBirth, setEntrantDateOfBirth] = useState(currentUserDateOfBirth || '');
+  const [entrantGuardians, setEntrantGuardians] = useState<LegalGuardian[]>(
+    currentUserGuardians.length ? currentUserGuardians : [emptyLegalGuardian()],
+  );
   const [guestAccessEmail, setGuestAccessEmail] = useState('');
   const [guestAccessVisible, setGuestAccessVisible] = useState(false);
   const [guestAccessMessage, setGuestAccessMessage] = useState('');
@@ -159,6 +173,8 @@ export function useTournamentPublicViewUiState({
   const [partnerPhone, setPartnerPhone] = useState('');
   const [partnerGender, setPartnerGender] = useState('');
   const [partnerSkillLevel, setPartnerSkillLevel] = useState('');
+  const [partnerDateOfBirth, setPartnerDateOfBirth] = useState('');
+  const [partnerGuardians, setPartnerGuardians] = useState<LegalGuardian[]>([emptyLegalGuardian()]);
   const [registrationRefresh, setRegistrationRefresh] = useState(0);
   const {
     busy: registrationBusy,
@@ -215,6 +231,10 @@ export function useTournamentPublicViewUiState({
     setEntrantGender,
     entrantSkillLevel,
     setEntrantSkillLevel,
+    entrantDateOfBirth,
+    setEntrantDateOfBirth,
+    entrantGuardians,
+    setEntrantGuardians,
     guestAccessEmail,
     setGuestAccessEmail,
     guestAccessVisible,
@@ -273,6 +293,10 @@ export function useTournamentPublicViewUiState({
     setPartnerGender,
     partnerSkillLevel,
     setPartnerSkillLevel,
+    partnerDateOfBirth,
+    setPartnerDateOfBirth,
+    partnerGuardians,
+    setPartnerGuardians,
     registrationRefresh,
     setRegistrationRefresh,
     registrationBusy,

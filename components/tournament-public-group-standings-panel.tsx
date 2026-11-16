@@ -149,41 +149,60 @@ export function TournamentPublicGroupStandingsPanel({
                             )}
                           {format === 'team'
                             ? row.name
-                            : (() => {
-                                const pair = pairs.find((item) => item.id === row.id);
-                                if (!pair) return row.name;
-                                return (
-                                  <span className="inline-flex flex-wrap items-center gap-1">
-                                    {[pair.player_one_id, pair.player_two_id]
-                                      .map((id, index) => {
-                                        const player = participants.find((item) => item.id === id);
-                                        const name =
-                                          index === 0 ? pair.player_one_name : pair.player_two_name;
-                                        const rating =
-                                          index === 0
-                                            ? pair.player_one_skill_level
-                                            : pair.player_two_skill_level;
-                                        return (
-                                          <UserIdentity
-                                            key={id}
-                                            name={player?.display_name ?? name}
-                                            skillLevel={player?.tennis_skill_level ?? rating}
-                                            avatarUrl={player?.avatar_url}
-                                            birthdayVisible={player?.birthday_emoji_visible}
-                                            compact
-                                          />
-                                        );
-                                      })
-                                      .reduce(
-                                        (acc, item, index) =>
-                                          index
-                                            ? [...acc, <span key={`plus-${index}`}>+</span>, item]
-                                            : [item],
-                                        [] as React.ReactNode[],
-                                      )}
-                                  </span>
-                                );
-                              })()}
+                            : format === 'singles'
+                              ? (() => {
+                                  const player = participants.find((item) => item.id === row.id);
+                                  return player ? (
+                                    <UserIdentity
+                                      name={player.display_name}
+                                      skillLevel={player.tennis_skill_level}
+                                      avatarUrl={player.avatar_url}
+                                      birthdayVisible={player.birthday_emoji_visible}
+                                      compact
+                                    />
+                                  ) : (
+                                    row.name
+                                  );
+                                })()
+                              : (() => {
+                                  const pair = pairs.find((item) => item.id === row.id);
+                                  if (!pair) return row.name;
+                                  return (
+                                    <span className="inline-flex flex-wrap items-center gap-1">
+                                      {[pair.player_one_id, pair.player_two_id]
+                                        .map((id, index) => {
+                                          const player = participants.find(
+                                            (item) => item.id === id,
+                                          );
+                                          const name =
+                                            index === 0
+                                              ? pair.player_one_name
+                                              : pair.player_two_name;
+                                          const rating =
+                                            index === 0
+                                              ? pair.player_one_skill_level
+                                              : pair.player_two_skill_level;
+                                          return (
+                                            <UserIdentity
+                                              key={id}
+                                              name={player?.display_name ?? name}
+                                              skillLevel={player?.tennis_skill_level ?? rating}
+                                              avatarUrl={player?.avatar_url}
+                                              birthdayVisible={player?.birthday_emoji_visible}
+                                              compact
+                                            />
+                                          );
+                                        })
+                                        .reduce(
+                                          (acc, item, index) =>
+                                            index
+                                              ? [...acc, <span key={`plus-${index}`}>+</span>, item]
+                                              : [item],
+                                          [] as React.ReactNode[],
+                                        )}
+                                    </span>
+                                  );
+                                })()}
                         </span>
                         {rankingOverride &&
                           rankingOverride.override_value !== row.automaticPosition && (

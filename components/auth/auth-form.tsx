@@ -14,18 +14,25 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { GenderSelect } from '@/components/gender-select';
 import { TennisSkillLevelSelect } from '@/components/tennis-skill-level-select';
 import { useSiteHeaderState } from '@/components/site-header-state';
+import { LegalGuardianFields } from '@/components/legal-guardian-fields';
+import {
+  emptyLegalGuardian,
+  normalizeLegalGuardians,
+  validateLegalGuardians,
+  type LegalGuardian,
+} from '@/lib/player-guardian-details';
 
 type Mode = 'login' | 'signup' | 'reset';
 
 const copy = {
   login: {
-    title: 'Member sign in',
-    description: 'Sign in to access your member account.',
+    title: 'Sign in',
+    description: 'Sign in to access your account.',
     submit: 'Sign in',
   },
   signup: {
-    title: 'Create a member account',
-    description: 'Create an account to begin your membership application.',
+    title: 'Create an account',
+    description: 'Create an account to manage your profile and register for eligible events.',
     submit: 'Create account',
   },
   reset: {
@@ -45,7 +52,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
   const [phone, setPhone] = useState('');
   const [gender, setGender] = useState('');
   const [dateOfBirth, setDateOfBirth] = useState('');
-  const [applicationComment, setApplicationComment] = useState('');
+  const [guardians, setGuardians] = useState<LegalGuardian[]>([emptyLegalGuardian()]);
   const [password, setPassword] = useState('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
@@ -71,11 +78,16 @@ export function AuthForm({ mode }: { mode: Mode }) {
 
     try {
       if (mode === 'signup' && !dateOfBirth) throw new Error('Date of birth is required.');
+      if (mode === 'signup') validateLegalGuardians(dateOfBirth, guardians);
       if (mode === 'signup' && !gender) throw new Error('Select your gender.');
       const supabase = createSupabaseBrowserClient();
       if (mode === 'login') {
-        const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
+        const { data, error: authError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
         if (authError) throw authError;
+        if (!data.user) throw new Error('Could not load the signed-in account.');
         await supabase.rpc('record_client_audit_event', {
           p_action: 'auth.sign_in',
           p_summary: 'User signed in',
@@ -83,7 +95,14 @@ export function AuthForm({ mode }: { mode: Mode }) {
           p_source: 'web',
           p_metadata: {},
         });
-        router.replace(safeRedirectPath(searchParams.get('next'), '/member/dashboard'));
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('application_status')
+          .eq('id', data.user.id)
+          .maybeSingle();
+        const fallback =
+          profile?.application_status === 'approved' ? '/member/dashboard' : '/profile';
+        router.replace(safeRedirectPath(searchParams.get('next'), fallback));
         router.refresh();
       } else if (mode === 'signup') {
         const { data, error: authError } = await supabase.auth.signUp({
@@ -94,20 +113,20 @@ export function AuthForm({ mode }: { mode: Mode }) {
               full_name: fullName.trim(),
               phone: formatPhoneNumber(phone.trim()),
               tennis_skill_level: tennisSkillLevel,
-              application_comment: applicationComment.trim(),
               gender: gender || null,
               date_of_birth: dateOfBirth || null,
+              legal_guardians: normalizeLegalGuardians(guardians, dateOfBirth),
             },
-            emailRedirectTo: `${window.location.origin}/auth/callback?next=/member/dashboard`,
+            emailRedirectTo: `${window.location.origin}/auth/callback?next=/profile`,
           },
         });
         if (authError) throw authError;
         if (data.session) {
-          router.replace('/member/dashboard');
+          router.replace('/profile');
           router.refresh();
         } else {
           setNotice(
-            'Account created. Check your email for a confirmation link. Your application will remain pending until an administrator approves it.',
+            'Account created. Check your email for a confirmation link, then sign in to complete your profile. You can apply for club membership from your profile.',
           );
         }
       } else {
@@ -117,12 +136,19 @@ export function AuthForm({ mode }: { mode: Mode }) {
         if (authError) throw authError;
         setNotice('If an account exists for that address, a password-reset email has been sent.');
       }
-    } catch {
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '';
+      const guardianValidation =
+        message.includes('parent or legal guardian') ||
+        message.includes('guardian needs a name') ||
+        message.includes('date of birth');
       setError(
         mode === 'login'
           ? 'Unable to sign in. Check your email and password and try again.'
           : mode === 'signup'
-            ? 'Could not create account. Please check your details and try again.'
+            ? guardianValidation
+              ? message
+              : 'Could not create account. Please check your details and try again.'
             : 'Could not send the password-reset email. Please try again.',
       );
     } finally {
@@ -137,9 +163,9 @@ export function AuthForm({ mode }: { mode: Mode }) {
           <CardTitle className="text-2xl">{config.title}</CardTitle>
           <CardDescription>
             {mode === 'login' && shortName
-              ? `Sign in to access your ${shortName} member account.`
+              ? `Sign in to access your ${shortName} account.`
               : mode === 'signup' && shortName
-                ? `Create an account to begin your ${shortName} membership application.`
+                ? `Create an account for ${shortName}. You can apply for club membership later from your profile.`
                 : config.description}
           </CardDescription>
         </CardHeader>
@@ -169,6 +195,11 @@ export function AuthForm({ mode }: { mode: Mode }) {
                     maxLength={40}
                   />
                 </label>
+                <LegalGuardianFields
+                  dateOfBirth={dateOfBirth}
+                  guardians={guardians}
+                  setGuardians={setGuardians}
+                />
                 <label className="block space-y-1.5 text-sm font-medium">
                   Date of birth <span className="text-destructive">*</span>
                   <Input
@@ -192,16 +223,6 @@ export function AuthForm({ mode }: { mode: Mode }) {
                   onChange={setTennisSkillLevel}
                   placeholder="Select your rating"
                 />
-                <label className="block space-y-1.5 text-sm font-medium">
-                  Comment (optional)
-                  <textarea
-                    value={applicationComment}
-                    onChange={(e) => setApplicationComment(e.target.value)}
-                    maxLength={3000}
-                    placeholder="Tell the club why you would like to join…"
-                    className="min-h-24 w-full rounded-md border border-input bg-background p-3 text-sm font-normal"
-                  />
-                </label>
               </>
             )}
             <label className="block space-y-1.5 text-sm font-medium">

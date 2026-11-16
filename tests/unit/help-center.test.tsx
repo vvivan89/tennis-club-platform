@@ -22,7 +22,7 @@ describe('Help Center role access', () => {
       screen.getByRole('heading', { name: 'Browse an event and understand registration' }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('heading', { name: 'Register for a public doubles tournament' }),
+      screen.getByRole('heading', { name: 'Register for a public tournament' }),
     ).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Club-wide operations' })).not.toBeInTheDocument();
     expect(
@@ -114,6 +114,10 @@ describe('Help Center role access', () => {
 
     await user.click(screen.getByRole('tab', { name: 'Competitions' }));
     expect(screen.getByRole('heading', { name: 'Register for a tournament' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Register for a Singles tournament' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/cannot enter both Men’s and Women’s singles/i)).toBeInTheDocument();
     expect(
       screen.getByRole('heading', { name: 'Register and pay with a partner' }),
     ).toBeInTheDocument();

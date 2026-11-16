@@ -151,10 +151,37 @@ export function TournamentCompetitionResults({
       </span>
     );
   };
-  const pairSide = (match: Match, side: 1 | 2) =>
-    renderPair(
+  const pairSide = (match: Match, side: 1 | 2) => {
+    if (format === 'singles') {
+      const id = side === 1 ? match.player_one_participant_id : match.player_two_participant_id;
+      const player = participants.find((participant) => participant.id === id);
+      return player ? (
+        <UserIdentity
+          name={player.display_name}
+          skillLevel={player.tennis_skill_level}
+          avatarUrl={player.avatar_url}
+          birthdayVisible={player.birthday_emoji_visible}
+          compact
+        />
+      ) : null;
+    }
+    return renderPair(
       pairs.find((pair) => pair.id === (side === 1 ? match.pair_one_id : match.pair_two_id)),
     );
+  };
+  const singlesSide = (match: Match, side: 1 | 2) => {
+    const id = side === 1 ? match.player_one_participant_id : match.player_two_participant_id;
+    const player = participants.find((participant) => participant.id === id);
+    return player ? (
+      <UserIdentity
+        name={player.display_name}
+        skillLevel={player.tennis_skill_level}
+        avatarUrl={player.avatar_url}
+        birthdayVisible={player.birthday_emoji_visible}
+        compact
+      />
+    ) : null;
+  };
   return (
     <div className="space-y-6">
       {leagueTournament && (
@@ -312,7 +339,7 @@ export function TournamentCompetitionResults({
                                     {group.matches.map((m) => (
                                       <article
                                         key={m.id}
-                                        className={`rounded-lg border border-border p-3 ${isOwnPair(m.pair_one_id) || isOwnPair(m.pair_two_id) || (format === 'team' && (ownTeamIds.includes(m.team_one_id || '') || ownTeamIds.includes(m.team_two_id || ''))) ? 'border-primary/40 bg-primary/[0.04]' : ''}`}
+                                        className={`rounded-lg border border-border p-3 ${isOwnPair(m.pair_one_id) || isOwnPair(m.pair_two_id) || (format === 'singles' && (isOwnCompetitionEntry(m.player_one_participant_id || '') || isOwnCompetitionEntry(m.player_two_participant_id || ''))) || (format === 'team' && (ownTeamIds.includes(m.team_one_id || '') || ownTeamIds.includes(m.team_two_id || ''))) ? 'border-primary/40 bg-primary/[0.04]' : ''}`}
                                       >
                                         <div
                                           className="grid items-center gap-x-2 gap-y-1"
@@ -352,7 +379,11 @@ export function TournamentCompetitionResults({
                                                   )
                                                 : format === 'team'
                                                   ? m.team_one_name || 'TBD'
-                                                  : pairSide(m, 1) || m.player_one_name || 'TBD'
+                                                  : format === 'singles'
+                                                    ? singlesSide(m, 1) ||
+                                                      m.player_one_name ||
+                                                      'TBD'
+                                                    : pairSide(m, 1) || m.player_one_name || 'TBD'
                                             }
                                             playerName={
                                               format === 'team' ? m.player_one_name : null
@@ -360,7 +391,11 @@ export function TournamentCompetitionResults({
                                             isOwn={
                                               format === 'team'
                                                 ? ownTeamIds.includes(m.team_one_id || '')
-                                                : isOwnPair(m.pair_one_id)
+                                                : format === 'singles'
+                                                  ? isOwnCompetitionEntry(
+                                                      m.player_one_participant_id || '',
+                                                    )
+                                                  : isOwnPair(m.pair_one_id)
                                             }
                                           />
                                           {(m.score_sets ?? []).map((set, index) => (
@@ -393,7 +428,11 @@ export function TournamentCompetitionResults({
                                                   )
                                                 : format === 'team'
                                                   ? m.team_two_name || 'TBD'
-                                                  : pairSide(m, 2) || m.opponent_one_name || 'TBD'
+                                                  : format === 'singles'
+                                                    ? singlesSide(m, 2) ||
+                                                      m.opponent_one_name ||
+                                                      'TBD'
+                                                    : pairSide(m, 2) || m.opponent_one_name || 'TBD'
                                             }
                                             playerName={
                                               format === 'team' ? m.opponent_one_name : null
@@ -401,7 +440,11 @@ export function TournamentCompetitionResults({
                                             isOwn={
                                               format === 'team'
                                                 ? ownTeamIds.includes(m.team_two_id || '')
-                                                : isOwnPair(m.pair_two_id)
+                                                : format === 'singles'
+                                                  ? isOwnCompetitionEntry(
+                                                      m.player_two_participant_id || '',
+                                                    )
+                                                  : isOwnPair(m.pair_two_id)
                                             }
                                           />
                                         </div>
@@ -421,7 +464,7 @@ export function TournamentCompetitionResults({
                                               : null,
                                             m.court_number ? `Court ${m.court_number}` : null,
                                             format === 'team' && activeCategory === 'overall'
-                                              ? categoryLabel(m.category)
+                                              ? categoryLabel(m.category, format)
                                               : null,
                                           ]
                                             .filter(Boolean)

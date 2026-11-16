@@ -1,6 +1,9 @@
 import { dateLabel } from '@/components/tournament-public-view-format';
 import { eventPriceLabel } from '@/lib/event-format';
 import { InProgressBadge } from '@/components/in-progress-badge';
+import { TournamentRegistrationDiscountSummary } from '@/components/tournament-registration-discount-summary';
+import type { TournamentRegistrationDiscounts } from '@/lib/tournament-config';
+import { TennisSkillRangeNotice } from '@/components/tennis-skill-range-notice';
 
 export function TournamentEventSummary({
   leagueTournament,
@@ -12,6 +15,10 @@ export function TournamentEventSummary({
   registrationOpensAt,
   registrationClosesAt,
   priceCents,
+  discounts = undefined,
+  format = null,
+  minimumTennisSkillLevel = null,
+  maximumTennisSkillLevel = null,
 }: {
   leagueTournament: boolean;
   eventDescription: string | null;
@@ -22,6 +29,10 @@ export function TournamentEventSummary({
   registrationOpensAt: string;
   registrationClosesAt: string | null;
   priceCents: number;
+  discounts?: TournamentRegistrationDiscounts;
+  format?: string | null;
+  minimumTennisSkillLevel?: number | null;
+  maximumTennisSkillLevel?: number | null;
 }) {
   return (
     <>
@@ -42,6 +53,12 @@ export function TournamentEventSummary({
           </span>
         )}
       </div>
+      <TennisSkillRangeNotice minimum={minimumTennisSkillLevel} maximum={maximumTennisSkillLevel} />
+      <TournamentRegistrationDiscountSummary
+        discounts={discounts}
+        format={format}
+        leagueTournament={leagueTournament}
+      />
       {leagueTournament && eventDescription?.trim() && (
         <p className="order-1 max-w-3xl whitespace-pre-line text-sm leading-7 text-muted-foreground">
           {eventDescription.trim()}

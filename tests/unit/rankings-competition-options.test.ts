@@ -6,7 +6,10 @@ describe('buildRankingsCompetitionOptions', () => {
     expect(
       buildRankingsCompetitionOptions(
         [2025, 2026, 2025],
-        [{ id: 'ladder-1', name: 'Spring ladder', gender: 'male' }],
+        [
+          { id: 'ladder-1', name: 'Spring ladder', gender: 'male' },
+          { id: 'ladder-mixed', name: 'Mixed ladder', gender: 'mixed' },
+        ],
         [
           { id: 'league-1', name: 'Summer League', gender: 'female' },
           { id: 'league-2', name: 'Open League', gender: 'other' },
@@ -17,6 +20,7 @@ describe('buildRankingsCompetitionOptions', () => {
       { value: '2026', label: 'Full 2026 season' },
       { value: '2025', label: 'Full 2025 season' },
       { value: 'ladder:ladder-1', label: "Spring ladder (Men's ladder)" },
+      { value: 'ladder:ladder-mixed', label: 'Mixed ladder (Mixed ladder)' },
       { value: 'league:league-1', label: "Summer League (Women's league)" },
       { value: 'league:league-2', label: "Open League (Women's league)" },
       { value: 'tournament:tournament-1', label: 'Club Open (Doubles tournament)' },

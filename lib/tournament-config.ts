@@ -9,8 +9,24 @@ export type TournamentPhaseSettings = Partial<
   >
 >;
 
+export type TournamentRegistrationDiscountRule = {
+  enabled?: boolean;
+  type?: 'percent' | 'fixed';
+  percent?: number;
+  amount_cents?: number;
+};
+
+export type TournamentRegistrationDiscounts = {
+  stack_enabled?: boolean;
+  second_category?: TournamentRegistrationDiscountRule;
+  pair_registration?: TournamentRegistrationDiscountRule;
+  approved_member?: TournamentRegistrationDiscountRule;
+};
+
 export type TournamentConfig = {
   categories?: string[];
+  minimum_tennis_skill_level?: number | null;
+  maximum_tennis_skill_level?: number | null;
   show_overall_results?: boolean;
   phases?: TournamentPhaseSettings;
   group_count?: number;
@@ -34,7 +50,8 @@ export type TournamentConfig = {
     >
   >;
   total_capacity?: number | null;
-  category_capacities?: Partial<Record<'mixed' | 'men' | 'women', number | null>>;
+  category_capacities?: Partial<Record<'all' | 'mixed' | 'men' | 'women', number | null>>;
+  registration_discounts?: TournamentRegistrationDiscounts;
 };
 
 export type TournamentScoringPhase = keyof NonNullable<TournamentConfig['scoring_templates']>;

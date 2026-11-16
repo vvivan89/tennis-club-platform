@@ -142,7 +142,9 @@ describe('POST /api/admin/applications', () => {
       emailSent: true,
       resendMessageId: 'email-1',
     });
-    expect(mocks.updates).toEqual([{ application_status: 'approved', role: 'member' }]);
+    expect(mocks.updates).toEqual([
+      { application_status: 'approved', role: 'member', account_kind: 'member' },
+    ]);
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     expect(body.html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
     expect(body.html).not.toContain('<script>');
@@ -156,7 +158,9 @@ describe('POST /api/admin/applications', () => {
       emailSent: false,
       emailError: expect.stringContaining('RESEND_API_KEY'),
     });
-    expect(mocks.updates).toEqual([{ application_status: 'approved', role: 'member' }]);
+    expect(mocks.updates).toEqual([
+      { application_status: 'approved', role: 'member', account_kind: 'member' },
+    ]);
   });
 
   it('reports missing recipient email and falls back to the alternate sender setting', async () => {

@@ -30,13 +30,13 @@ import type { TournamentPublicViewProps } from '@/components/tournament-public-v
 import { tournamentPaymentActionKey } from '@/components/tournament-public-view-format';
 import { TournamentOverviewPanel } from '@/components/tournament-overview-panel';
 import { TournamentEventSummary } from '@/components/tournament-event-summary';
-import { buildTournamentGroupStandings } from '@/components/tournament-public-group-standings';
+import { useTournamentPublicStandings } from '@/components/use-tournament-public-standings';
 import { useTournamentGroupOverrideActions } from '@/components/use-tournament-group-override-actions';
 import { useTournamentPublicViewUiState } from '@/components/use-tournament-public-view-ui-state';
-import { useTournamentWinnerAnnouncement } from '@/components/use-tournament-winner-announcement';
 import { getTournamentWithdrawalPaymentState } from '@/components/tournament-withdrawal-payment-state';
 import { getTournamentLeagueOverviewData } from '@/components/tournament-league-overview-data';
 import { useSiteHeaderState } from '@/components/site-header-state';
+import type { UnderagePlayer } from '@/components/tournament-management-types';
 const EMPTY_WINNER_SUMMARIES: Array<{ category: string; winners: string[] }> = [];
 export function TournamentPublicView({
   adminContent = null,
@@ -54,6 +54,8 @@ export function TournamentPublicView({
   currentUserPhone = '',
   currentUserSkillLevel = null,
   currentUserGender = null,
+  currentUserDateOfBirth = null,
+  currentUserGuardians = [],
   format,
   config,
   rulesHtml,
@@ -66,6 +68,8 @@ export function TournamentPublicView({
   registrationOpensAt,
   registrationClosesAt,
   priceCents,
+  minimumTennisSkillLevel = null,
+  maximumTennisSkillLevel = null,
   interacEnabled = false,
   resultsOnly = false,
   rankingsControl,
@@ -82,11 +86,33 @@ export function TournamentPublicView({
   const { shortName } = useSiteHeaderState();
   const db = useMemo(() => createSupabaseBrowserClient(), []),
     router = useRouter();
+  const [underagePlayers, setUnderagePlayers] = useState<Record<string, UnderagePlayer>>({});
+  useEffect(() => {
+    if (!isManager) {
+      setUnderagePlayers({});
+      return;
+    }
+    let active = true;
+    fetch(`/api/admin/events/${eventId}/underage-players`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Could not load underage player details.');
+        return (await response.json()) as { players?: Record<string, UnderagePlayer> };
+      })
+      .then((result) => {
+        if (active) setUnderagePlayers(result.players ?? {});
+      })
+      .catch(() => {
+        if (active) setUnderagePlayers({});
+      });
+    return () => {
+      active = false;
+    };
+  }, [eventId, isManager]);
   useEffect(() => {
     if (eventTitle) document.title = [shortName, eventTitle].filter(Boolean).join(' | ');
   }, [eventTitle, shortName]);
   const hasRules = Boolean(rulesHtml?.trim()) && !leagueTournament;
-  const isEventGuest = !!currentUserId && currentUserAccountKind === 'event_guest';
+  const isEventGuest = !!currentUserId && !currentUserIsApprovedMember;
   const canManageLeagueScores = leagueTournament && Boolean(adminContent);
   const [captainRequestBusy, setCaptainRequestBusy] = useState(false);
   const [captainAssignmentBusy, setCaptainAssignmentBusy] = useState(false);
@@ -101,6 +127,8 @@ export function TournamentPublicView({
     currentUserEmail,
     currentUserPhone,
     currentUserGender,
+    currentUserDateOfBirth,
+    currentUserGuardians,
     currentUserSkillLevel,
     hasRules,
   });
@@ -388,7 +416,11 @@ export function TournamentPublicView({
     refreshPage: () => router.refresh(),
   });
   const isOwnCompetitionEntry = (entryId: string) =>
-    format === 'team' ? ownTeamIds.includes(entryId) : isOwnPair(entryId);
+    format === 'team'
+      ? ownTeamIds.includes(entryId)
+      : format === 'singles'
+        ? ownParticipantIds.includes(entryId)
+        : isOwnPair(entryId);
   const knockoutMatches = categoryVisibleMatches
     .filter((match) => match.phase.includes('knockout'))
     .sort((a, b) => a.round_number - b.round_number || a.match_number - b.match_number);
@@ -398,6 +430,7 @@ export function TournamentPublicView({
       knockoutMatches,
       teams,
       pairs,
+      participants,
       singleGroup: hasSingleTournamentGroup(config),
     });
   const {
@@ -432,6 +465,8 @@ export function TournamentPublicView({
     startsAt,
     registrationMode: ui.registrationMode,
   });
+  const registrationOnlyView = !canViewCompetition && allowNonMemberRegistration;
+  const visibleTab = registrationOnlyView ? 'overview' : ui.tab;
   const { submitRegistration } = useTournamentRegistrationSubmit({
     db,
     eventId,
@@ -441,18 +476,23 @@ export function TournamentPublicView({
     leagueTournament,
     leagueRegistrationCategory,
     registrationCategory: ui.registrationCategory,
+    format,
     effectiveRegistrationMode,
     entrantName: ui.entrantName,
     entrantEmail: ui.entrantEmail,
     entrantPhone: ui.entrantPhone,
     entrantGender: ui.entrantGender,
     entrantSkillLevel: ui.entrantSkillLevel,
+    entrantDateOfBirth: ui.entrantDateOfBirth,
+    entrantGuardians: ui.entrantGuardians,
     partnerChoice: ui.partnerChoice,
     partnerName: ui.partnerName,
     partnerEmail: ui.partnerEmail,
     partnerPhone: ui.partnerPhone,
     partnerGender: ui.partnerGender,
     partnerSkillLevel: ui.partnerSkillLevel,
+    partnerDateOfBirth: ui.partnerDateOfBirth,
+    partnerGuardians: ui.partnerGuardians,
     profileGender,
     partnerMembers,
     participants,
@@ -483,18 +523,29 @@ export function TournamentPublicView({
     if (firstAvailableCategory && !registrationCategoryIsAvailable)
       setRegistrationCategory(firstAvailableCategory);
   }, [firstAvailableCategory, registrationCategoryIsAvailable, setRegistrationCategory]);
-  const groupStandings = useMemo(
-    () =>
-      buildTournamentGroupStandings({
-        visibleMatches,
-        teams,
-        pairs,
-        config,
-        format,
-        groupOverrides,
-      }),
-    [visibleMatches, teams, pairs, config, format, groupOverrides],
-  );
+  const {
+    groupStandings,
+    winnerSummaries,
+    visibleWinnerSummaries,
+    winnersAnnounced,
+    allScheduledMatchesPlayed,
+    announcementFeedback,
+    toggleWinnerAnnouncement,
+  } = useTournamentPublicStandings({
+    db,
+    eventId,
+    isManager,
+    initialWinnersAnnounced,
+    initialAnnouncedWinners,
+    matches,
+    teams,
+    pairs,
+    participants,
+    config,
+    format,
+    groupOverrides,
+    visibleMatches,
+  });
   const groupOverrideActions = useTournamentGroupOverrideActions({
     db,
     eventId,
@@ -506,27 +557,6 @@ export function TournamentPublicView({
     groupStandings,
   });
   const { openGroupOverrideEditor } = groupOverrideActions;
-
-  const {
-    winnerSummaries,
-    visibleWinnerSummaries,
-    winnersAnnounced,
-    allScheduledMatchesPlayed,
-    announcementFeedback,
-    toggleWinnerAnnouncement,
-  } = useTournamentWinnerAnnouncement({
-    db,
-    eventId,
-    isManager,
-    initialWinnersAnnounced,
-    initialAnnouncedWinners,
-    matches,
-    teams,
-    pairs,
-    config,
-    format,
-    groupStandings,
-  });
   const { rankingColumns, rankingColumnLabel } = getTournamentRankingColumns(config, format);
   const {
     activeLeaguePairs,
@@ -585,54 +615,64 @@ export function TournamentPublicView({
           registrationOpensAt={registrationOpensAt}
           registrationClosesAt={registrationClosesAt}
           priceCents={priceCents}
+          minimumTennisSkillLevel={minimumTennisSkillLevel}
+          maximumTennisSkillLevel={maximumTennisSkillLevel}
+          discounts={config?.registration_discounts}
+          format={format}
         />
       )}
-      {(canViewCompetition || !!adminContent || isTeamCaptain) && (
+      {(canViewCompetition || !!adminContent || isTeamCaptain || registrationOnlyView) && (
         <>
-          <TournamentPublicViewControls
-            resultsOnly={resultsOnly}
-            winnerSummaries={visibleWinnerSummaries}
-            adminWinnerPreview={winnerSummaries}
-            isManager={isManager}
-            allScheduledMatchesPlayed={allScheduledMatchesPlayed}
-            winnersAnnounced={winnersAnnounced}
-            announcementBusy={announcementFeedback.busy}
-            onToggleWinnersAnnouncement={() => void toggleWinnerAnnouncement()}
-            rankingsControl={rankingsControl}
-            hasRules={hasRules}
-            leagueTournament={leagueTournament}
-            hasAdminContent={isManager}
-            isTeamCaptain={isTeamCaptain}
-            captainOnlyView={captainOnlyView}
-            tab={ui.tab}
-            setTab={ui.setTab}
-            activeCategory={ui.activeCategory}
-            setActiveCategory={ui.setActiveCategory}
-            format={format}
-            config={config}
-            onAssignCourts={openLeagueCourtModal}
-          />
-          <TournamentGroupOverrideDialog {...groupOverrideActions.dialogProps} />
-          {['participants', 'matches', 'audit'].includes(ui.tab) &&
+          {!registrationOnlyView && (
+            <TournamentPublicViewControls
+              resultsOnly={resultsOnly}
+              winnerSummaries={visibleWinnerSummaries}
+              adminWinnerPreview={winnerSummaries}
+              isManager={isManager}
+              allScheduledMatchesPlayed={allScheduledMatchesPlayed}
+              winnersAnnounced={winnersAnnounced}
+              announcementBusy={announcementFeedback.busy}
+              onToggleWinnersAnnouncement={() => void toggleWinnerAnnouncement()}
+              rankingsControl={rankingsControl}
+              hasRules={hasRules}
+              leagueTournament={leagueTournament}
+              hasAdminContent={isManager}
+              isTeamCaptain={isTeamCaptain}
+              captainOnlyView={captainOnlyView}
+              tab={ui.tab}
+              setTab={ui.setTab}
+              activeCategory={ui.activeCategory}
+              setActiveCategory={ui.setActiveCategory}
+              format={format}
+              config={config}
+              onAssignCourts={openLeagueCourtModal}
+            />
+          )}
+          {!registrationOnlyView && (
+            <TournamentGroupOverrideDialog {...groupOverrideActions.dialogProps} />
+          )}
+          {['participants', 'matches', 'audit'].includes(visibleTab) &&
           adminContent &&
-          (!leagueTournament || !['matches', 'audit'].includes(ui.tab)) ? (
+          (!leagueTournament || !['matches', 'audit'].includes(visibleTab)) ? (
             adminContent
           ) : loading ? (
             <div className="py-6">
               <TennisLoader label="Loading tournament details" />
             </div>
-          ) : ui.tab === 'rules' && hasRules ? (
+          ) : visibleTab === 'rules' && hasRules ? (
             <section className="rounded-lg border border-border p-4" aria-label="Tournament rules">
               <div
                 className="prose prose-sm max-w-none dark:prose-invert"
                 dangerouslySetInnerHTML={{ __html: sanitizeHtml(rulesHtml) }}
               />
             </section>
-          ) : ui.tab === 'overview' ? (
+          ) : visibleTab === 'overview' ? (
             <TournamentOverviewPanel
-              ui={ui}
+              ui={registrationOnlyView ? { ...ui, tab: 'overview' } : ui}
               view={{
                 eventDescription,
+                isManager,
+                underagePlayers,
                 genderRestriction,
                 locationQuery,
                 startsAt,
@@ -664,6 +704,7 @@ export function TournamentPublicView({
                 leagueRegistrationCategory,
                 loading,
                 currentUserId,
+                currentUserAccountKind,
                 assignUnassignedPlayer,
                 captainAssignmentBusy,
                 ownLeagueTeamId,

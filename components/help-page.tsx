@@ -21,14 +21,16 @@ export async function HelpPage({ guide }: { guide: HelpGuide }) {
 
   let role: string | null = null;
   let approved = false;
+  let showNonMemberProfile = false;
   if (user) {
     const { data: profile } = await db
       .from('profiles')
-      .select('role,application_status')
+      .select('role,application_status,account_kind')
       .eq('id', user.id)
       .maybeSingle();
     role = profile?.role ?? null;
     approved = profile?.application_status === 'approved';
+    showNonMemberProfile = profile?.account_kind === 'member' && !approved;
   }
 
   if (!canAccessHelpGuide(guide, role, approved)) redirect('/help/public');
@@ -38,7 +40,7 @@ export async function HelpPage({ guide }: { guide: HelpGuide }) {
     <main className="flex min-h-screen flex-col bg-background text-foreground">
       <SiteHeader clubName={clubName} shortName={shortName} active="help" />
       <HelpNav role={role} approved={approved} />
-      <HelpCenter guide={guide} />
+      <HelpCenter guide={guide} showNonMemberProfile={showNonMemberProfile} />
       <SiteFooter clubName={clubName} shortName={shortName} socialLinks={socialLinks} />
     </main>
   );

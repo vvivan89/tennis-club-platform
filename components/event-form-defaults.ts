@@ -1,5 +1,7 @@
 import type { TournamentConfig } from '@/lib/tournament-config';
 import type { EventFormValues } from '@/components/event-form-types';
+import { doublesCategoryForGender } from '@/lib/league-gender';
+import { tennisSkillInputValue } from '@/lib/tennis-skill-range';
 
 export const localValue = (value?: string | null) =>
   value
@@ -12,9 +14,13 @@ export const localValue = (value?: string | null) =>
 export const leagueTournamentConfig = (
   config: EventFormValues['tournament_config'],
   ladderGender: string,
+  minimumTennisSkillLevel = '',
+  maximumTennisSkillLevel = '',
 ) => ({
   ...config,
-  categories: [ladderGender === 'male' ? 'men' : 'women'],
+  categories: [doublesCategoryForGender(ladderGender)],
+  minimum_tennis_skill_level: minimumTennisSkillLevel ? Number(minimumTennisSkillLevel) : null,
+  maximum_tennis_skill_level: maximumTennisSkillLevel ? Number(maximumTennisSkillLevel) : null,
   phases: { round_robin: true },
   group_count: 1,
   teams_per_group: 4,
@@ -33,7 +39,12 @@ export function getEventTypeFormUpdate(value: string, current: EventFormValues) 
     Object.assign(update, {
       tournament_format: 'doubles',
       members_only: false,
-      tournament_config: leagueTournamentConfig(current.tournament_config, current.ladder_gender),
+      tournament_config: leagueTournamentConfig(
+        current.tournament_config,
+        current.ladder_gender,
+        current.minimum_tennis_skill_level,
+        current.maximum_tennis_skill_level,
+      ),
     });
   } else if (value === 'social_doubles_ladder') {
     Object.assign(update, { gender_restriction: current.ladder_gender, members_only: true });
@@ -46,9 +57,22 @@ export function getEventTypeFormUpdate(value: string, current: EventFormValues) 
   } else if (value !== 'social') {
     Object.assign(update, {
       members_only: false,
-      tournament_format: value === 'team_tournament' ? 'team' : 'doubles',
+      tournament_format:
+        value === 'team_tournament'
+          ? 'team'
+          : value === 'singles_tournament'
+            ? 'singles'
+            : 'doubles',
       tournament_config: {
         ...current.tournament_config,
+        categories:
+          value === 'singles_tournament'
+            ? ['all', 'men', 'women']
+            : current.tournament_format === 'singles'
+              ? ['mixed', 'men', 'women']
+              : current.tournament_config.categories,
+        registration_mode:
+          value === 'singles_tournament' ? 'single' : current.tournament_config.registration_mode,
         ranking_priority:
           value === 'team_tournament'
             ? ['matches_won', 'sets_won', 'games_won']
@@ -148,6 +172,12 @@ export const initialEventFormValues: EventFormValues = {
     ranking_priority: ['matches_won', 'sets_won', 'games_won'],
     schedule: { match_minutes: 60, break_minutes: 15 },
     scoring_template: 'best_of_three',
+    registration_discounts: {
+      stack_enabled: false,
+      second_category: { enabled: false, type: 'percent', percent: 10 },
+      pair_registration: { enabled: false, type: 'percent', percent: 10 },
+      approved_member: { enabled: false, type: 'percent', percent: 10 },
+    },
   },
   tournament_rules_html: '',
   allow_non_member_registration: false,
@@ -161,16 +191,192 @@ export const initialEventFormValues: EventFormValues = {
   ladder_name: '',
   league_existing_id: '',
   is_league_tournament: false,
+  minimum_tennis_skill_level: '',
+  maximum_tennis_skill_level: '',
 };
 
+export function createInitialEventFormValues(
+  event:
+    | (Partial<EventFormValues> & {
+        created_by?: string | null;
+        social_doubles_ladder_id?: string | null;
+        is_league_tournament?: boolean;
+        league_name?: string | null;
+        ladder_position_points?: number[] | null;
+        ladder_ranking_priority?: string[] | null;
+      })
+    | undefined,
+  currentUserId: string,
+): EventFormValues {
+  return {
+    ...initialEventFormValues,
+    ...event,
+    ladder_existing_id: event?.ladder_existing_id ?? event?.social_doubles_ladder_id ?? '',
+    league_existing_id: event?.is_league_tournament ? (event.social_doubles_ladder_id ?? '') : '',
+    is_league_tournament: event?.is_league_tournament ?? false,
+    ladder_name: event?.ladder_name ?? event?.league_name ?? '',
+    ladder_gender:
+      event?.ladder_gender ?? (event?.gender_restriction === 'female' ? 'female' : 'male'),
+    ladder_points: (event?.ladder_points ??
+      event?.ladder_position_points ??
+      initialEventFormValues.ladder_points) as [number, number, number, number],
+    ladder_ranking_priority:
+      event?.ladder_ranking_priority ?? initialEventFormValues.ladder_ranking_priority,
+    organizer_id: event?.organizer_id ?? event?.created_by ?? currentUserId,
+    members_only:
+      event?.event_type === 'tournament' || event?.event_type === 'party'
+        ? false
+        : (event?.members_only ?? true),
+    description: event?.description ?? '',
+    gender_restriction: event?.gender_restriction ?? null,
+    location: event?.location ?? initialEventFormValues.location,
+    notes: event?.notes ?? '',
+    starts_at: localValue(event?.starts_at),
+    ends_at: localValue(event?.ends_at),
+    registration_opens_at: localValue(event?.registration_opens_at),
+    registration_closes_at: localValue(event?.registration_closes_at),
+    price_cents: event?.price_cents ?? 0,
+    allow_plus_one: event?.allow_plus_one ?? false,
+    guest_price_cents: event?.guest_price_cents ?? 0,
+    capacity: event?.capacity ?? 16,
+    court_count: event?.court_count ?? 4,
+    tournament_format: event?.tournament_format ?? 'doubles',
+    tournament_config: event?.tournament_config ?? initialEventFormValues.tournament_config,
+    minimum_tennis_skill_level: tennisSkillInputValue(
+      event?.minimum_tennis_skill_level ??
+        event?.tournament_config?.minimum_tennis_skill_level ??
+        '',
+    ),
+    maximum_tennis_skill_level: tennisSkillInputValue(
+      event?.maximum_tennis_skill_level ??
+        event?.tournament_config?.maximum_tennis_skill_level ??
+        '',
+    ),
+    tournament_rules_html: event?.tournament_rules_html ?? '',
+    allow_non_member_registration: event?.allow_non_member_registration ?? false,
+    tournament_details_public: event?.tournament_details_public ?? true,
+  };
+}
+
+export function buildCommonEventFields(
+  values: EventFormValues,
+  {
+    currentUserId,
+    existingCreatorId,
+    showOrganizerField,
+  }: { currentUserId: string; existingCreatorId?: string | null; showOrganizerField: boolean },
+) {
+  return {
+    title: values.title.trim(),
+    description: values.description.trim(),
+    gender_restriction:
+      values.event_type === 'party' ||
+      ((values.is_league_tournament || values.event_type === 'social_doubles_ladder') &&
+        values.ladder_gender === 'mixed')
+        ? null
+        : values.gender_restriction || null,
+    capacity:
+      values.event_type === 'tournament'
+        ? Number(values.capacity) > 0
+          ? Number(values.capacity)
+          : 1000000
+        : Number(values.capacity),
+    price_cents: Math.round(Number(values.price_cents)),
+    allow_plus_one: values.event_type === 'party' && values.allow_plus_one,
+    guest_price_cents:
+      values.event_type === 'party' && values.allow_plus_one
+        ? Math.round(Number(values.guest_price_cents))
+        : 0,
+    members_only: ['tournament', 'party'].includes(values.event_type) ? false : values.members_only,
+    status: values.status,
+    location: values.location.trim(),
+    notes: values.notes.trim(),
+    waitlist_enabled: values.event_type === 'party' ? false : values.waitlist_enabled,
+    court_count: Number(values.court_count),
+    event_type: values.event_type,
+    ladder_gender: values.event_type === 'social_doubles_ladder' ? values.ladder_gender : null,
+    ladder_position_points:
+      values.event_type === 'social_doubles_ladder' ? values.ladder_points : null,
+    ladder_ranking_priority:
+      values.event_type === 'social_doubles_ladder' ? values.ladder_ranking_priority : null,
+    tournament_format: values.event_type === 'tournament' ? values.tournament_format : null,
+    tournament_config:
+      values.event_type === 'tournament'
+        ? {
+            ...values.tournament_config,
+            minimum_tennis_skill_level:
+              ['doubles', 'singles'].includes(values.tournament_format ?? '') &&
+              values.minimum_tennis_skill_level
+                ? Number(values.minimum_tennis_skill_level)
+                : null,
+            maximum_tennis_skill_level:
+              ['doubles', 'singles'].includes(values.tournament_format ?? '') &&
+              values.maximum_tennis_skill_level
+                ? Number(values.maximum_tennis_skill_level)
+                : null,
+            ...(values.tournament_format === 'team'
+              ? {
+                  category_capacities: Object.fromEntries(
+                    Object.entries(values.tournament_config.category_capacities ?? {}).filter(
+                      ([category]) => category !== 'team',
+                    ),
+                  ),
+                }
+              : {}),
+            total_capacity:
+              Number(values.capacity) > 0 && Number(values.capacity) < 1000000
+                ? Number(values.capacity)
+                : null,
+          }
+        : values.event_type === 'social_doubles_ladder'
+          ? {
+              minimum_tennis_skill_level: values.minimum_tennis_skill_level
+                ? Number(values.minimum_tennis_skill_level)
+                : null,
+              maximum_tennis_skill_level: values.maximum_tennis_skill_level
+                ? Number(values.maximum_tennis_skill_level)
+                : null,
+            }
+          : {},
+    tournament_rules_html:
+      values.event_type === 'tournament' && !values.is_league_tournament
+        ? values.tournament_rules_html
+        : '',
+    allow_non_member_registration:
+      values.event_type === 'tournament' ? values.allow_non_member_registration : false,
+    tournament_details_public:
+      values.event_type === 'tournament' ? values.tournament_details_public : false,
+    social_doubles_ladder_id: values.is_league_tournament
+      ? values.league_existing_id || null
+      : values.event_type === 'party'
+        ? null
+        : undefined,
+    organizer_id: showOrganizerField
+      ? values.organizer_id || currentUserId
+      : values.organizer_id || existingCreatorId || currentUserId,
+    updated_at: new Date().toISOString(),
+  };
+}
+
 export function generateRulesText(v: EventFormValues): string {
-  const format = v.tournament_format === 'team' ? 'Team tournament' : 'Doubles tournament';
+  const format =
+    v.tournament_format === 'team'
+      ? 'Team tournament'
+      : v.tournament_format === 'singles'
+        ? 'Singles tournament'
+        : 'Doubles tournament';
   const categoryNames = (v.tournament_config.categories ?? []).map((category) =>
-    category === 'men'
-      ? "men's doubles"
-      : category === 'women'
-        ? "women's doubles"
-        : 'mixed doubles',
+    category === 'all'
+      ? 'all-gender singles'
+      : category === 'men'
+        ? v.tournament_format === 'singles'
+          ? "men's singles"
+          : "men's doubles"
+        : category === 'women'
+          ? v.tournament_format === 'singles'
+            ? "women's singles"
+            : "women's doubles"
+          : 'mixed doubles',
   );
   const phases = v.tournament_config.phases ?? {};
   const scoringTemplates: Record<string, string> = {
@@ -197,11 +403,13 @@ export function generateRulesText(v: EventFormValues): string {
     );
   const scoring = phaseScoring.length ? phaseScoring.join('; ') : scoringLabel();
   const registration =
-    v.tournament_config.registration_mode === 'single'
-      ? 'Players register individually and the organizer assigns partners.'
-      : v.tournament_config.registration_mode === 'doubles'
-        ? 'Players register with a partner.'
-        : 'Players may register individually for organizer-assigned pairing or register with a partner.';
+    v.tournament_format === 'singles'
+      ? 'Players register as individuals; no partner or pair is created.'
+      : v.tournament_config.registration_mode === 'single'
+        ? 'Players register individually and the organizer assigns partners.'
+        : v.tournament_config.registration_mode === 'doubles'
+          ? 'Players register with a partner.'
+          : 'Players may register individually for organizer-assigned pairing or register with a partner.';
   const eligibility = v.allow_non_member_registration
     ? 'Eligible members and non-members may register; non-member accounts are not created.'
     : 'Registration is limited to eligible club members; non-member registration is not enabled.';

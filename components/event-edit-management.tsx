@@ -31,11 +31,13 @@ export function EventEditManagement({
   startsAt,
   assignmentOnly = false,
   hideRegistrationManagement = false,
+  hideCourtAssignment = false,
 }: {
   eventId: string;
   startsAt?: string;
   assignmentOnly?: boolean;
   hideRegistrationManagement?: boolean;
+  hideCourtAssignment?: boolean;
 }) {
   const db = createSupabaseBrowserClient();
   const router = useRouter();
@@ -637,12 +639,12 @@ export function EventEditManagement({
         </div>
       )}
       <FloatingFeedback error={error} message={message} />
-      {!courtChangesLocked && (
+      {!hideCourtAssignment && !courtChangesLocked && (
         <div className="flex justify-end">
           <Button onClick={openCourtModal}>Assign courts</Button>
         </div>
       )}
-      {courtChangesLocked && (
+      {!hideCourtAssignment && courtChangesLocked && (
         <p className="text-xs text-muted-foreground">
           Court assignments are locked because this session ended more than two days ago.
         </p>

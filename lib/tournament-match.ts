@@ -9,6 +9,8 @@ export type TournamentMatchCore = {
   pair_two_id: string | null;
   team_one_id: string | null;
   team_two_id: string | null;
+  player_one_participant_id?: string | null;
+  player_two_participant_id?: string | null;
   scheduled_at: string | null;
   court_number: number | null;
   score_sets: Array<{ one: number; two: number }>;
@@ -64,16 +66,33 @@ export function roundNumbersByMatch(
   orderedMatches: Array<
     Pick<
       TournamentMatchCore,
-      'id' | 'round_number' | 'team_one_id' | 'team_two_id' | 'pair_one_id' | 'pair_two_id'
+      | 'id'
+      | 'round_number'
+      | 'team_one_id'
+      | 'team_two_id'
+      | 'pair_one_id'
+      | 'pair_two_id'
+      | 'player_one_participant_id'
+      | 'player_two_participant_id'
     >
   >,
-  isTeam: boolean,
+  isTeam: boolean | 'singles',
 ) {
   const counts = new Map<string, number>();
   const result = new Map<string, number>();
   for (const match of orderedMatches) {
-    const first = isTeam ? match.team_one_id : match.pair_one_id;
-    const second = isTeam ? match.team_two_id : match.pair_two_id;
+    const first =
+      isTeam === true
+        ? match.team_one_id
+        : isTeam === 'singles'
+          ? match.player_one_participant_id
+          : match.pair_one_id;
+    const second =
+      isTeam === true
+        ? match.team_two_id
+        : isTeam === 'singles'
+          ? match.player_two_participant_id
+          : match.pair_two_id;
     const firstRound = first ? (counts.get(first) ?? 0) + 1 : match.round_number;
     const secondRound = second ? (counts.get(second) ?? 0) + 1 : match.round_number;
     if (first) counts.set(first, firstRound);

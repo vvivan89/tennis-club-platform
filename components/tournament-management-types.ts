@@ -16,6 +16,11 @@ export type Participant = {
   category: string;
   payment_status: string;
   amount_cents: number;
+  base_amount_cents?: number;
+  discount_cents?: number;
+  pricing_details?: {
+    appliedDiscounts?: Array<{ label: string; discountCents: number }>;
+  };
   display_name: string;
   email: string | null;
   phone: string | null;
@@ -24,6 +29,8 @@ export type Participant = {
   status: string;
   confirmation_status?: string;
   captain_requested?: boolean;
+  group_number?: number | null;
+  seed?: number | null;
 };
 
 export type Pair = {
@@ -51,3 +58,8 @@ export type Match = TournamentMatchCore & {
   opponent_one_name?: string | null;
 };
 export type Member = { id: string; full_name: string; email: string; gender: string | null };
+
+export type UnderagePlayer = {
+  age: number;
+  guardians: Array<{ name: string; email: string | null; phone: string | null }>;
+};

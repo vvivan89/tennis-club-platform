@@ -2,7 +2,13 @@ import type { Dispatch, FormEvent, SetStateAction } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isGenderEligibleForCategory } from '@/lib/tournament-config';
 import type { Participant, PartnerMember } from '@/components/tournament-public-view-types';
-import { categoryLabel } from '@/components/tournament-public-view-format';
+import { categoryLabel, formatMoney } from '@/components/tournament-public-view-format';
+import { isStrictMixedDoublesPair } from '@/lib/league-gender';
+import {
+  normalizeLegalGuardians,
+  validateLegalGuardians,
+  type LegalGuardian,
+} from '@/lib/player-guardian-details';
 
 export function useTournamentRegistrationSubmit({
   db,
@@ -13,18 +19,23 @@ export function useTournamentRegistrationSubmit({
   leagueTournament,
   leagueRegistrationCategory,
   registrationCategory,
+  format,
   effectiveRegistrationMode,
   entrantName,
   entrantEmail,
   entrantPhone,
   entrantGender,
   entrantSkillLevel,
+  entrantDateOfBirth,
+  entrantGuardians,
   partnerChoice,
   partnerName,
   partnerEmail,
   partnerPhone,
   partnerGender,
   partnerSkillLevel,
+  partnerDateOfBirth,
+  partnerGuardians,
   profileGender,
   partnerMembers,
   participants,
@@ -57,18 +68,23 @@ export function useTournamentRegistrationSubmit({
   leagueTournament: boolean;
   leagueRegistrationCategory: string;
   registrationCategory: string;
+  format: string | null;
   effectiveRegistrationMode: 'individual' | 'pair';
   entrantName: string;
   entrantEmail: string;
   entrantPhone: string;
   entrantGender: string;
   entrantSkillLevel: string;
+  entrantDateOfBirth: string;
+  entrantGuardians: LegalGuardian[];
   partnerChoice: string;
   partnerName: string;
   partnerEmail: string;
   partnerPhone: string;
   partnerGender: string;
   partnerSkillLevel: string;
+  partnerDateOfBirth: string;
+  partnerGuardians: LegalGuardian[];
   profileGender: string | null;
   partnerMembers: PartnerMember[];
   participants: Participant[];
@@ -102,6 +118,10 @@ export function useTournamentRegistrationSubmit({
       const entryCategory = leagueTournament ? leagueRegistrationCategory : registrationCategory;
       if (isEventGuest && (!entrantName.trim() || !currentUserEmail))
         throw new Error('Enter your name to continue. Your verified email is required.');
+      if (isEventGuest) {
+        if (!entrantDateOfBirth) throw new Error('Enter your date of birth to continue.');
+        validateLegalGuardians(entrantDateOfBirth, entrantGuardians);
+      }
       const useNewPartner =
         effectiveRegistrationMode === 'pair' &&
         (isEventGuest || !currentUserId || partnerChoice === 'new');
@@ -109,6 +129,10 @@ export function useTournamentRegistrationSubmit({
         throw new Error('Choose a registered partner or enter new partner details.');
       if (useNewPartner && (!partnerName.trim() || !partnerEmail.trim()))
         throw new Error('Enter your partner’s name and email.');
+      if (useNewPartner) {
+        if (!partnerDateOfBirth) throw new Error('Enter your partner’s date of birth to continue.');
+        validateLegalGuardians(partnerDateOfBirth, partnerGuardians);
+      }
       const entrantGenderValue = isEventGuest
         ? entrantGender || null
         : currentUserId
@@ -125,7 +149,9 @@ export function useTournamentRegistrationSubmit({
             : null) ||
           null;
       if (!isGenderEligibleForCategory(entryCategory, entrantGenderValue))
-        throw new Error(`The entered gender is not eligible for ${categoryLabel(entryCategory)}.`);
+        throw new Error(
+          `The entered gender is not eligible for ${categoryLabel(entryCategory, format)}.`,
+        );
       if (
         effectiveRegistrationMode === 'pair' &&
         partnerChoice &&
@@ -133,7 +159,7 @@ export function useTournamentRegistrationSubmit({
         !isGenderEligibleForCategory(entryCategory, partnerGenderValue)
       )
         throw new Error(
-          `The selected partner's gender is not eligible for ${categoryLabel(entryCategory)}.`,
+          `The selected partner's gender is not eligible for ${categoryLabel(entryCategory, format)}.`,
         );
       if (
         effectiveRegistrationMode === 'pair' &&
@@ -141,7 +167,7 @@ export function useTournamentRegistrationSubmit({
         !isGenderEligibleForCategory(entryCategory, partnerGenderValue)
       )
         throw new Error(
-          `The partner's gender is not eligible for ${categoryLabel(entryCategory)}.`,
+          `The partner's gender is not eligible for ${categoryLabel(entryCategory, format)}.`,
         );
       if (
         entryCategory === 'mixed' &&
@@ -153,6 +179,13 @@ export function useTournamentRegistrationSubmit({
         throw new Error(
           'Mixed doubles requires one male and one female player when both genders are known.',
         );
+      if (
+        leagueTournament &&
+        entryCategory === 'mixed' &&
+        effectiveRegistrationMode === 'pair' &&
+        !isStrictMixedDoublesPair(entrantGenderValue, partnerGenderValue)
+      )
+        throw new Error('Mixed League teams require one male and one female player.');
 
       const partnerRegistrationArgs = {
         p_partner_name: useNewPartner ? partnerName.trim() : null,
@@ -184,16 +217,53 @@ export function useTournamentRegistrationSubmit({
         p_tennis_skill_level: isEventGuest && entrantSkillLevel ? Number(entrantSkillLevel) : null,
         p_partner_tennis_skill_level: partnerSkillLevelValue,
       };
-      const registrationResult = isEventGuest
-        ? await db.rpc('register_event_guest_tournament_entry', {
-            ...sharedRegistrationArgs,
-            p_display_name: entrantName.trim(),
-            p_tennis_skill_level: entrantSkillLevel ? Number(entrantSkillLevel) : null,
-            p_partner_skill_level: partnerSkillLevelValue,
-          })
-        : leagueTournament && effectiveRegistrationMode === 'individual'
-          ? await db.rpc('register_league_single_event_entry', { p_event_id: eventId })
-          : await db.rpc('register_tournament_entry', registrationArgs);
+      const registrationResult =
+        format === 'singles'
+          ? await db.rpc(
+              isEventGuest
+                ? 'register_event_guest_tournament_singles_entry'
+                : 'register_tournament_singles_entry',
+              {
+                p_event_id: eventId,
+                p_category: entryCategory,
+                p_display_name: entrantName.trim() || null,
+                p_email: currentUserEmail || entrantEmail.trim() || null,
+                p_phone: entrantPhone.trim() || null,
+                p_gender: entrantGenderValue,
+                p_tennis_skill_level: entrantSkillLevel ? Number(entrantSkillLevel) : null,
+                ...(isEventGuest
+                  ? {
+                      p_date_of_birth: entrantDateOfBirth,
+                      p_guardians: normalizeLegalGuardians(entrantGuardians, entrantDateOfBirth),
+                    }
+                  : {}),
+              },
+            )
+          : isEventGuest
+            ? await db.rpc('register_event_guest_tournament_entry_with_guardians', {
+                ...sharedRegistrationArgs,
+                p_display_name: entrantName.trim(),
+                p_tennis_skill_level: entrantSkillLevel ? Number(entrantSkillLevel) : null,
+                p_partner_skill_level: partnerSkillLevelValue,
+                p_date_of_birth: entrantDateOfBirth,
+                p_guardians: normalizeLegalGuardians(entrantGuardians, entrantDateOfBirth),
+                p_partner_date_of_birth: useNewPartner ? partnerDateOfBirth : null,
+                p_partner_guardians: useNewPartner
+                  ? normalizeLegalGuardians(partnerGuardians, partnerDateOfBirth)
+                  : [],
+              })
+            : effectiveRegistrationMode === 'pair' && useNewPartner
+              ? await db.rpc('register_tournament_entry_with_guardians', {
+                  ...registrationArgs,
+                  p_partner_date_of_birth: partnerDateOfBirth,
+                  p_partner_guardians: normalizeLegalGuardians(
+                    partnerGuardians,
+                    partnerDateOfBirth,
+                  ),
+                })
+              : leagueTournament && effectiveRegistrationMode === 'individual'
+                ? await db.rpc('register_league_single_event_entry', { p_event_id: eventId })
+                : await db.rpc('register_tournament_entry', registrationArgs);
       const { data, error } = registrationResult;
       if (error) throw new Error(error.message);
       const result = data as {
@@ -201,17 +271,34 @@ export function useTournamentRegistrationSubmit({
         amountCents?: number;
         partnerParticipantId?: string | null;
         paymentStatus?: string;
+        partnerPaymentStatus?: string;
         partnerEmail?: string | null;
+        partnerAmountCents?: number;
+        discountCents?: number;
+        partnerDiscountCents?: number;
       };
-      const amountDue = (result.amountCents ?? priceCents) > 0;
+      const ownAmountDue = result.paymentStatus
+        ? ['pending', 'failed'].includes(result.paymentStatus)
+          ? (result.amountCents ?? priceCents)
+          : 0
+        : priceCents;
+      const partnerAmountDue = ['pending', 'failed'].includes(result.partnerPaymentStatus ?? '')
+        ? (result.partnerAmountCents ?? 0)
+        : 0;
+      const amountDue = ownAmountDue + partnerAmountDue > 0;
+      const previousPaymentApplied =
+        result.paymentStatus === 'paid' && (result.amountCents ?? 0) > 0;
       let statusMessage =
-        amountDue && result.paymentStatus === 'paid'
+        previousPaymentApplied && partnerAmountDue === 0
           ? 'Your previous non-refunded payment was applied to this category.'
           : amountDue
             ? result.partnerParticipantId
               ? 'Registration saved. Your team can pay after your partner confirms.'
               : 'Registration saved. Payment is pending; you can pay when ready.'
             : 'Registration confirmed.';
+      const totalDiscount = (result.discountCents ?? 0) + (result.partnerDiscountCents ?? 0);
+      if (totalDiscount > 0)
+        statusMessage += ` ${formatMoney(totalDiscount)} discount applied to your registration${result.partnerParticipantId ? ' and partner' : ''}.`;
       if (result.partnerParticipantId) {
         try {
           await requestPartnerInvitation(result.partnerParticipantId);

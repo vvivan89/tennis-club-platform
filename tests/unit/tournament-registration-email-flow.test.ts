@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FormEvent } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { useTournamentRegistrationSubmit } from '@/components/use-tournament-registration-submit';
+import { emptyLegalGuardian } from '@/lib/player-guardian-details';
 
 const participantId = '11111111-1111-4111-8111-111111111111';
 
@@ -22,18 +23,23 @@ function useRegistrationOptions({ leagueTournament = false }: { leagueTournament
     leagueTournament,
     leagueRegistrationCategory: 'men',
     registrationCategory: 'men',
+    format: 'doubles',
     effectiveRegistrationMode: 'individual',
     entrantName: '',
     entrantEmail: '',
     entrantPhone: '',
     entrantGender: '',
     entrantSkillLevel: '',
+    entrantDateOfBirth: '',
+    entrantGuardians: [emptyLegalGuardian()],
     partnerChoice: '',
     partnerName: '',
     partnerEmail: '',
     partnerPhone: '',
     partnerGender: '',
     partnerSkillLevel: '',
+    partnerDateOfBirth: '',
+    partnerGuardians: [emptyLegalGuardian()],
     profileGender: 'male',
     partnerMembers: [],
     participants: [],

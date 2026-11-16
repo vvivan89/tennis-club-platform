@@ -3,7 +3,7 @@ import { phaseStartAfterPrerequisites } from '@/lib/tournament-schedule';
 import { pairMatchPlayerRows } from '@/lib/tournament-match';
 import { effectiveTournamentGroup } from '@/lib/tournament-groups';
 import type { TournamentConfig } from '@/lib/tournament-config';
-import type { Match, Pair, Team } from '@/components/tournament-management-types';
+import type { Match, Pair, Participant, Team } from '@/components/tournament-management-types';
 
 type ScheduleArgs = {
   db: ReturnType<typeof import('@/lib/supabase-browser').createSupabaseBrowserClient>;
@@ -13,11 +13,13 @@ type ScheduleArgs = {
   courtCount: number;
   config: TournamentConfig | null;
   isTeam: boolean;
+  isSingles?: boolean;
   activeCategory: string;
   matchCategory: string;
   matchPhase: string;
   matches: Match[];
   pairs: Pair[];
+  participants?: Participant[];
   teams: Team[];
   setBusy: Dispatch<SetStateAction<boolean>>;
   setError: Dispatch<SetStateAction<string>>;
@@ -37,11 +39,13 @@ export function createTournamentScheduleAction(args: ScheduleArgs) {
     courtCount,
     config,
     isTeam,
+    isSingles = false,
     activeCategory,
     matchCategory,
     matchPhase,
     matches,
     pairs,
+    participants = [],
     teams,
     setBusy,
     setError,
@@ -63,9 +67,13 @@ export function createTournamentScheduleAction(args: ScheduleArgs) {
         const sides = (
           isTeam
             ? teams
-            : pairs.filter(
-                (pair) => pair.status !== 'withdrawn' && pair.category === activeCategory,
-              )
+            : isSingles
+              ? participants.filter(
+                  (entry) => entry.status === 'registered' && entry.category === activeCategory,
+                )
+              : pairs.filter(
+                  (pair) => pair.status !== 'withdrawn' && pair.category === activeCategory,
+                )
         ).filter(
           (side, index, all) => all.findIndex((candidate) => candidate.id === side.id) === index,
         );
@@ -88,8 +96,10 @@ export function createTournamentScheduleAction(args: ScheduleArgs) {
         const existingKeys = new Set(
           existing.map((m) =>
             keyFor(
-              (isTeam ? m.team_one_id : m.pair_one_id) || '',
-              (isTeam ? m.team_two_id : m.pair_two_id) || '',
+              (isTeam ? m.team_one_id : isSingles ? m.player_one_participant_id : m.pair_one_id) ||
+                '',
+              (isTeam ? m.team_two_id : isSingles ? m.player_two_participant_id : m.pair_two_id) ||
+                '',
               effectiveTournamentGroup(m.group_number, config) ?? 0,
             ),
           ),
@@ -112,7 +122,9 @@ export function createTournamentScheduleAction(args: ScheduleArgs) {
                 status: 'scheduled',
                 ...(isTeam
                   ? { team_one_id: one.id, team_two_id: two.id }
-                  : { pair_one_id: one.id, pair_two_id: two.id }),
+                  : isSingles
+                    ? { player_one_participant_id: one.id, player_two_participant_id: two.id }
+                    : { pair_one_id: one.id, pair_two_id: two.id }),
               });
             }
           }
@@ -124,7 +136,7 @@ export function createTournamentScheduleAction(args: ScheduleArgs) {
             .select('*');
           if (insertError) throw new Error(insertError.message);
           const createdMatches = (created ?? []) as Match[];
-          if (!isTeam && createdMatches.length) {
+          if (!isTeam && !isSingles && createdMatches.length) {
             await insertMatchPlayers(
               createdMatches.flatMap((match) => pairMatchPlayerRows(match, pairs)),
             );

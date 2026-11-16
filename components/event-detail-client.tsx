@@ -26,6 +26,7 @@ import {
   type EventScoreRow as Score,
 } from '@/components/event-detail-panels';
 import { UserIdentity } from '@/components/user-identity';
+import { TennisSkillRangeNotice } from '@/components/tennis-skill-range-notice';
 import {
   EventActionFeedback,
   EventPaymentPendingNotices,
@@ -578,6 +579,10 @@ export function EventDetailClient({
           <PartyGuestFee priceCents={event.guest_price_cents ?? 0} />
         )}
       </div>
+      <TennisSkillRangeNotice
+        minimum={event.minimum_tennis_skill_level}
+        maximum={event.maximum_tennis_skill_level}
+      />
       {event.description?.trim() && (
         <p className="max-w-3xl whitespace-pre-line text-sm leading-7 text-muted-foreground">
           {event.description.trim()}

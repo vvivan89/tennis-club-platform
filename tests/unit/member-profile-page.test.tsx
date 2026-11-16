@@ -127,6 +127,40 @@ afterEach(() => {
 });
 
 describe('Member profile page', () => {
+  it('shows a separate Appearance card with aligned theme and court-style options', async () => {
+    const user = userEvent.setup();
+    render(<ProfilePage />);
+    const appearanceHeading = await screen.findByRole('heading', { name: 'Appearance' });
+    const profileCard = screen
+      .getByRole('heading', { name: 'Profile information' })
+      .closest('.rounded-xl');
+    const appearanceCard = appearanceHeading.closest('.rounded-xl');
+    expect(profileCard).not.toContainElement(appearanceHeading);
+    expect(profileCard?.parentElement as HTMLElement).toContainElement(
+      appearanceCard as HTMLElement,
+    );
+
+    expect(screen.getByRole('button', { name: 'Light' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Light/ })).toHaveClass('h-[108px]');
+    expect(screen.getByRole('button', { name: 'Hard' })).toHaveClass('h-[108px]');
+    expect(appearanceCard?.querySelector('.appearance-settings-divider')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^Dark/ }));
+    expect(mocks.setThemeMode).toHaveBeenCalledWith('dark');
+
+    expect(screen.getByRole('button', { name: 'Hard' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Hard' }).querySelector('img')).toHaveAttribute(
+      'src',
+      expect.stringContaining('tennis-court-lines.png'),
+    );
+    expect(screen.getByRole('button', { name: 'Hard' }).querySelector('img')).toHaveClass(
+      'appearance-court__diagram',
+      'appearance-court__diagram--rotated',
+    );
+    expect(screen.getByRole('button', { name: 'Grass' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Clay' }));
+    expect(mocks.setThemeAccent).toHaveBeenCalledWith('orange');
+  });
+
   it('places the device push control inside the Chat notifications card', async () => {
     render(<ProfilePage />);
     const heading = await screen.findByRole('heading', { name: 'Chat notifications' });
@@ -145,10 +179,13 @@ describe('Member profile page', () => {
     await waitFor(() => expect(mocks.routerReplace).toHaveBeenCalledWith('/login?next=/profile'));
   });
 
-  it('redirects unapproved profiles and loads approved profile data', async () => {
+  it('shows application status to unapproved profiles and loads approved profile data', async () => {
     mocks.profile = { ...mocks.profile, application_status: 'pending' };
     const { unmount } = render(<ProfilePage />);
-    await waitFor(() => expect(mocks.routerReplace).toHaveBeenCalledWith('/member/dashboard'));
+    expect(
+      await screen.findByRole('heading', { name: 'Membership application under review' }),
+    ).toBeInTheDocument();
+    expect(mocks.routerReplace).not.toHaveBeenCalled();
     unmount();
     mocks.routerReplace.mockReset();
     mocks.profile = { ...mocks.profile, application_status: 'approved' };
@@ -166,7 +203,7 @@ describe('Member profile page', () => {
     mocks.profileError = null;
     mocks.profile = null as unknown as Record<string, unknown>;
     render(<ProfilePage />);
-    expect(await screen.findByRole('heading', { name: 'Edit profile' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Profile' })).toBeInTheDocument();
   });
 
   it('uses empty field values and enabled defaults when optional profile data is null', async () => {
@@ -294,11 +331,14 @@ describe('Member profile page', () => {
   });
 
   it('saves chat preferences, dispatches the update event, and reports write failures', async () => {
-    const { container } = render(<ProfilePage />);
+    render(<ProfilePage />);
     await screen.findByDisplayValue('Member One');
     const dispatch = vi.spyOn(window, 'dispatchEvent');
     await userEvent.click(screen.getByLabelText('Show only when someone mentions you'));
-    fireEvent.submit(container.querySelectorAll('form')[2]);
+    const chatPreferencesForm = screen
+      .getByRole('button', { name: 'Save chat preferences' })
+      .closest('form');
+    fireEvent.submit(chatPreferencesForm!);
     expect(await screen.findByText('Chat notification preferences saved.')).toBeInTheDocument();
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'pctc-chat-notification-preference-updated' }),
@@ -310,7 +350,7 @@ describe('Member profile page', () => {
     );
 
     mocks.updateError = { message: 'database details' };
-    fireEvent.submit(container.querySelectorAll('form')[2]);
+    fireEvent.submit(chatPreferencesForm!);
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Could not save chat notification preferences.',
     );

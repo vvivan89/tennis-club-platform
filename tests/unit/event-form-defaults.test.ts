@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { getEventTypeFormUpdate, initialEventFormValues } from '@/components/event-form-defaults';
+import {
+  getEventTypeFormUpdate,
+  initialEventFormValues,
+  leagueTournamentConfig,
+} from '@/components/event-form-defaults';
 
 describe('event type form defaults', () => {
   it('keeps Social events and recurring behavior unchanged', () => {
@@ -19,6 +23,30 @@ describe('event type form defaults', () => {
     expect(result.recurring).toBe(false);
   });
 
+  it('configures singles tournaments with individual entries and three singles categories', () => {
+    const result = getEventTypeFormUpdate('singles_tournament', initialEventFormValues);
+    expect(result.update).toMatchObject({
+      event_type: 'tournament',
+      tournament_format: 'singles',
+      tournament_config: { categories: ['all', 'men', 'women'], registration_mode: 'single' },
+    });
+    expect(result.recurring).toBe(false);
+  });
+
+  it('resets singles categories when switching back to a doubles tournament', () => {
+    const current = {
+      ...initialEventFormValues,
+      tournament_format: 'singles',
+      tournament_config: {
+        ...initialEventFormValues.tournament_config,
+        categories: ['all', 'men', 'women'],
+      },
+    };
+    const result = getEventTypeFormUpdate('doubles_tournament', current);
+
+    expect(result.update.tournament_config?.categories).toEqual(['mixed', 'men', 'women']);
+  });
+
   it('sets Party-only eligibility and single-event defaults', () => {
     const result = getEventTypeFormUpdate('party', {
       ...initialEventFormValues,
@@ -34,5 +62,27 @@ describe('event type form defaults', () => {
     });
     expect(result.recurring).toBe(false);
     expect(result.seedSeries).toBe(false);
+  });
+
+  it('maps a Mixed League to the mixed doubles registration category', () => {
+    expect(leagueTournamentConfig(initialEventFormValues.tournament_config, 'mixed')).toMatchObject(
+      {
+        categories: ['mixed'],
+        phases: { round_robin: true },
+        registration_mode: 'both',
+      },
+    );
+  });
+
+  it('preserves optional skill bounds when switching to League configuration', () => {
+    const result = getEventTypeFormUpdate('league_tournament', {
+      ...initialEventFormValues,
+      minimum_tennis_skill_level: '3.0',
+      maximum_tennis_skill_level: '4.5',
+    });
+    expect(result.update.tournament_config).toMatchObject({
+      minimum_tennis_skill_level: 3,
+      maximum_tennis_skill_level: 4.5,
+    });
   });
 });

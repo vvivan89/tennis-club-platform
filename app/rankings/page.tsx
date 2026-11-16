@@ -63,7 +63,7 @@ export default async function RankingsPage({ searchParams: searchParamsPromise }
   const ladders = (laddersRaw ?? []) as Array<{
     id: string;
     name: string;
-    gender: 'male' | 'female';
+    gender: 'male' | 'female' | 'mixed';
     position_points: number[];
     ranking_priority: string[];
     starts_at: string;
@@ -80,7 +80,7 @@ export default async function RankingsPage({ searchParams: searchParamsPromise }
       'id,title,slug,starts_at,ends_at,status,tournament_format,tournament_config,tournament_rules_html,tournament_details_public,allow_non_member_registration,registration_opens_at,registration_closes_at,price_cents,location,court_count',
     )
     .eq('event_type', 'tournament')
-    .eq('tournament_format', 'doubles')
+    .in('tournament_format', ['doubles', 'singles'])
     .is('social_doubles_ladder_id', null)
     .in('status', ['published', 'cancelled'])
     .order('starts_at', { ascending: false });

@@ -1,10 +1,11 @@
 import { formatDateTime } from '@/lib/time-format';
 
-export const categoryLabel = (value: string) =>
+export const categoryLabel = (value: string, format?: string | null) =>
   ({
     mixed: 'Mixed doubles',
-    men: "Men's doubles",
-    women: "Women's doubles",
+    men: format === 'singles' ? "Men's singles" : "Men's doubles",
+    women: format === 'singles' ? "Women's singles" : "Women's doubles",
+    all: 'All gender',
     team: 'Team tournament',
     overall: 'Overall',
   })[value] || value;

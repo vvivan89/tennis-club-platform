@@ -572,6 +572,19 @@ describe('EventEditManagement court assignments', () => {
     expect(screen.queryByText(/Waitlist/)).not.toBeInTheDocument();
   });
 
+  it('hides court assignment on tournament edit pages when requested', async () => {
+    render(
+      <EventEditManagement
+        eventId="event-1"
+        startsAt="2999-01-01T00:00:00Z"
+        hideRegistrationManagement
+        hideCourtAssignment
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Assign courts' })).not.toBeInTheDocument();
+  });
+
   it('requires destructive confirmation before removing a court-assigned participant', async () => {
     const user = userEvent.setup();
     render(<EventEditManagement eventId="event-1" startsAt="2999-01-01T00:00:00Z" />);

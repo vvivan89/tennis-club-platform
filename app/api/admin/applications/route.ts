@@ -30,7 +30,7 @@ export async function POST(request: Request) {
       .maybeSingle();
     if (readError || !app)
       return NextResponse.json({ error: 'Application not found.' }, { status: 404 });
-    if (app.account_kind !== 'member' || app.application_status !== 'pending')
+    if (app.application_status !== 'pending')
       return NextResponse.json(
         { error: 'This application has already been processed.' },
         { status: 409 },
@@ -39,7 +39,7 @@ export async function POST(request: Request) {
       .from('profiles')
       .update({
         application_status: action === 'approve' ? 'approved' : 'dismissed',
-        ...(action === 'approve' ? { role: 'member' } : {}),
+        ...(action === 'approve' ? { role: 'member', account_kind: 'member' } : {}),
       })
       .eq('id', userId);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });

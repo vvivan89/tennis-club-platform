@@ -21,6 +21,8 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
     registrationClosesAt,
     priceCents,
     canViewCompetition,
+    isManager,
+    underagePlayers,
     format,
     teams,
     activeCategory,
@@ -70,6 +72,7 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
     currentUserPhone,
     currentUserGender,
     currentUserSkillLevel,
+    currentUserAccountKind,
     currentUserIsApprovedMember,
     captainRequestBusy,
     requestCaptain,
@@ -128,6 +131,10 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
     setEntrantPhone,
     entrantSkillLevel,
     setEntrantSkillLevel,
+    entrantDateOfBirth,
+    setEntrantDateOfBirth,
+    entrantGuardians,
+    setEntrantGuardians,
     entrantGender,
     setEntrantGender,
     effectiveRegistrationMode,
@@ -143,6 +150,10 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
     setPartnerPhone,
     partnerSkillLevel,
     setPartnerSkillLevel,
+    partnerDateOfBirth,
+    setPartnerDateOfBirth,
+    partnerGuardians,
+    setPartnerGuardians,
     partnerGender,
     setPartnerGender,
     pairPaymentStatuses,
@@ -188,10 +199,26 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
       </span>
     );
   };
+  const renderSinglesIdentity = (participantId: string | null, fallback: string) => {
+    const player = participants.find((item: { id: string }) => item.id === participantId);
+    return player ? (
+      <UserIdentity
+        name={player.display_name}
+        skillLevel={player.tennis_skill_level}
+        avatarUrl={player.avatar_url}
+        birthdayVisible={player.birthday_emoji_visible}
+        compact
+      />
+    ) : (
+      fallback
+    );
+  };
   return (
     <div className={leagueTournament ? 'flex flex-col gap-5' : 'space-y-5'}>
       <TournamentOverviewParticipants
         canViewCompetition={canViewCompetition}
+        canViewGuardianDetails={isManager}
+        underagePlayers={underagePlayers}
         format={format}
         teams={teams}
         activeCategory={activeCategory}
@@ -338,6 +365,7 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
             priceCents={priceCents}
             registrationOpen={registrationOpen}
             currentUserId={currentUserId}
+            currentUserIsApprovedMember={currentUserIsApprovedMember}
             allowNonMemberRegistration={allowNonMemberRegistration}
             eventSlug={eventSlug}
             eventId={eventId}
@@ -367,6 +395,7 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
               registrationMode={registrationMode}
               setRegistrationMode={setRegistrationMode}
               isEventGuest={isEventGuest}
+              hasProfileDetails={!!currentUserId && currentUserAccountKind === 'member'}
               entrantName={entrantName}
               setEntrantName={setEntrantName}
               entrantEmail={entrantEmail}
@@ -376,6 +405,10 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
               setEntrantSkillLevel={setEntrantSkillLevel}
               entrantGender={entrantGender}
               setEntrantGender={setEntrantGender}
+              entrantDateOfBirth={entrantDateOfBirth}
+              setEntrantDateOfBirth={setEntrantDateOfBirth}
+              entrantGuardians={entrantGuardians}
+              setEntrantGuardians={setEntrantGuardians}
               format={format}
               effectiveRegistrationMode={effectiveRegistrationMode}
               currentUserId={currentUserId}
@@ -393,6 +426,10 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
               setPartnerSkillLevel={setPartnerSkillLevel}
               partnerGender={partnerGender}
               setPartnerGender={setPartnerGender}
+              partnerDateOfBirth={partnerDateOfBirth}
+              setPartnerDateOfBirth={setPartnerDateOfBirth}
+              partnerGuardians={partnerGuardians}
+              setPartnerGuardians={setPartnerGuardians}
               participants={participants}
               registrationBusy={registrationBusy}
             />
@@ -463,6 +500,18 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
           <p className="mt-1 font-semibold">
             {format === 'team' ? (
               `${ownNextMatch.team_one_name || 'TBD'} vs ${ownNextMatch.team_two_name || 'TBD'}`
+            ) : format === 'singles' ? (
+              <span className="flex flex-wrap items-center gap-2">
+                {renderSinglesIdentity(
+                  ownNextMatch.player_one_participant_id,
+                  ownNextMatch.player_one_name || 'TBD',
+                )}
+                vs
+                {renderSinglesIdentity(
+                  ownNextMatch.player_two_participant_id,
+                  ownNextMatch.opponent_one_name || 'TBD',
+                )}
+              </span>
             ) : (
               <span className="flex flex-wrap items-center gap-2">
                 {renderPairIdentity(

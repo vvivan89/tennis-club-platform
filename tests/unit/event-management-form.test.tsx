@@ -812,7 +812,7 @@ describe('event creation validation visibility', () => {
     await user.selectOptions(screen.getByLabelText('Event type'), 'social_doubles_ladder');
     setValidSeriesWindow();
     fireEvent.change(screen.getByLabelText('Ladder gender'), { target: { value: '' } });
-    await submitAndExpectError("Choose men's or women's ladder.");
+    await submitAndExpectError("Choose a men's, women's, or mixed doubles ladder category.");
 
     fireEvent.change(screen.getByLabelText('Ladder gender'), { target: { value: 'male' } });
     fireEvent.change(screen.getByLabelText('Ladder name'), { target: { value: '   ' } });
@@ -880,7 +880,7 @@ describe('event creation validation visibility', () => {
     await user.selectOptions(screen.getByLabelText('Event type'), 'league_tournament');
     setValidSeriesWindow();
     fireEvent.change(screen.getByLabelText('League gender'), { target: { value: '' } });
-    await submitAndExpectError('Choose a league gender.');
+    await submitAndExpectError("Choose a men's, women's, or mixed League category.");
   });
 
   it('keeps the gender fixed when an existing ladder or League is selected', async () => {

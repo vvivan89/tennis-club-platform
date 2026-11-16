@@ -13,6 +13,7 @@ export function useTournamentScoreActions({
   db,
   eventStartsAt,
   isTeam,
+  isSingles = false,
   config,
   matches,
   pairs,
@@ -30,6 +31,7 @@ export function useTournamentScoreActions({
   db: Db;
   eventStartsAt?: string;
   isTeam: boolean;
+  isSingles?: boolean;
   config: TournamentConfig | null;
   matches: Match[];
   pairs: Pair[];
@@ -59,17 +61,25 @@ export function useTournamentScoreActions({
       ? winnerSide === 1
         ? match.team_one_id
         : match.team_two_id
-      : winnerSide === 1
-        ? match.pair_one_id
-        : match.pair_two_id;
+      : isSingles
+        ? winnerSide === 1
+          ? match.player_one_participant_id
+          : match.player_two_participant_id
+        : winnerSide === 1
+          ? match.pair_one_id
+          : match.pair_two_id;
     if (!winnerId) return;
     const field = isTeam
       ? targetSide === 1
         ? 'team_one_id'
         : 'team_two_id'
-      : targetSide === 1
-        ? 'pair_one_id'
-        : 'pair_two_id';
+      : isSingles
+        ? targetSide === 1
+          ? 'player_one_participant_id'
+          : 'player_two_participant_id'
+        : targetSide === 1
+          ? 'pair_one_id'
+          : 'pair_two_id';
     const { error: advanceError } = await db
       .from('tournament_matches')
       .update({ [field]: winnerId, updated_at: new Date().toISOString() })
@@ -78,7 +88,7 @@ export function useTournamentScoreActions({
       setError(`Result saved, but the winner could not be advanced: ${advanceError.message}`);
       return;
     }
-    if (!isTeam) {
+    if (!isTeam && !isSingles) {
       const winnerPair = pairs.find((pair) => pair.id === winnerId);
       if (winnerPair) {
         const { error: deleteError } = await db

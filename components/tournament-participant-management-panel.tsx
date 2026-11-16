@@ -5,17 +5,28 @@ import { Input } from '@/components/ui/input';
 import { SearchableMemberSelect, type MemberOption } from '@/components/searchable-member-select';
 import { GenderSelect } from '@/components/gender-select';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
-import type { Member, Pair, Participant, Team } from '@/components/tournament-management-types';
+import type {
+  Member,
+  Pair,
+  Participant,
+  Team,
+  UnderagePlayer,
+} from '@/components/tournament-management-types';
 import { TournamentEntryGroupingPanel } from '@/components/tournament-entry-grouping-panel';
+import { GroupAssignmentSelect } from '@/components/group-assignment-select';
+import { formatMoney } from '@/components/tournament-public-view-format';
+import { UnderagePlayerBadge } from '@/components/underage-player-badge';
 
 type ActionResult = { error: { message: string } | null };
 export type Props = {
   eventId: string;
   isTeam: boolean;
+  isSingles: boolean;
   leagueTournament: boolean;
   activeCategory: string;
   members: Member[];
   participants: Participant[];
+  underagePlayers: Record<string, UnderagePlayer>;
   pairs: Pair[];
   teams: Team[];
   groupCount: number;
@@ -67,10 +78,12 @@ export type Props = {
 export function TournamentParticipantManagementPanel(props: Props) {
   const {
     isTeam,
+    isSingles,
     leagueTournament,
     activeCategory,
     members,
     participants,
+    underagePlayers,
     teams,
     busy,
     priceCents,
@@ -93,6 +106,7 @@ export function TournamentParticipantManagementPanel(props: Props) {
     setParticipantGender,
     setPendingRemoveParticipant,
   } = props;
+  const selectedMember = members.find((member) => member.id === memberId);
   return (
     <div className="space-y-5">
       <div className="grid gap-5 xl:grid-cols-2">
@@ -206,6 +220,21 @@ export function TournamentParticipantManagementPanel(props: Props) {
                   })}
               />
             </label>
+            {memberId && !selectedMember?.gender && (
+              <div className="space-y-1">
+                <GenderSelect
+                  value={participantGender}
+                  onChange={setParticipantGender}
+                  label="Tournament gender override"
+                  className="block text-sm"
+                  selectClassName="block h-10 w-full rounded-md border border-input bg-background px-3"
+                />
+                <p className="text-xs text-muted-foreground">
+                  This sets the player&apos;s gender for this tournament only; it does not change
+                  their profile.
+                </p>
+              </div>
+            )}
             {!memberId && !leagueTournament && (
               <>
                 <Input
@@ -258,6 +287,13 @@ export function TournamentParticipantManagementPanel(props: Props) {
                     <div className="min-w-0">
                       <p className="flex items-center gap-2 font-medium">
                         {p.display_name}
+                        {underagePlayers[p.id] && (
+                          <UnderagePlayerBadge
+                            playerName={p.display_name}
+                            age={underagePlayers[p.id].age}
+                            guardians={underagePlayers[p.id].guardians}
+                          />
+                        )}
                         {(p.captain_requested ||
                           teams.some((team) => team.captain_user_id === p.user_id)) && (
                           <span
@@ -287,6 +323,12 @@ export function TournamentParticipantManagementPanel(props: Props) {
                       {priceCents > 0 && p.payment_status === 'pending' && (
                         <p className="mt-1 text-xs text-warning-foreground dark:text-warning-foreground">
                           Pending payment — registration is awaiting payment confirmation.
+                        </p>
+                      )}
+                      {(p.discount_cents ?? 0) > 0 && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Base {formatMoney(p.base_amount_cents ?? p.amount_cents)} · Discount{' '}
+                          {formatMoney(p.discount_cents ?? 0)} · Due {formatMoney(p.amount_cents)}
                         </p>
                       )}
                     </div>
@@ -384,7 +426,63 @@ export function TournamentParticipantManagementPanel(props: Props) {
               ))}
           </div>
         </div>
-        <TournamentEntryGroupingPanel {...props} />
+        {isSingles ? (
+          <section className="space-y-3 rounded-lg border border-border p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="font-semibold">Singles draw entries</h3>
+                <p className="text-sm text-muted-foreground">
+                  {props.groupCount > 1
+                    ? 'Assign each registered player to a group before generating round-robin matches.'
+                    : 'Registered players share the same draw. Round-robin matches can be created directly.'}
+                </p>
+              </div>
+              {props.groupCount > 1 && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={
+                    busy ||
+                    !participants.some(
+                      (player) =>
+                        player.category === activeCategory && player.status === 'registered',
+                    )
+                  }
+                  onClick={props.randomizeGroups}
+                >
+                  Random group draw
+                </Button>
+              )}
+            </div>
+            {participants
+              .filter(
+                (player) => player.category === activeCategory && player.status === 'registered',
+              )
+              .map((player) => (
+                <div
+                  key={player.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border p-3 text-sm"
+                >
+                  <span className="font-medium">{player.display_name}</span>
+                  {!leagueTournament && props.groupCount > 1 && (
+                    <GroupAssignmentSelect
+                      ariaLabel={`Group for ${player.display_name}`}
+                      value={player.group_number ?? null}
+                      options={props.groupOptions}
+                      onChange={(group) =>
+                        void props.runAction(
+                          () => props.saveEntryGroup(player.id, group ? Number(group) : null),
+                          'Group assignment updated.',
+                        )
+                      }
+                    />
+                  )}
+                </div>
+              ))}
+          </section>
+        ) : (
+          <TournamentEntryGroupingPanel {...props} />
+        )}
       </div>
     </div>
   );
