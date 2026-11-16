@@ -36,6 +36,7 @@ import { useTournamentPublicViewUiState } from '@/components/use-tournament-publ
 import { getTournamentWithdrawalPaymentState } from '@/components/tournament-withdrawal-payment-state';
 import { getTournamentLeagueOverviewData } from '@/components/tournament-league-overview-data';
 import { useSiteHeaderState } from '@/components/site-header-state';
+import type { UnderagePlayer } from '@/components/tournament-management-types';
 const EMPTY_WINNER_SUMMARIES: Array<{ category: string; winners: string[] }> = [];
 export function TournamentPublicView({
   adminContent = null,
@@ -53,6 +54,8 @@ export function TournamentPublicView({
   currentUserPhone = '',
   currentUserSkillLevel = null,
   currentUserGender = null,
+  currentUserDateOfBirth = null,
+  currentUserGuardians = [],
   format,
   config,
   rulesHtml,
@@ -83,6 +86,28 @@ export function TournamentPublicView({
   const { shortName } = useSiteHeaderState();
   const db = useMemo(() => createSupabaseBrowserClient(), []),
     router = useRouter();
+  const [underagePlayers, setUnderagePlayers] = useState<Record<string, UnderagePlayer>>({});
+  useEffect(() => {
+    if (!isManager) {
+      setUnderagePlayers({});
+      return;
+    }
+    let active = true;
+    fetch(`/api/admin/events/${eventId}/underage-players`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Could not load underage player details.');
+        return (await response.json()) as { players?: Record<string, UnderagePlayer> };
+      })
+      .then((result) => {
+        if (active) setUnderagePlayers(result.players ?? {});
+      })
+      .catch(() => {
+        if (active) setUnderagePlayers({});
+      });
+    return () => {
+      active = false;
+    };
+  }, [eventId, isManager]);
   useEffect(() => {
     if (eventTitle) document.title = [shortName, eventTitle].filter(Boolean).join(' | ');
   }, [eventTitle, shortName]);
@@ -102,6 +127,8 @@ export function TournamentPublicView({
     currentUserEmail,
     currentUserPhone,
     currentUserGender,
+    currentUserDateOfBirth,
+    currentUserGuardians,
     currentUserSkillLevel,
     hasRules,
   });
@@ -456,12 +483,16 @@ export function TournamentPublicView({
     entrantPhone: ui.entrantPhone,
     entrantGender: ui.entrantGender,
     entrantSkillLevel: ui.entrantSkillLevel,
+    entrantDateOfBirth: ui.entrantDateOfBirth,
+    entrantGuardians: ui.entrantGuardians,
     partnerChoice: ui.partnerChoice,
     partnerName: ui.partnerName,
     partnerEmail: ui.partnerEmail,
     partnerPhone: ui.partnerPhone,
     partnerGender: ui.partnerGender,
     partnerSkillLevel: ui.partnerSkillLevel,
+    partnerDateOfBirth: ui.partnerDateOfBirth,
+    partnerGuardians: ui.partnerGuardians,
     profileGender,
     partnerMembers,
     participants,
@@ -640,6 +671,8 @@ export function TournamentPublicView({
               ui={registrationOnlyView ? { ...ui, tab: 'overview' } : ui}
               view={{
                 eventDescription,
+                isManager,
+                underagePlayers,
                 genderRestriction,
                 locationQuery,
                 startsAt,

@@ -56,6 +56,13 @@ export function AdminMembershipGuide() {
               effect:
                 'Birth date contributes to family adult/child limits; gender affects eligibility for gender-specific events.',
             },
+            {
+              field: 'Parent/legal guardian contacts',
+              value:
+                'When the invited person is under 18, add at least one guardian name and an email address or phone number. Add additional guardians when needed.',
+              effect:
+                'Guardian contacts are stored privately and are available to authorized event managers from the underage player badge on tournament participant tiles.',
+            },
           ]}
         />
         <Steps>

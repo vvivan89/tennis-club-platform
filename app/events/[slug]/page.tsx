@@ -100,7 +100,7 @@ export default async function EventDetailsPage({
       ? await db
           .from('profiles')
           .select(
-            'role,application_status,account_kind,email,full_name,phone,tennis_skill_level,gender',
+            'role,application_status,account_kind,email,full_name,phone,tennis_skill_level,gender,date_of_birth',
           )
           .eq('id', user.id)
           .maybeSingle()
@@ -132,7 +132,7 @@ export default async function EventDetailsPage({
       ? db
           .from('profiles')
           .select(
-            'role,application_status,account_kind,email,full_name,phone,tennis_skill_level,gender',
+            'role,application_status,account_kind,email,full_name,phone,tennis_skill_level,gender,date_of_birth',
           )
           .eq('id', user.id)
           .maybeSingle()
@@ -143,6 +143,26 @@ export default async function EventDetailsPage({
       ? db.rpc('event_organizer_contacts', { p_event_id: event.id })
       : Promise.resolve({ data: [] }),
   ]);
+  let currentUserGuardians: Array<{ name: string; email: string; phone: string }> = [];
+  if (event.event_type === 'tournament' && user) {
+    const { data: privateDetails } = await db
+      .from('player_private_details')
+      .select('id')
+      .eq('profile_id', user.id)
+      .maybeSingle();
+    if (privateDetails) {
+      const { data: guardianRows } = await db
+        .from('player_legal_guardians')
+        .select('full_name,email,phone')
+        .eq('private_details_id', privateDetails.id)
+        .order('created_at');
+      currentUserGuardians = (guardianRows ?? []).map((guardian) => ({
+        name: guardian.full_name,
+        email: guardian.email ?? '',
+        phone: guardian.phone ?? '',
+      }));
+    }
+  }
   const organizerContacts = memberOrganizerContacts?.length
     ? memberOrganizerContacts
     : publicOrganizerContacts;
@@ -328,6 +348,7 @@ export default async function EventDetailsPage({
                     leagueGender={league?.gender ?? null}
                     captainMode={!isManager && isTeamCaptain}
                     captainTeamId={captainTeam?.id ?? null}
+                    canViewGuardianDetails={isManager}
                   />
                 ) : null
               }
@@ -347,6 +368,8 @@ export default async function EventDetailsPage({
               currentUserPhone={profile?.phone ?? ''}
               currentUserSkillLevel={profile?.tennis_skill_level ?? null}
               currentUserGender={profile?.gender ?? null}
+              currentUserDateOfBirth={profile?.date_of_birth ?? null}
+              currentUserGuardians={currentUserGuardians}
               format={event.tournament_format}
               config={event.tournament_config ?? {}}
               rulesHtml={event.tournament_rules_html ?? ''}

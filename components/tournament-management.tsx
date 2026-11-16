@@ -20,6 +20,7 @@ import type {
   Pair,
   Participant,
   Team,
+  UnderagePlayer,
 } from '@/components/tournament-management-types';
 import { useTournamentMatchActions } from '@/components/use-tournament-match-actions';
 import { useTournamentDrawActions } from '@/components/use-tournament-draw-actions';
@@ -48,6 +49,7 @@ export function TournamentManagement({
   leagueGender = null,
   captainMode = false,
   captainTeamId = null,
+  canViewGuardianDetails = false,
 }: {
   eventId: string;
   leagueId?: string | null;
@@ -61,10 +63,12 @@ export function TournamentManagement({
   leagueGender?: string | null;
   captainMode?: boolean;
   captainTeamId?: string | null;
+  canViewGuardianDetails?: boolean;
 }) {
   const db = createSupabaseBrowserClient();
   const [teams, setTeams] = useState<Team[]>([]);
   const [participants, setParticipants] = useState<Participant[]>([]);
+  const [underagePlayers, setUnderagePlayers] = useState<Record<string, UnderagePlayer>>({});
   const [pairs, setPairs] = useState<Pair[]>([]);
   const [matches, setMatches] = useState<Match[]>([]);
   const [matchPlayers, setMatchPlayers] = useState<MatchPlayer[]>([]);
@@ -212,6 +216,15 @@ export function TournamentManagement({
     setParticipants((previous) =>
       JSON.stringify(previous) === JSON.stringify(nextParticipants) ? previous : nextParticipants,
     );
+    if (!captainMode && canViewGuardianDetails) {
+      try {
+        const response = await fetch(`/api/admin/events/${eventId}/underage-players`);
+        const result = response.ok ? await response.json() : null;
+        setUnderagePlayers(result?.players ?? {});
+      } catch {
+        setUnderagePlayers({});
+      }
+    }
     if (leagueTournament && !leagueEligibilityResult.error) {
       setLeagueMemberEligibility(
         Object.fromEntries(
@@ -255,7 +268,7 @@ export function TournamentManagement({
       JSON.stringify(previous) === JSON.stringify(nextAuditRows) ? previous : nextAuditRows,
     );
     window.dispatchEvent(new CustomEvent('pctc-tournament-data-refresh', { detail: { eventId } }));
-  }, [captainMode, db, eventId, leagueTournament, setError]);
+  }, [canViewGuardianDetails, captainMode, db, eventId, leagueTournament, setError]);
 
   useEffect(() => {
     const closeOutsideMenus = (event: PointerEvent) => {
@@ -634,6 +647,7 @@ export function TournamentManagement({
           activeCategory={activeCategory}
           members={members}
           participants={participants}
+          underagePlayers={underagePlayers}
           pairs={pairs}
           teams={teams}
           groupCount={Math.max(1, Number(config?.group_count ?? 2))}

@@ -29,6 +29,12 @@ export function PublicHelpGuide({
           </li>
         </Steps>
         <p>
+          If the birthdate shows you are under 18, add at least one parent or legal guardian with a
+          name and either an email address or phone number. You may add more than one guardian.
+          Adults do not see these fields. Guardian contact details are kept private and are not
+          displayed on public player listings.
+        </p>
+        <p>
           While your membership application is absent or under review, you can use your profile and
           public pages. Member-only portal pages remain unavailable until your application is
           approved.
@@ -111,6 +117,13 @@ export function PublicHelpGuide({
                 'When signed in with a regular account, your name, email, phone, gender, and skill rating come from your profile. If you start without an account, the sign-in link lets you enter the required tournament details after you verify your email.',
               effect:
                 'Profile details are used for your registration. An email-only entry creates event-only access so you can finish the registration and return to it later.',
+            },
+            {
+              field: 'Date of birth and guardian contacts',
+              value:
+                'An email-only player must enter their date of birth. A player under 18 must provide at least one parent/legal guardian name and an email address or phone number; additional guardians can be added.',
+              effect:
+                'Guardian fields appear only for players under 18. Guardian contacts are private and are not shown on public tournament participant listings.',
             },
             {
               field: 'Phone, skill, and gender',

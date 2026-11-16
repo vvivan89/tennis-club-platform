@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const mocks = vi.hoisted(() => ({
@@ -114,6 +114,7 @@ describe('AuthForm', () => {
             tennis_skill_level: '3.5',
             date_of_birth: '1990-05-14',
             gender: 'female',
+            legal_guardians: [],
           },
         }),
       }),
@@ -141,6 +142,32 @@ describe('AuthForm', () => {
     await user.click(screen.getByRole('button', { name: 'Create account' }));
     expect(mocks.replace).toHaveBeenCalledWith('/profile');
     expect(mocks.refresh).toHaveBeenCalledOnce();
+  });
+
+  it('collects at least one guardian contact when the account holder is under 18', async () => {
+    const user = userEvent.setup();
+    render(<AuthForm mode="signup" />);
+    await user.type(screen.getByLabelText('Full name'), 'Young Player');
+    await user.type(screen.getByLabelText(/Phone number/), '6045550100');
+    await user.type(screen.getByLabelText(/Date of birth/), '2012-05-14');
+    const guardianGroup = screen.getByRole('group', { name: /Parent\/Legal Guardian/ });
+    await user.type(screen.getByLabelText(/^Guardian name/), 'Parent One');
+    await user.type(within(guardianGroup).getByLabelText('Email'), 'parent@example.com');
+    await user.selectOptions(screen.getByLabelText(/Gender/), 'female');
+    await user.selectOptions(screen.getByLabelText(/Tennis skill rating/), '3.5');
+    await user.type(screen.getAllByLabelText('Email')[1], 'young@example.com');
+    await user.type(screen.getByLabelText(/^Password/), 'password123');
+    await user.click(screen.getByRole('button', { name: 'Create account' }));
+
+    expect(mocks.signUp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          data: expect.objectContaining({
+            legal_guardians: [{ name: 'Parent One', email: 'parent@example.com', phone: '' }],
+          }),
+        }),
+      }),
+    );
   });
 
   it('requests a password reset without revealing whether an account exists', async () => {

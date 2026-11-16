@@ -51,6 +51,12 @@ export function AdminTournamentsGuide() {
           participant information first, record why the override is needed, and never mark an
           unverified payment as paid.
         </Callout>
+        <p>
+          When an under-18 player has a birthdate and guardian contacts on file, their participant
+          tile shows an <strong>Under 18</strong> badge with their age. Select the badge to review
+          the recorded parent/legal guardian names and contact details. This information is only
+          available to authorized event managers and is not shown on the public tournament page.
+        </p>
       </Topic>
 
       <Topic id="admin-tournament-discounts" title="Configure tournament registration discounts">

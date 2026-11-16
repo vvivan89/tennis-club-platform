@@ -148,6 +148,8 @@ export type TournamentPublicViewProps = {
   currentUserPhone?: string;
   currentUserSkillLevel?: string | null;
   currentUserGender?: string | null;
+  currentUserDateOfBirth?: string | null;
+  currentUserGuardians?: Array<{ name: string; email: string; phone: string }>;
   format: string | null;
   config: TournamentConfig | null;
   rulesHtml: string | null;

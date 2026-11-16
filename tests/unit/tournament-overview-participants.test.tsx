@@ -8,6 +8,8 @@ function baseProps(
 ): ComponentProps<typeof TournamentOverviewParticipants> {
   return {
     canViewCompetition: true,
+    canViewGuardianDetails: false,
+    underagePlayers: {},
     format: 'individual',
     teams: [],
     activeCategory: 'open',
@@ -32,6 +34,51 @@ function baseProps(
 }
 
 describe('TournamentOverviewParticipants', () => {
+  it('shows underage guardian details only to authorized event managers', () => {
+    const participant = {
+      id: 'underage-player',
+      event_id: 'event-1',
+      team_id: null,
+      category: 'all',
+      display_name: 'Young Player',
+      gender: 'female',
+      status: 'registered',
+      tennis_skill_level: 3.5,
+    };
+    const underagePlayers = {
+      'underage-player': {
+        age: 14,
+        guardians: [{ name: 'Morgan Parent', email: 'morgan@example.test', phone: null }],
+      },
+    };
+    const { rerender } = render(
+      <TournamentOverviewParticipants
+        {...baseProps({
+          format: 'singles',
+          activeCategory: 'all',
+          participants: [participant],
+          canViewGuardianDetails: true,
+          underagePlayers,
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Underage player, age 14/ }));
+    expect(screen.getByRole('alertdialog')).toHaveTextContent('Morgan Parent');
+
+    rerender(
+      <TournamentOverviewParticipants
+        {...baseProps({
+          format: 'singles',
+          activeCategory: 'all',
+          participants: [participant],
+          underagePlayers,
+        })}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: /Underage player/ })).not.toBeInTheDocument();
+  });
+
   it('hides participant sections when they are not viewable or have no entries', () => {
     const { rerender } = render(<TournamentOverviewParticipants {...baseProps()} />);
     expect(screen.queryByLabelText('Registered Participants')).not.toBeInTheDocument();

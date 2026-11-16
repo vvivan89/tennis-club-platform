@@ -21,6 +21,8 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
     registrationClosesAt,
     priceCents,
     canViewCompetition,
+    isManager,
+    underagePlayers,
     format,
     teams,
     activeCategory,
@@ -129,6 +131,10 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
     setEntrantPhone,
     entrantSkillLevel,
     setEntrantSkillLevel,
+    entrantDateOfBirth,
+    setEntrantDateOfBirth,
+    entrantGuardians,
+    setEntrantGuardians,
     entrantGender,
     setEntrantGender,
     effectiveRegistrationMode,
@@ -144,6 +150,10 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
     setPartnerPhone,
     partnerSkillLevel,
     setPartnerSkillLevel,
+    partnerDateOfBirth,
+    setPartnerDateOfBirth,
+    partnerGuardians,
+    setPartnerGuardians,
     partnerGender,
     setPartnerGender,
     pairPaymentStatuses,
@@ -207,6 +217,8 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
     <div className={leagueTournament ? 'flex flex-col gap-5' : 'space-y-5'}>
       <TournamentOverviewParticipants
         canViewCompetition={canViewCompetition}
+        canViewGuardianDetails={isManager}
+        underagePlayers={underagePlayers}
         format={format}
         teams={teams}
         activeCategory={activeCategory}
@@ -393,6 +405,10 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
               setEntrantSkillLevel={setEntrantSkillLevel}
               entrantGender={entrantGender}
               setEntrantGender={setEntrantGender}
+              entrantDateOfBirth={entrantDateOfBirth}
+              setEntrantDateOfBirth={setEntrantDateOfBirth}
+              entrantGuardians={entrantGuardians}
+              setEntrantGuardians={setEntrantGuardians}
               format={format}
               effectiveRegistrationMode={effectiveRegistrationMode}
               currentUserId={currentUserId}
@@ -410,6 +426,10 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
               setPartnerSkillLevel={setPartnerSkillLevel}
               partnerGender={partnerGender}
               setPartnerGender={setPartnerGender}
+              partnerDateOfBirth={partnerDateOfBirth}
+              setPartnerDateOfBirth={setPartnerDateOfBirth}
+              partnerGuardians={partnerGuardians}
+              setPartnerGuardians={setPartnerGuardians}
               participants={participants}
               registrationBusy={registrationBusy}
             />

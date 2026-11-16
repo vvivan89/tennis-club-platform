@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSiteOrigin } from '@/lib/site-url';
 import { enforceRateLimit } from '@/lib/rate-limit';
 import { checkAdminRole, getConfiguredServiceClient, getSignedInUser } from '@/lib/api-helpers';
+import { validateLegalGuardians, type LegalGuardian } from '@/lib/player-guardian-details';
 const validLevels = new Set(['2.5', '3.0', '3.5', '4.0', '4.5', '5.0', '5.5', '6.0', '6.5', '7.0']);
 export async function POST(request: Request) {
   try {
@@ -22,6 +23,9 @@ export async function POST(request: Request) {
     const tennis_skill_level = String(body.tennis_skill_level ?? '');
     const gender = String(body.gender ?? '').trim();
     const date_of_birth = String(body.date_of_birth ?? '').trim();
+    const legal_guardians = Array.isArray(body.legal_guardians)
+      ? (body.legal_guardians as LegalGuardian[])
+      : [];
     if (!full_name || !email || !phone || !validLevels.has(tennis_skill_level))
       return NextResponse.json(
         { error: 'Name, valid email, phone, and skill rating are required.' },
@@ -36,6 +40,14 @@ export async function POST(request: Request) {
       date_of_birth > new Date().toISOString().slice(0, 10)
     )
       return NextResponse.json({ error: 'Choose a valid date of birth.' }, { status: 400 });
+    try {
+      validateLegalGuardians(date_of_birth, legal_guardians);
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : 'Add a parent or legal guardian.' },
+        { status: 400 },
+      );
+    }
     const limited = await enforceRateLimit(request, {
       name: 'invite-member',
       limit: 100,
@@ -57,6 +69,7 @@ export async function POST(request: Request) {
         tennis_skill_level,
         gender,
         date_of_birth,
+        legal_guardians,
       },
     });
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });

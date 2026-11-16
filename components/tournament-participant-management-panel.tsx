@@ -5,10 +5,17 @@ import { Input } from '@/components/ui/input';
 import { SearchableMemberSelect, type MemberOption } from '@/components/searchable-member-select';
 import { GenderSelect } from '@/components/gender-select';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
-import type { Member, Pair, Participant, Team } from '@/components/tournament-management-types';
+import type {
+  Member,
+  Pair,
+  Participant,
+  Team,
+  UnderagePlayer,
+} from '@/components/tournament-management-types';
 import { TournamentEntryGroupingPanel } from '@/components/tournament-entry-grouping-panel';
 import { GroupAssignmentSelect } from '@/components/group-assignment-select';
 import { formatMoney } from '@/components/tournament-public-view-format';
+import { UnderagePlayerBadge } from '@/components/underage-player-badge';
 
 type ActionResult = { error: { message: string } | null };
 export type Props = {
@@ -19,6 +26,7 @@ export type Props = {
   activeCategory: string;
   members: Member[];
   participants: Participant[];
+  underagePlayers: Record<string, UnderagePlayer>;
   pairs: Pair[];
   teams: Team[];
   groupCount: number;
@@ -75,6 +83,7 @@ export function TournamentParticipantManagementPanel(props: Props) {
     activeCategory,
     members,
     participants,
+    underagePlayers,
     teams,
     busy,
     priceCents,
@@ -278,6 +287,13 @@ export function TournamentParticipantManagementPanel(props: Props) {
                     <div className="min-w-0">
                       <p className="flex items-center gap-2 font-medium">
                         {p.display_name}
+                        {underagePlayers[p.id] && (
+                          <UnderagePlayerBadge
+                            playerName={p.display_name}
+                            age={underagePlayers[p.id].age}
+                            guardians={underagePlayers[p.id].guardians}
+                          />
+                        )}
                         {(p.captain_requested ||
                           teams.some((team) => team.captain_user_id === p.user_id)) && (
                           <span

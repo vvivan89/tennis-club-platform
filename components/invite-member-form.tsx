@@ -8,18 +8,29 @@ import { formatPhoneNumber } from '@/lib/format-phone';
 import { Button } from '@/components/ui/button';
 import { GenderSelect } from '@/components/gender-select';
 import { TennisSkillLevelSelect } from '@/components/tennis-skill-level-select';
+import { LegalGuardianFields } from '@/components/legal-guardian-fields';
+import {
+  emptyLegalGuardian,
+  normalizeLegalGuardians,
+  type LegalGuardian,
+} from '@/lib/player-guardian-details';
 export function InviteMemberForm() {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [dateOfBirth, setDateOfBirth] = useState('');
+  const [guardians, setGuardians] = useState<LegalGuardian[]>([emptyLegalGuardian()]);
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setBusy(true);
     setError('');
     setMessage('');
     const form = e.currentTarget;
-    const payload = Object.fromEntries(new FormData(form).entries());
+    const payload: Record<string, unknown> = {
+      ...Object.fromEntries(new FormData(form).entries()),
+      legal_guardians: normalizeLegalGuardians(guardians, dateOfBirth),
+    };
     try {
       const response = await fetch('/api/admin/invite-member', {
         method: 'POST',
@@ -36,7 +47,7 @@ export function InviteMemberForm() {
         throw new Error(reason);
       }
       setMessage(
-        `Invitation sent to ${String(payload.email)}. They must follow the email link to confirm and finish setting up their account.`,
+        `Invitation sent to ${String(payload['email'])}. They must follow the email link to confirm and finish setting up their account.`,
       );
       form.reset();
     } catch (err) {
@@ -88,9 +99,16 @@ export function InviteMemberForm() {
                 name="date_of_birth"
                 type="date"
                 max={new Date().toISOString().slice(0, 10)}
+                value={dateOfBirth}
+                onChange={(event) => setDateOfBirth(event.target.value)}
                 required
               />
             </label>
+            <LegalGuardianFields
+              dateOfBirth={dateOfBirth}
+              guardians={guardians}
+              setGuardians={setGuardians}
+            />
             <GenderSelect
               name="gender"
               defaultValue=""

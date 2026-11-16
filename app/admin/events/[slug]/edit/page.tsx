@@ -110,6 +110,7 @@ export default async function EditEventPage({
               event.tournament_format === 'singles' ||
               event.tournament_format === 'team')
           }
+          hideCourtAssignment={event.event_type === 'tournament'}
         />
         <p className="mt-6 text-sm">
           <Link className="text-primary underline" href={eventPath(event)}>

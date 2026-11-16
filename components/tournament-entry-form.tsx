@@ -8,6 +8,8 @@ import { TennisSkillLevelSelect } from '@/components/tennis-skill-level-select';
 import { categoryLabel } from '@/components/tournament-public-view-format';
 import { isGenderEligibleForCategory } from '@/lib/tournament-config';
 import type { Participant, PartnerMember } from '@/components/tournament-public-view-types';
+import { LegalGuardianFields } from '@/components/legal-guardian-fields';
+import type { LegalGuardian } from '@/lib/player-guardian-details';
 
 export type TournamentEntryFormProps = {
   submitRegistration: FormEventHandler<HTMLFormElement>;
@@ -30,6 +32,10 @@ export type TournamentEntryFormProps = {
   setEntrantSkillLevel: Dispatch<SetStateAction<string>>;
   entrantGender: string;
   setEntrantGender: Dispatch<SetStateAction<string>>;
+  entrantDateOfBirth: string;
+  setEntrantDateOfBirth: Dispatch<SetStateAction<string>>;
+  entrantGuardians: LegalGuardian[];
+  setEntrantGuardians: Dispatch<SetStateAction<LegalGuardian[]>>;
   format: string | null;
   effectiveRegistrationMode: 'individual' | 'pair';
   currentUserId: string | null;
@@ -47,6 +53,10 @@ export type TournamentEntryFormProps = {
   setPartnerSkillLevel: Dispatch<SetStateAction<string>>;
   partnerGender: string;
   setPartnerGender: Dispatch<SetStateAction<string>>;
+  partnerDateOfBirth: string;
+  setPartnerDateOfBirth: Dispatch<SetStateAction<string>>;
+  partnerGuardians: LegalGuardian[];
+  setPartnerGuardians: Dispatch<SetStateAction<LegalGuardian[]>>;
   participants: Participant[];
   registrationBusy: boolean;
 };
@@ -73,6 +83,10 @@ export function TournamentEntryForm(props: TournamentEntryFormProps) {
     setEntrantSkillLevel,
     entrantGender,
     setEntrantGender,
+    entrantDateOfBirth,
+    setEntrantDateOfBirth,
+    entrantGuardians,
+    setEntrantGuardians,
     format,
     effectiveRegistrationMode,
     currentUserId,
@@ -90,6 +104,10 @@ export function TournamentEntryForm(props: TournamentEntryFormProps) {
     setPartnerSkillLevel,
     partnerGender,
     setPartnerGender,
+    partnerDateOfBirth,
+    setPartnerDateOfBirth,
+    partnerGuardians,
+    setPartnerGuardians,
     participants,
     registrationBusy,
   } = props;
@@ -134,9 +152,16 @@ export function TournamentEntryForm(props: TournamentEntryFormProps) {
         )}
       </div>
       {isEventGuest && hasProfileDetails && (
-        <p className="text-sm text-muted-foreground">
-          Your registration will use the personal details saved in your profile.
-        </p>
+        <>
+          <p className="text-sm text-muted-foreground">
+            Your registration will use the personal details saved in your profile.
+          </p>
+          <LegalGuardianFields
+            dateOfBirth={entrantDateOfBirth}
+            guardians={entrantGuardians}
+            setGuardians={setEntrantGuardians}
+          />
+        </>
       )}
       {isEventGuest && !hasProfileDetails && (
         <div className="grid gap-3 sm:grid-cols-2">
@@ -160,6 +185,22 @@ export function TournamentEntryForm(props: TournamentEntryFormProps) {
             Phone (optional)
             <Input value={entrantPhone} onChange={(e) => setEntrantPhone(e.target.value)} />
           </label>
+          <label className="text-sm">
+            Date of birth <span className="text-destructive">*</span>
+            <Input
+              type="date"
+              autoComplete="bday"
+              value={entrantDateOfBirth}
+              max={new Date().toISOString().slice(0, 10)}
+              onChange={(e) => setEntrantDateOfBirth(e.target.value)}
+              required
+            />
+          </label>
+          <LegalGuardianFields
+            dateOfBirth={entrantDateOfBirth}
+            guardians={entrantGuardians}
+            setGuardians={setEntrantGuardians}
+          />
           <TennisSkillLevelSelect
             label="Tennis skill level"
             value={entrantSkillLevel}
@@ -249,6 +290,22 @@ export function TournamentEntryForm(props: TournamentEntryFormProps) {
                 Partner phone (optional)
                 <Input value={partnerPhone} onChange={(e) => setPartnerPhone(e.target.value)} />
               </label>
+              <label className="text-sm">
+                Partner date of birth <span className="text-destructive">*</span>
+                <Input
+                  type="date"
+                  autoComplete="bday"
+                  value={partnerDateOfBirth}
+                  max={new Date().toISOString().slice(0, 10)}
+                  onChange={(e) => setPartnerDateOfBirth(e.target.value)}
+                  required
+                />
+              </label>
+              <LegalGuardianFields
+                dateOfBirth={partnerDateOfBirth}
+                guardians={partnerGuardians}
+                setGuardians={setPartnerGuardians}
+              />
               <TennisSkillLevelSelect
                 label="Partner tennis skill level"
                 value={partnerSkillLevel}

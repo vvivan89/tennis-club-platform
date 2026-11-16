@@ -14,6 +14,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { GenderSelect } from '@/components/gender-select';
 import { TennisSkillLevelSelect } from '@/components/tennis-skill-level-select';
 import { useSiteHeaderState } from '@/components/site-header-state';
+import { LegalGuardianFields } from '@/components/legal-guardian-fields';
+import {
+  emptyLegalGuardian,
+  normalizeLegalGuardians,
+  validateLegalGuardians,
+  type LegalGuardian,
+} from '@/lib/player-guardian-details';
 
 type Mode = 'login' | 'signup' | 'reset';
 
@@ -45,6 +52,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
   const [phone, setPhone] = useState('');
   const [gender, setGender] = useState('');
   const [dateOfBirth, setDateOfBirth] = useState('');
+  const [guardians, setGuardians] = useState<LegalGuardian[]>([emptyLegalGuardian()]);
   const [password, setPassword] = useState('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
@@ -70,6 +78,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
 
     try {
       if (mode === 'signup' && !dateOfBirth) throw new Error('Date of birth is required.');
+      if (mode === 'signup') validateLegalGuardians(dateOfBirth, guardians);
       if (mode === 'signup' && !gender) throw new Error('Select your gender.');
       const supabase = createSupabaseBrowserClient();
       if (mode === 'login') {
@@ -106,6 +115,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
               tennis_skill_level: tennisSkillLevel,
               gender: gender || null,
               date_of_birth: dateOfBirth || null,
+              legal_guardians: normalizeLegalGuardians(guardians, dateOfBirth),
             },
             emailRedirectTo: `${window.location.origin}/auth/callback?next=/profile`,
           },
@@ -126,12 +136,19 @@ export function AuthForm({ mode }: { mode: Mode }) {
         if (authError) throw authError;
         setNotice('If an account exists for that address, a password-reset email has been sent.');
       }
-    } catch {
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : '';
+      const guardianValidation =
+        message.includes('parent or legal guardian') ||
+        message.includes('guardian needs a name') ||
+        message.includes('date of birth');
       setError(
         mode === 'login'
           ? 'Unable to sign in. Check your email and password and try again.'
           : mode === 'signup'
-            ? 'Could not create account. Please check your details and try again.'
+            ? guardianValidation
+              ? message
+              : 'Could not create account. Please check your details and try again.'
             : 'Could not send the password-reset email. Please try again.',
       );
     } finally {
@@ -178,6 +195,11 @@ export function AuthForm({ mode }: { mode: Mode }) {
                     maxLength={40}
                   />
                 </label>
+                <LegalGuardianFields
+                  dateOfBirth={dateOfBirth}
+                  guardians={guardians}
+                  setGuardians={setGuardians}
+                />
                 <label className="block space-y-1.5 text-sm font-medium">
                   Date of birth <span className="text-destructive">*</span>
                   <Input
