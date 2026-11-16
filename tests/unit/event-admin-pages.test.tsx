@@ -127,7 +127,7 @@ describe('admin event pages', () => {
     expect(find(page, 'event-management-form')?.props.showOrganizerField).toBe(false);
   });
 
-  it('hides registration controls only for doubles and team tournament events', async () => {
+  it('hides registration controls for every tournament format', async () => {
     const renderEvent = async (eventOverrides: Record<string, unknown>) => {
       mocks.responses['profiles.maybeSingle'] = [{ role: 'admin' }, { role: 'admin' }];
       mocks.responses['events.maybeSingle'] = [{ ...event, ...eventOverrides }];
@@ -143,7 +143,7 @@ describe('admin event pages', () => {
     expect(find(teams, 'event-edit-management')?.props.hideRegistrationManagement).toBe(true);
 
     const singles = await renderEvent({ event_type: 'tournament', tournament_format: 'singles' });
-    expect(find(singles, 'event-edit-management')?.props.hideRegistrationManagement).toBe(false);
+    expect(find(singles, 'event-edit-management')?.props.hideRegistrationManagement).toBe(true);
     const social = await renderEvent({
       event_type: 'social_doubles',
       tournament_format: 'doubles',

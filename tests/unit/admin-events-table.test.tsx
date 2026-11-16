@@ -58,6 +58,10 @@ describe('admin event list filters', () => {
     expect(futureRows[0]).toHaveTextContent('Friday Social');
     expect(futureRows[1]).toHaveTextContent('Doubles Open');
     expect(futureRows[2]).toHaveTextContent('Team Cup');
+    expect(screen.getByRole('link', { name: 'Friday Social' })).toHaveAttribute(
+      'href',
+      '/events/social-night',
+    );
     fireEvent.change(screen.getByLabelText('Search events by name'), {
       target: { value: 'Doubles' },
     });

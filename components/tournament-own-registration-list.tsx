@@ -261,7 +261,7 @@ export function TournamentOwnRegistrationList({
                 className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border p-3"
               >
                 <div className="min-w-0">
-                  <p className="font-medium">{categoryLabel(entry.category)}</p>
+                  <p className="font-medium">{categoryLabel(entry.category, format)}</p>
                   <p className="mt-1 text-sm">{entry.display_name || currentUserName}</p>
                   <p className="text-xs text-muted-foreground">
                     {entry.email || currentUserEmail} ·{' '}

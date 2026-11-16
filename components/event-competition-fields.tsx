@@ -143,15 +143,22 @@ export function EventCompetitionFields({
                 <legend className="text-sm font-medium">
                   {v.tournament_format === 'team'
                     ? 'Enabled team match categories'
-                    : 'Enabled doubles categories and capacity'}
+                    : v.tournament_format === 'singles'
+                      ? 'Enabled singles categories and capacity'
+                      : 'Enabled doubles categories and capacity'}
                 </legend>
                 <div className="space-y-2">
-                  {(
-                    [
-                      ['mixed', 'Mixed doubles'],
-                      ['men', "Men's doubles"],
-                      ['women', "Women's doubles"],
-                    ] as const
+                  {(v.tournament_format === 'singles'
+                    ? ([
+                        ['all', 'All gender'],
+                        ['men', "Men's singles"],
+                        ['women', "Women's singles"],
+                      ] as const)
+                    : ([
+                        ['mixed', 'Mixed doubles'],
+                        ['men', "Men's doubles"],
+                        ['women', "Women's doubles"],
+                      ] as const)
                   ).map(([key, label]) => {
                     const enabled = (v.tournament_config.categories ?? []).includes(key);
                     return (
@@ -231,7 +238,7 @@ export function EventCompetitionFields({
                   </span>
                 </label>
               )}
-            {v.tournament_format !== 'team' && (
+            {v.tournament_format !== 'team' && v.tournament_format !== 'singles' && (
               <fieldset className="space-y-2 rounded-md border border-border p-3">
                 <legend className="px-1 text-sm font-medium">Registration options</legend>
                 <label className="flex items-center gap-2 text-sm">

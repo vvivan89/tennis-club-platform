@@ -32,6 +32,7 @@ type MatchTileLabels = { players: string; stage: string };
 type MatchOption = readonly [string, string];
 export type Props = {
   isTeam: boolean;
+  isSingles?: boolean;
   captainMode?: boolean;
   captainTeamId?: string | null;
   busy: boolean;
@@ -98,6 +99,7 @@ export type Props = {
 export function TournamentMatchManagementPanel(props: Props) {
   const {
     isTeam,
+    isSingles = false,
     captainMode = false,
     captainTeamId = null,
     busy,
@@ -193,11 +195,17 @@ export function TournamentMatchManagementPanel(props: Props) {
               ? side === 1
                 ? m.team_one_id
                 : m.team_two_id
-              : side === 1
-                ? m.pair_one_id
-                : m.pair_two_id;
+              : isSingles
+                ? side === 1
+                  ? m.player_one_participant_id
+                  : m.player_two_participant_id
+                : side === 1
+                  ? m.pair_one_id
+                  : m.pair_two_id;
             if (id) {
               if (isTeam) return teams.find((team) => team.id === id)?.name || 'TBD';
+              if (isSingles)
+                return activeParticipants.find((player) => player.id === id)?.display_name || 'TBD';
               const pair = pairs.find((item) => item.id === id);
               if (pair) return `${pair.player_one_name} + ${pair.player_two_name}`;
             }
@@ -217,19 +225,26 @@ export function TournamentMatchManagementPanel(props: Props) {
                   ? previous.winner_side === 1
                     ? previous.team_one_id
                     : previous.team_two_id
-                  : previous.winner_side === 1
-                    ? previous.pair_one_id
-                    : previous.pair_two_id;
+                  : isSingles
+                    ? previous.winner_side === 1
+                      ? previous.player_one_participant_id
+                      : previous.player_two_participant_id
+                    : previous.winner_side === 1
+                      ? previous.pair_one_id
+                      : previous.pair_two_id;
                 if (winnerId)
                   return isTeam
                     ? teams.find((team) => team.id === winnerId)?.name ||
                         `Winner of ${knockoutStageLabel(previousRound, maxRound)} ${previousMatchNumber}`
-                    : (() => {
-                        const pair = pairs.find((item) => item.id === winnerId);
-                        return pair
-                          ? `${pair.player_one_name} + ${pair.player_two_name}`
-                          : `Winner of ${knockoutStageLabel(previousRound, maxRound)} ${previousMatchNumber}`;
-                      })();
+                    : isSingles
+                      ? activeParticipants.find((player) => player.id === winnerId)?.display_name ||
+                        `Winner of ${knockoutStageLabel(previousRound, maxRound)} ${previousMatchNumber}`
+                      : (() => {
+                          const pair = pairs.find((item) => item.id === winnerId);
+                          return pair
+                            ? `${pair.player_one_name} + ${pair.player_two_name}`
+                            : `Winner of ${knockoutStageLabel(previousRound, maxRound)} ${previousMatchNumber}`;
+                        })();
               }
               return `Winner of ${knockoutStageLabel(previousRound, maxRound)} ${previousMatchNumber}`;
             }
@@ -296,7 +311,9 @@ export function TournamentMatchManagementPanel(props: Props) {
                         <button
                           type="button"
                           className="rounded px-3 py-2 text-left text-sm hover:bg-secondary"
-                          disabled={busy || !(m.pair_one_id || m.team_one_id)}
+                          disabled={
+                            busy || !(m.pair_one_id || m.team_one_id || m.player_one_participant_id)
+                          }
                           onClick={() => void recordWalkover(m, 1)}
                         >
                           Walkover: side one
@@ -304,7 +321,9 @@ export function TournamentMatchManagementPanel(props: Props) {
                         <button
                           type="button"
                           className="rounded px-3 py-2 text-left text-sm hover:bg-secondary"
-                          disabled={busy || !(m.pair_two_id || m.team_two_id)}
+                          disabled={
+                            busy || !(m.pair_two_id || m.team_two_id || m.player_two_participant_id)
+                          }
                           onClick={() => void recordWalkover(m, 2)}
                         >
                           Walkover: side two

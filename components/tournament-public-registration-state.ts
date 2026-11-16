@@ -72,7 +72,8 @@ export function getTournamentPublicRegistrationState({
     eventStatus === 'published' &&
     Date.now() >= new Date(registrationOpensAt).getTime() &&
     Date.now() < new Date(registrationClosesAt || startsAt).getTime();
-  const registrationModeConfig = config?.registration_mode ?? 'both';
+  const registrationModeConfig =
+    format === 'singles' ? 'single' : (config?.registration_mode ?? 'both');
   const effectiveRegistrationMode =
     registrationModeConfig === 'single'
       ? 'individual'

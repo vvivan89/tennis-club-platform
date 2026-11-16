@@ -70,6 +70,8 @@ type HeadToHeadMatch = {
   team_two_id: string | null;
   pair_one_id: string | null;
   pair_two_id: string | null;
+  player_one_participant_id?: string | null;
+  player_two_participant_id?: string | null;
   winner_side: number | null;
 };
 
@@ -77,20 +79,35 @@ export function compareTournamentHeadToHead<T extends HeadToHeadMatch>(
   matches: readonly T[],
   firstEntryId: string,
   secondEntryId: string,
-  isTeam: boolean,
+  isTeam: boolean | 'singles',
   isRelevant: (match: T) => boolean = () => true,
 ) {
   const match = matches.find((candidate) => {
     if (!candidate.winner_side || !isRelevant(candidate)) return false;
-    const firstId = isTeam ? candidate.team_one_id : candidate.pair_one_id;
-    const secondId = isTeam ? candidate.team_two_id : candidate.pair_two_id;
+    const firstId =
+      isTeam === true
+        ? candidate.team_one_id
+        : isTeam === 'singles'
+          ? candidate.player_one_participant_id
+          : candidate.pair_one_id;
+    const secondId =
+      isTeam === true
+        ? candidate.team_two_id
+        : isTeam === 'singles'
+          ? candidate.player_two_participant_id
+          : candidate.pair_two_id;
     return (
       (firstId === firstEntryId && secondId === secondEntryId) ||
       (firstId === secondEntryId && secondId === firstEntryId)
     );
   });
   if (!match?.winner_side) return null;
-  const winnerOneId = isTeam ? match.team_one_id : match.pair_one_id;
+  const winnerOneId =
+    isTeam === true
+      ? match.team_one_id
+      : isTeam === 'singles'
+        ? match.player_one_participant_id
+        : match.pair_one_id;
   const firstWon = winnerOneId === firstEntryId ? match.winner_side === 1 : match.winner_side === 2;
   return firstWon ? -1 : 1;
 }
@@ -120,6 +137,8 @@ type StatsMatch = {
   team_two_id: string | null;
   pair_one_id: string | null;
   pair_two_id: string | null;
+  player_one_participant_id?: string | null;
+  player_two_participant_id?: string | null;
   winner_side: number | null;
   team_points_one?: number | null;
   team_points_two?: number | null;
@@ -144,12 +163,22 @@ export function createSideStats<T extends { id: string }>(side: T): SideStats<T>
 export function accumulateSideStats<T extends { id: string }>(
   row: SideStats<T>,
   matches: StatsMatch[],
-  isTeam: boolean,
+  isTeam: boolean | 'singles',
 ): SideStats<T> {
   const sideId = row.side.id;
   for (const match of matches) {
-    const firstId = isTeam ? match.team_one_id : match.pair_one_id;
-    const secondId = isTeam ? match.team_two_id : match.pair_two_id;
+    const firstId =
+      isTeam === true
+        ? match.team_one_id
+        : isTeam === 'singles'
+          ? match.player_one_participant_id
+          : match.pair_one_id;
+    const secondId =
+      isTeam === true
+        ? match.team_two_id
+        : isTeam === 'singles'
+          ? match.player_two_participant_id
+          : match.pair_two_id;
     if (firstId !== sideId && secondId !== sideId) continue;
     if (
       match.winner_side &&
@@ -157,7 +186,7 @@ export function accumulateSideStats<T extends { id: string }>(
         (secondId === sideId && match.winner_side === 2))
     )
       row.wins++;
-    if (isTeam)
+    if (isTeam === true)
       row.points +=
         firstId === sideId
           ? Number(match.team_points_one ?? 0)

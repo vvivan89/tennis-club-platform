@@ -36,6 +36,8 @@ export type Participant = {
   is_member?: boolean;
   avatar_url?: string | null;
   birthday_emoji_visible?: boolean;
+  group_number?: number | null;
+  seed?: number | null;
 };
 
 export type PartnerMember = { id: string; full_name: string; gender: string | null };

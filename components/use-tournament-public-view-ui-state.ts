@@ -115,10 +115,15 @@ export function useTournamentPublicViewUiState({
     window.history.replaceState({}, '', url.toString());
   }, [tab, tabInitialized]);
   const [activeCategory, setActiveCategory] = useState<string>(
-    (config?.categories ?? ['mixed', 'men', 'women'])[0] ?? 'mixed',
+    (config?.categories ??
+      (format === 'singles' ? ['all', 'men', 'women'] : ['mixed', 'men', 'women']))[0] ??
+      (format === 'singles' ? 'all' : 'mixed'),
   );
   const [registrationCategory, setRegistrationCategory] = useState(
-    format === 'team' ? 'team' : ((config?.categories ?? ['mixed'])[0] ?? 'mixed'),
+    format === 'team'
+      ? 'team'
+      : ((config?.categories ?? (format === 'singles' ? ['all', 'men', 'women'] : ['mixed']))[0] ??
+          (format === 'singles' ? 'all' : 'mixed')),
   );
   const [registrationMode, setRegistrationMode] = useState<'individual' | 'pair'>(
     config?.registration_mode === 'doubles' ? 'pair' : 'individual',

@@ -22,6 +22,7 @@ function useRegistrationOptions({ leagueTournament = false }: { leagueTournament
     leagueTournament,
     leagueRegistrationCategory: 'men',
     registrationCategory: 'men',
+    format: 'doubles',
     effectiveRegistrationMode: 'individual',
     entrantName: '',
     entrantEmail: '',

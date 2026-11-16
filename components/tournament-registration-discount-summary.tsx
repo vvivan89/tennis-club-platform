@@ -24,7 +24,7 @@ export function TournamentRegistrationDiscountSummary({
 }) {
   if (leagueTournament || !discounts) return null;
   const items = [
-    ...(format === 'doubles' && discountLabel(discounts.second_category)
+    ...(['doubles', 'singles'].includes(format ?? '') && discountLabel(discounts.second_category)
       ? [`Second category: ${discountLabel(discounts.second_category)}`]
       : []),
     ...(format === 'doubles' && discountLabel(discounts.pair_registration)

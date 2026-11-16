@@ -7,12 +7,14 @@ import { GenderSelect } from '@/components/gender-select';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import type { Member, Pair, Participant, Team } from '@/components/tournament-management-types';
 import { TournamentEntryGroupingPanel } from '@/components/tournament-entry-grouping-panel';
+import { GroupAssignmentSelect } from '@/components/group-assignment-select';
 import { formatMoney } from '@/components/tournament-public-view-format';
 
 type ActionResult = { error: { message: string } | null };
 export type Props = {
   eventId: string;
   isTeam: boolean;
+  isSingles: boolean;
   leagueTournament: boolean;
   activeCategory: string;
   members: Member[];
@@ -68,6 +70,7 @@ export type Props = {
 export function TournamentParticipantManagementPanel(props: Props) {
   const {
     isTeam,
+    isSingles,
     leagueTournament,
     activeCategory,
     members,
@@ -407,7 +410,63 @@ export function TournamentParticipantManagementPanel(props: Props) {
               ))}
           </div>
         </div>
-        <TournamentEntryGroupingPanel {...props} />
+        {isSingles ? (
+          <section className="space-y-3 rounded-lg border border-border p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="font-semibold">Singles draw entries</h3>
+                <p className="text-sm text-muted-foreground">
+                  {props.groupCount > 1
+                    ? 'Assign each registered player to a group before generating round-robin matches.'
+                    : 'Registered players share the same draw. Round-robin matches can be created directly.'}
+                </p>
+              </div>
+              {props.groupCount > 1 && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={
+                    busy ||
+                    !participants.some(
+                      (player) =>
+                        player.category === activeCategory && player.status === 'registered',
+                    )
+                  }
+                  onClick={props.randomizeGroups}
+                >
+                  Random group draw
+                </Button>
+              )}
+            </div>
+            {participants
+              .filter(
+                (player) => player.category === activeCategory && player.status === 'registered',
+              )
+              .map((player) => (
+                <div
+                  key={player.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border p-3 text-sm"
+                >
+                  <span className="font-medium">{player.display_name}</span>
+                  {!leagueTournament && props.groupCount > 1 && (
+                    <GroupAssignmentSelect
+                      ariaLabel={`Group for ${player.display_name}`}
+                      value={player.group_number ?? null}
+                      options={props.groupOptions}
+                      onChange={(group) =>
+                        void props.runAction(
+                          () => props.saveEntryGroup(player.id, group ? Number(group) : null),
+                          'Group assignment updated.',
+                        )
+                      }
+                    />
+                  )}
+                </div>
+              ))}
+          </section>
+        ) : (
+          <TournamentEntryGroupingPanel {...props} />
+        )}
       </div>
     </div>
   );

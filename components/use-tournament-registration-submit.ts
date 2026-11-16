@@ -14,6 +14,7 @@ export function useTournamentRegistrationSubmit({
   leagueTournament,
   leagueRegistrationCategory,
   registrationCategory,
+  format,
   effectiveRegistrationMode,
   entrantName,
   entrantEmail,
@@ -58,6 +59,7 @@ export function useTournamentRegistrationSubmit({
   leagueTournament: boolean;
   leagueRegistrationCategory: string;
   registrationCategory: string;
+  format: string | null;
   effectiveRegistrationMode: 'individual' | 'pair';
   entrantName: string;
   entrantEmail: string;
@@ -126,7 +128,9 @@ export function useTournamentRegistrationSubmit({
             : null) ||
           null;
       if (!isGenderEligibleForCategory(entryCategory, entrantGenderValue))
-        throw new Error(`The entered gender is not eligible for ${categoryLabel(entryCategory)}.`);
+        throw new Error(
+          `The entered gender is not eligible for ${categoryLabel(entryCategory, format)}.`,
+        );
       if (
         effectiveRegistrationMode === 'pair' &&
         partnerChoice &&
@@ -134,7 +138,7 @@ export function useTournamentRegistrationSubmit({
         !isGenderEligibleForCategory(entryCategory, partnerGenderValue)
       )
         throw new Error(
-          `The selected partner's gender is not eligible for ${categoryLabel(entryCategory)}.`,
+          `The selected partner's gender is not eligible for ${categoryLabel(entryCategory, format)}.`,
         );
       if (
         effectiveRegistrationMode === 'pair' &&
@@ -142,7 +146,7 @@ export function useTournamentRegistrationSubmit({
         !isGenderEligibleForCategory(entryCategory, partnerGenderValue)
       )
         throw new Error(
-          `The partner's gender is not eligible for ${categoryLabel(entryCategory)}.`,
+          `The partner's gender is not eligible for ${categoryLabel(entryCategory, format)}.`,
         );
       if (
         entryCategory === 'mixed' &&
@@ -192,16 +196,27 @@ export function useTournamentRegistrationSubmit({
         p_tennis_skill_level: isEventGuest && entrantSkillLevel ? Number(entrantSkillLevel) : null,
         p_partner_tennis_skill_level: partnerSkillLevelValue,
       };
-      const registrationResult = isEventGuest
-        ? await db.rpc('register_event_guest_tournament_entry', {
-            ...sharedRegistrationArgs,
-            p_display_name: entrantName.trim(),
-            p_tennis_skill_level: entrantSkillLevel ? Number(entrantSkillLevel) : null,
-            p_partner_skill_level: partnerSkillLevelValue,
-          })
-        : leagueTournament && effectiveRegistrationMode === 'individual'
-          ? await db.rpc('register_league_single_event_entry', { p_event_id: eventId })
-          : await db.rpc('register_tournament_entry', registrationArgs);
+      const registrationResult =
+        format === 'singles'
+          ? await db.rpc('register_tournament_singles_entry', {
+              p_event_id: eventId,
+              p_category: entryCategory,
+              p_display_name: entrantName.trim() || null,
+              p_email: currentUserEmail || entrantEmail.trim() || null,
+              p_phone: entrantPhone.trim() || null,
+              p_gender: entrantGenderValue,
+              p_tennis_skill_level: entrantSkillLevel ? Number(entrantSkillLevel) : null,
+            })
+          : isEventGuest
+            ? await db.rpc('register_event_guest_tournament_entry', {
+                ...sharedRegistrationArgs,
+                p_display_name: entrantName.trim(),
+                p_tennis_skill_level: entrantSkillLevel ? Number(entrantSkillLevel) : null,
+                p_partner_skill_level: partnerSkillLevelValue,
+              })
+            : leagueTournament && effectiveRegistrationMode === 'individual'
+              ? await db.rpc('register_league_single_event_entry', { p_event_id: eventId })
+              : await db.rpc('register_tournament_entry', registrationArgs);
       const { data, error } = registrationResult;
       if (error) throw new Error(error.message);
       const result = data as {

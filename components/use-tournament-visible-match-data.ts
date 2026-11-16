@@ -33,6 +33,9 @@ export function useTournamentVisibleMatchData({
             new Date(match.scheduled_at).getTime() >= Date.now() &&
             (ownTeamIds.includes(match.team_one_id || '') ||
               ownTeamIds.includes(match.team_two_id || '') ||
+              (format === 'singles' &&
+                (ownParticipantIds.includes(match.player_one_participant_id || '') ||
+                  ownParticipantIds.includes(match.player_two_participant_id || ''))) ||
               pairs.some(
                 (pair) =>
                   pair.status !== 'withdrawn' &&
@@ -84,7 +87,7 @@ export function useTournamentVisibleMatchData({
               match.status !== 'bye',
           )
           .sort(compareByScheduleThenMatchNumber),
-        format === 'team',
+        format === 'team' ? true : format === 'singles' ? 'singles' : false,
       ),
     [categoryVisibleMatches, format],
   );

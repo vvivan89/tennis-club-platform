@@ -50,7 +50,7 @@ export type TournamentConfig = {
     >
   >;
   total_capacity?: number | null;
-  category_capacities?: Partial<Record<'mixed' | 'men' | 'women', number | null>>;
+  category_capacities?: Partial<Record<'all' | 'mixed' | 'men' | 'women', number | null>>;
   registration_discounts?: TournamentRegistrationDiscounts;
 };
 

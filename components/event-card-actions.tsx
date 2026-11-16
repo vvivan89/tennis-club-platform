@@ -147,13 +147,19 @@ export function EventCardActions({ eventId }: { eventId: string }) {
   const configuredCategoryCount =
     event?.tournament_format === 'team'
       ? 1
-      : (event?.tournament_config?.categories ?? ['mixed', 'men', 'women']).length;
+      : (
+          event?.tournament_config?.categories ??
+          (event?.tournament_format === 'singles'
+            ? ['all', 'men', 'women']
+            : ['mixed', 'men', 'women'])
+        ).length;
   const multiCategoryTournament = event?.event_type === 'tournament' && configuredCategoryCount > 1;
   const needsRegistrationSelection =
     event?.event_type === 'party' ||
     (event?.event_type === 'tournament' &&
       (event.social_doubles_ladder_id !== null ||
         configuredCategoryCount > 1 ||
+        event.tournament_format === 'singles' ||
         (event.tournament_format === 'doubles' &&
           (event.tournament_config?.registration_mode ?? 'both') === 'both')));
   if (!ready || !signedIn || !approved || !event) return null;

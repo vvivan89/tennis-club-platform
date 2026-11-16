@@ -57,9 +57,22 @@ export function getEventTypeFormUpdate(value: string, current: EventFormValues) 
   } else if (value !== 'social') {
     Object.assign(update, {
       members_only: false,
-      tournament_format: value === 'team_tournament' ? 'team' : 'doubles',
+      tournament_format:
+        value === 'team_tournament'
+          ? 'team'
+          : value === 'singles_tournament'
+            ? 'singles'
+            : 'doubles',
       tournament_config: {
         ...current.tournament_config,
+        categories:
+          value === 'singles_tournament'
+            ? ['all', 'men', 'women']
+            : current.tournament_format === 'singles'
+              ? ['mixed', 'men', 'women']
+              : current.tournament_config.categories,
+        registration_mode:
+          value === 'singles_tournament' ? 'single' : current.tournament_config.registration_mode,
         ranking_priority:
           value === 'team_tournament'
             ? ['matches_won', 'sets_won', 'games_won']
@@ -292,11 +305,13 @@ export function buildCommonEventFields(
         ? {
             ...values.tournament_config,
             minimum_tennis_skill_level:
-              values.tournament_format === 'doubles' && values.minimum_tennis_skill_level
+              ['doubles', 'singles'].includes(values.tournament_format ?? '') &&
+              values.minimum_tennis_skill_level
                 ? Number(values.minimum_tennis_skill_level)
                 : null,
             maximum_tennis_skill_level:
-              values.tournament_format === 'doubles' && values.maximum_tennis_skill_level
+              ['doubles', 'singles'].includes(values.tournament_format ?? '') &&
+              values.maximum_tennis_skill_level
                 ? Number(values.maximum_tennis_skill_level)
                 : null,
             ...(values.tournament_format === 'team'
@@ -344,13 +359,24 @@ export function buildCommonEventFields(
 }
 
 export function generateRulesText(v: EventFormValues): string {
-  const format = v.tournament_format === 'team' ? 'Team tournament' : 'Doubles tournament';
+  const format =
+    v.tournament_format === 'team'
+      ? 'Team tournament'
+      : v.tournament_format === 'singles'
+        ? 'Singles tournament'
+        : 'Doubles tournament';
   const categoryNames = (v.tournament_config.categories ?? []).map((category) =>
-    category === 'men'
-      ? "men's doubles"
-      : category === 'women'
-        ? "women's doubles"
-        : 'mixed doubles',
+    category === 'all'
+      ? 'all-gender singles'
+      : category === 'men'
+        ? v.tournament_format === 'singles'
+          ? "men's singles"
+          : "men's doubles"
+        : category === 'women'
+          ? v.tournament_format === 'singles'
+            ? "women's singles"
+            : "women's doubles"
+          : 'mixed doubles',
   );
   const phases = v.tournament_config.phases ?? {};
   const scoringTemplates: Record<string, string> = {
@@ -377,11 +403,13 @@ export function generateRulesText(v: EventFormValues): string {
     );
   const scoring = phaseScoring.length ? phaseScoring.join('; ') : scoringLabel();
   const registration =
-    v.tournament_config.registration_mode === 'single'
-      ? 'Players register individually and the organizer assigns partners.'
-      : v.tournament_config.registration_mode === 'doubles'
-        ? 'Players register with a partner.'
-        : 'Players may register individually for organizer-assigned pairing or register with a partner.';
+    v.tournament_format === 'singles'
+      ? 'Players register as individuals; no partner or pair is created.'
+      : v.tournament_config.registration_mode === 'single'
+        ? 'Players register individually and the organizer assigns partners.'
+        : v.tournament_config.registration_mode === 'doubles'
+          ? 'Players register with a partner.'
+          : 'Players may register individually for organizer-assigned pairing or register with a partner.';
   const eligibility = v.allow_non_member_registration
     ? 'Eligible members and non-members may register; non-member accounts are not created.'
     : 'Registration is limited to eligible club members; non-member registration is not enabled.';

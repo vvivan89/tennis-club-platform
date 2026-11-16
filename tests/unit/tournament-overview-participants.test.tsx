@@ -66,6 +66,31 @@ describe('TournamentOverviewParticipants', () => {
     expect(screen.getByText('4')).toBeInTheDocument();
   });
 
+  it('vertically aligns the Singles You badge with the player identity', () => {
+    render(
+      <TournamentOverviewParticipants
+        {...baseProps({
+          format: 'singles',
+          activeCategory: 'all',
+          participants: [
+            {
+              id: 'singles-player',
+              category: 'all',
+              status: 'registered',
+              display_name: 'Taylor Player',
+              avatar_url: 'https://example.test/avatar.png',
+            },
+          ],
+          ownParticipantIds: ['singles-player'],
+        })}
+      />,
+    );
+
+    const badge = screen.getByText('You');
+    expect(badge).toHaveClass('shrink-0', 'items-center');
+    expect(badge.parentElement).toHaveClass('flex', 'items-center');
+  });
+
   it('shows active pairs and unpaired participants while filtering withdrawn and other categories', () => {
     render(
       <TournamentOverviewParticipants

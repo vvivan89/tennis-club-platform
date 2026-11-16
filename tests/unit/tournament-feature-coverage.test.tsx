@@ -561,7 +561,7 @@ describe('tournament component coverage', () => {
       });
     });
 
-    it('submits a single guest registration with required gender and optional phone omitted', async () => {
+    it('submits an individual guest entry for a doubles tournament with optional phone omitted', async () => {
       supabaseMocks.rpcData.register_event_guest_tournament_entry = {
         participantId: 'guest-entry-no-profile',
       };
@@ -573,7 +573,7 @@ describe('tournament component coverage', () => {
           currentUserId="guest-session-user"
           currentUserAccountKind="event_guest"
           currentUserEmail="guest@example.test"
-          format="singles"
+          format="doubles"
           config={{ categories: ['mixed'], registration_mode: 'individual' }}
           rulesHtml={null}
           detailsPublic
@@ -603,6 +603,63 @@ describe('tournament component coverage', () => {
             p_tennis_skill_level: 4,
           }),
         }),
+      );
+    });
+
+    it('registers an event guest in an enabled singles category and emails confirmation', async () => {
+      supabaseMocks.rpcData.register_tournament_singles_entry = {
+        participantId: 'guest-singles-entry',
+        amountCents: 0,
+        paymentStatus: 'not_required',
+      };
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+      vi.stubGlobal('fetch', fetchMock);
+      const user = userEvent.setup();
+      render(
+        <TournamentPublicView
+          eventId="event-guest-singles"
+          currentUserId="guest-session-user"
+          currentUserAccountKind="event_guest"
+          currentUserEmail="guest@example.test"
+          format="singles"
+          config={{ categories: ['all'], registration_mode: 'single' }}
+          rulesHtml={null}
+          detailsPublic
+          allowNonMemberRegistration
+          eventStatus="published"
+          startsAt="2027-06-01T12:00:00Z"
+          endsAt={null}
+          locationQuery=""
+          registrationOpensAt="2026-01-01T00:00:00Z"
+          registrationClosesAt={null}
+          priceCents={0}
+        />,
+      );
+      await screen.findByRole('tab', { name: 'Overview' });
+      await user.type(screen.getByLabelText('Your full name'), 'Guest Player');
+      await user.selectOptions(screen.getByLabelText(/^Gender/), 'female');
+      await user.selectOptions(screen.getByLabelText(/Tennis skill level/), '4.0');
+      await user.click(screen.getByRole('button', { name: 'Register for tournament' }));
+
+      expect(await screen.findByRole('status')).toHaveTextContent('Registration confirmed.');
+      expect(supabaseMocks.rpcArgs).toContainEqual(
+        expect.objectContaining({
+          name: 'register_tournament_singles_entry',
+          args: expect.objectContaining({
+            p_event_id: 'event-guest-singles',
+            p_category: 'all',
+            p_display_name: 'Guest Player',
+            p_email: 'guest@example.test',
+            p_gender: 'female',
+            p_tennis_skill_level: 4,
+          }),
+        }),
+      );
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+          '/api/events/tournament-registration-confirmation',
+          expect.objectContaining({ method: 'POST' }),
+        ),
       );
     });
 
@@ -845,7 +902,7 @@ describe('tournament component coverage', () => {
     ])(
       'registers a signed-in singles entrant and reports the returned payment state',
       async (result, message) => {
-        supabaseMocks.rpcData.register_tournament_entry = result;
+        supabaseMocks.rpcData.register_tournament_singles_entry = result;
         const user = userEvent.setup();
         render(
           <TournamentPublicView
@@ -873,7 +930,7 @@ describe('tournament component coverage', () => {
         expect(await screen.findByRole('status')).toHaveTextContent(message);
         expect(supabaseMocks.rpcArgs).toContainEqual(
           expect.objectContaining({
-            name: 'register_tournament_entry',
+            name: 'register_tournament_singles_entry',
             args: expect.objectContaining({
               p_event_id: 'event-member-singles',
               p_category: 'men',
@@ -4239,7 +4296,7 @@ describe('tournament component coverage', () => {
       <TournamentPublicView
         eventId="event-not-open"
         currentUserId={null}
-        format="singles"
+        format="doubles"
         config={{ categories: ['mixed'], registration_mode: 'individual' }}
         rulesHtml={null}
         detailsPublic
@@ -4648,7 +4705,7 @@ describe('tournament component coverage', () => {
         currentUserId="guest-session-user"
         currentUserAccountKind="event_guest"
         currentUserEmail="taylor@example.test"
-        format="singles"
+        format="doubles"
         config={{ categories: ['mixed'], registration_mode: 'individual' }}
         rulesHtml={null}
         detailsPublic
@@ -5923,7 +5980,7 @@ describe('tournament component coverage', () => {
         currentUserPhone="604-555-0140"
         currentUserGender="male"
         currentUserSkillLevel="4.0"
-        format="singles"
+        format="doubles"
         config={{ categories: ['mixed'], registration_mode: 'individual' }}
         rulesHtml={null}
         detailsPublic

@@ -106,7 +106,9 @@ export default async function EditEventPage({
           startsAt={event.starts_at}
           hideRegistrationManagement={
             event.event_type === 'tournament' &&
-            (event.tournament_format === 'doubles' || event.tournament_format === 'team')
+            (event.tournament_format === 'doubles' ||
+              event.tournament_format === 'singles' ||
+              event.tournament_format === 'team')
           }
         />
         <p className="mt-6 text-sm">

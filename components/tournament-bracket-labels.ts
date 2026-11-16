@@ -1,17 +1,19 @@
 import { knockoutStageLabel } from '@/lib/tournament-config';
-import type { Match, Pair, Team } from '@/components/tournament-public-view-types';
+import type { Match, Pair, Participant, Team } from '@/components/tournament-public-view-types';
 
 export function createTournamentBracketLabels({
   format,
   knockoutMatches,
   teams,
   pairs,
+  participants = [],
   singleGroup = false,
 }: {
   format: string | null;
   knockoutMatches: Match[];
   teams: Team[];
   pairs: Pair[];
+  participants?: Participant[];
   singleGroup?: boolean;
 }) {
   const stageLabel = (_phase: string, round: number, maxRound: number) =>
@@ -23,9 +25,13 @@ export function createTournamentBracketLabels({
         ? side === 1
           ? match.team_one_id
           : match.team_two_id
-        : side === 1
-          ? match.pair_one_id
-          : match.pair_two_id;
+        : format === 'singles'
+          ? side === 1
+            ? match.player_one_participant_id
+            : match.player_two_participant_id
+          : side === 1
+            ? match.pair_one_id
+            : match.pair_two_id;
     if (id) {
       if (format === 'team')
         return (
@@ -33,6 +39,8 @@ export function createTournamentBracketLabels({
           (side === 1 ? match.team_one_name : match.team_two_name) ||
           'TBD'
         );
+      if (format === 'singles')
+        return participants.find((player) => player.id === id)?.display_name || 'TBD';
       const pair = pairs.find((item) => item.id === id);
       return pair
         ? `${pair.player_one_name} + ${pair.player_two_name}`
@@ -50,7 +58,7 @@ export function createTournamentBracketLabels({
       // Older matches may have free-form notes rather than slot metadata.
     }
     if (savedSlotLabel?.toLowerCase() === 'bye') return 'BYE';
-    if (savedSlotLabel && /^Group \d+ Team \d+$/.test(savedSlotLabel))
+    if (savedSlotLabel && /^Group \d+ (?:Team|Player) \d+$/.test(savedSlotLabel))
       return singleGroup ? savedSlotLabel.replace(/^Group \d+ /, '') : savedSlotLabel;
     if (match.status === 'bye' && match.winner_side && side !== match.winner_side) return 'BYE';
     if (match.status === 'bye' && !match.winner_side) return 'TBD';
@@ -70,13 +78,22 @@ export function createTournamentBracketLabels({
             ? previous.winner_side === 1
               ? previous.team_one_id
               : previous.team_two_id
-            : previous.winner_side === 1
-              ? previous.pair_one_id
-              : previous.pair_two_id;
+            : format === 'singles'
+              ? previous.winner_side === 1
+                ? previous.player_one_participant_id
+                : previous.player_two_participant_id
+              : previous.winner_side === 1
+                ? previous.pair_one_id
+                : previous.pair_two_id;
         if (previousId) {
           if (format === 'team')
             return (
               teams.find((team) => team.id === previousId)?.name ||
+              `Winner of ${previousLabel} ${previousMatchNumber}`
+            );
+          if (format === 'singles')
+            return (
+              participants.find((player) => player.id === previousId)?.display_name ||
               `Winner of ${previousLabel} ${previousMatchNumber}`
             );
           const pair = pairs.find((item) => item.id === previousId);

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTimedFeedback } from '@/hooks/use-timed-feedback';
 import { buildTournamentWinnerSummaries } from '@/components/tournament-winner-summaries';
 import type { GroupStanding } from '@/components/tournament-public-group-standings';
-import type { Match, Pair, Team } from '@/components/tournament-public-view-types';
+import type { Match, Pair, Participant, Team } from '@/components/tournament-public-view-types';
 import type { TournamentConfig } from '@/lib/tournament-config';
 import { haveAllScheduledTournamentMatchesBeenPlayed } from '@/lib/tournament-winner-announcement';
 
@@ -17,6 +17,7 @@ export function useTournamentWinnerAnnouncement({
   matches,
   teams,
   pairs,
+  participants,
   config,
   format,
   groupStandings,
@@ -29,6 +30,7 @@ export function useTournamentWinnerAnnouncement({
   matches: Match[];
   teams: Team[];
   pairs: Pair[];
+  participants: Participant[];
   config: TournamentConfig | null;
   format: string | null;
   groupStandings: GroupStanding[];
@@ -37,8 +39,17 @@ export function useTournamentWinnerAnnouncement({
   const [announcedWinners, setAnnouncedWinners] = useState(initialAnnouncedWinners);
   const feedback = useTimedFeedback();
   const winnerSummaries = useMemo(
-    () => buildTournamentWinnerSummaries({ matches, teams, pairs, config, format, groupStandings }),
-    [matches, teams, pairs, config, format, groupStandings],
+    () =>
+      buildTournamentWinnerSummaries({
+        matches,
+        teams,
+        pairs,
+        participants,
+        config,
+        format,
+        groupStandings,
+      }),
+    [matches, teams, pairs, participants, config, format, groupStandings],
   );
   const allScheduledMatchesPlayed = haveAllScheduledTournamentMatchesBeenPlayed(matches);
   const visibleWinnerSummaries = announcedWinners.length ? announcedWinners : winnerSummaries;

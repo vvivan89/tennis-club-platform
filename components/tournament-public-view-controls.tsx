@@ -51,15 +51,20 @@ export function TournamentPublicViewControls({
   config: TournamentConfig | null;
   onAssignCourts: () => void;
 }) {
-  const enabledCategories = (config?.categories ?? ['mixed', 'men', 'women']).filter((category) =>
-    ['mixed', 'men', 'women'].includes(category),
+  const enabledCategories = (
+    config?.categories ??
+    (format === 'singles' ? ['all', 'men', 'women'] : ['mixed', 'men', 'women'])
+  ).filter((category) =>
+    format === 'singles'
+      ? ['all', 'men', 'women'].includes(category)
+      : ['mixed', 'men', 'women'].includes(category),
   );
   const categoryOptions =
     format === 'team' && enabledCategories.length > 1 && config?.show_overall_results
       ? [...enabledCategories, 'overall']
       : enabledCategories;
   const winnerCategoryLabel = (category: string) => {
-    if (format !== 'team') return categoryLabel(category);
+    if (format !== 'team') return categoryLabel(category, format);
     if (category === 'overall') return 'Overall team standings';
     const gender = category === 'men' ? "Men's" : category === 'women' ? "Women's" : 'Mixed';
     return `${gender} teams`;
@@ -150,12 +155,18 @@ export function TournamentPublicViewControls({
                   {format === 'team'
                     ? `${categoryLabel(summary.category)} Team Winners`
                     : summary.category === 'men'
-                      ? "Men's Doubles Winners"
+                      ? format === 'singles'
+                        ? "Men's Singles Winners"
+                        : "Men's Doubles Winners"
                       : summary.category === 'women'
-                        ? "Women's Doubles Winners"
+                        ? format === 'singles'
+                          ? "Women's Singles Winners"
+                          : "Women's Doubles Winners"
                         : summary.category === 'mixed'
                           ? 'Mixed Doubles Winners'
-                          : 'Team Tournament Winners'}
+                          : format === 'singles'
+                            ? 'All Gender Singles Winners'
+                            : 'Team Tournament Winners'}
                 </p>
                 <p className="mt-2 font-semibold">{summary.winners.join(' / ')}</p>
                 {summary.winners.length > 1 && (
@@ -246,7 +257,7 @@ export function TournamentPublicViewControls({
                   }}
                   className={`rounded px-3 py-2 text-sm ${activeCategory === category ? 'bg-primary text-primary-foreground font-semibold' : 'hover:bg-secondary'}`}
                 >
-                  {categoryLabel(category)}
+                  {categoryLabel(category, format)}
                 </button>
               ))}
             </div>

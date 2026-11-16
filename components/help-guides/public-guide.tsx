@@ -87,7 +87,7 @@ export function PublicHelpGuide({
       </div>
       <Topic
         id="visitor-tournament"
-        title="Register for a public doubles tournament"
+        title="Register for a public tournament"
         intro="An organizer can enable public registration for a tournament. You can register with an existing non-member account or start with only an email address."
       >
         <FieldTable
@@ -96,14 +96,14 @@ export function PublicHelpGuide({
               field: 'Category',
               value: 'Choose one of the enabled tournament categories.',
               effect:
-                'A category may have its own capacity. Your gender and your partner’s gender are checked against it.',
+                'Singles categories are All gender, Men’s singles, and Women’s singles. You may enter up to two eligible Singles categories, but not both Men’s and Women’s singles. Doubles categories may be Mixed, Men’s, or Women’s. Category capacity may apply; your gender is checked, and Doubles partner gender is checked too.',
             },
             {
               field: 'Registration type',
               value:
-                'If the organizer enabled both modes, choose to register individually or as a doubles pair.',
+                'Singles entries are individual. For Doubles, if both modes are enabled, choose to register individually or as a pair.',
               effect:
-                'Individual entries can be paired by the organizer. Pair registration automatically registers the partner and reserves your double team.',
+                'Individual Doubles entries can be paired by the organizer. Doubles pair registration automatically registers the partner and reserves your team. Singles has no partner registration.',
             },
             {
               field: 'Your personal details',
@@ -126,6 +126,13 @@ export function PublicHelpGuide({
               effect:
                 'The partner must satisfy the same category rules. With both genders known, Mixed doubles requires one male and one female.',
             },
+            {
+              field: 'Tennis skill restriction',
+              value:
+                'If shown, the organizer has set a minimum and/or maximum player rating for this tournament.',
+              effect:
+                'Your profile rating must be within the displayed inclusive range. Singles registrations need a profile rating; for Doubles, both players must qualify.',
+            },
           ]}
         />
         <Steps>
@@ -136,9 +143,10 @@ export function PublicHelpGuide({
             their entries later. If the email belongs to an approved member, sign in as that member.
           </li>
           <li>
-            Choose the event category and registration mode. Signed-in profile details are used
-            automatically. For a partner entry, choose an existing member or enter the partner’s
-            details; the invited partner may need to confirm before the team can pay.
+            Choose the event category and registration mode. Singles uses individual registration;
+            for Doubles, choose an existing member or enter the partner’s details for a pair entry.
+            Signed-in profile details are used automatically. An invited Doubles partner may need to
+            confirm before the team can pay.
           </li>
           <li>
             Review the entry and fee before submitting. Complete Stripe Checkout if payment is due;
@@ -147,9 +155,10 @@ export function PublicHelpGuide({
           </li>
         </Steps>
         <p>
-          If the organizer configured a discount, the tournament page describes the available rules.
-          After registration, your entry shows the base fee, discount, and amount due. For a pair
-          payment, the total is the sum of both participants’ amounts.
+          If the organizer configured discounts, the tournament page describes the available rules.
+          Discounts may depend on approved membership, a Doubles pair entry, or a second category in
+          Singles or Doubles. After registration, each entry shows its base fee, discount, and
+          amount due. A pair payment totals both participants’ amounts.
         </p>
       </Topic>
       {showNonMemberProfile && (

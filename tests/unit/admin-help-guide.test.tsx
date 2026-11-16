@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { AdminHelpGuide } from '@/components/help-guides/admin-guide';
+import { AdminHelpGuide, AdminHelpTopicNav } from '@/components/help-guides/admin-guide';
 
 afterEach(() => {
   cleanup();
@@ -11,7 +11,12 @@ afterEach(() => {
 describe('AdminHelpGuide', () => {
   it('shows portal-aligned tabs and opens the selected guide section', async () => {
     const user = userEvent.setup();
-    render(<AdminHelpGuide />);
+    render(
+      <>
+        <AdminHelpTopicNav />
+        <AdminHelpGuide />
+      </>,
+    );
 
     const tabs = within(screen.getByRole('tablist', { name: 'Admin help sections' }));
     expect(tabs.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
@@ -40,7 +45,12 @@ describe('AdminHelpGuide', () => {
 
   it('documents event type configuration and visibility separately', async () => {
     const user = userEvent.setup();
-    render(<AdminHelpGuide />);
+    render(
+      <>
+        <AdminHelpTopicNav />
+        <AdminHelpGuide />
+      </>,
+    );
     await user.click(screen.getByRole('tab', { name: 'Events' }));
 
     expect(
@@ -56,12 +66,32 @@ describe('AdminHelpGuide', () => {
     expect(
       screen.getByRole('heading', { name: 'Configure a Team tournament' }),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Configure a Singles tournament' }),
+    ).toBeInTheDocument();
     expect(screen.getByText(/Show overall results/)).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Set tennis skill restrictions' }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'View all' }));
+    expect(screen.getByRole('link', { name: 'Tennis skill restrictions' })).toHaveAttribute(
+      'href',
+      '?tab=events#admin-event-skill-restrictions',
+    );
+    expect(screen.getByRole('link', { name: 'Singles tournaments' })).toHaveAttribute(
+      'href',
+      '?tab=events#admin-event-singles',
+    );
   });
 
   it('documents tournament entry, draw, scheduling, standings, and winner workflows', async () => {
     const user = userEvent.setup();
-    render(<AdminHelpGuide />);
+    render(
+      <>
+        <AdminHelpTopicNav />
+        <AdminHelpGuide />
+      </>,
+    );
     await user.click(screen.getByRole('tab', { name: 'Tournaments' }));
 
     expect(
@@ -71,6 +101,18 @@ describe('AdminHelpGuide', () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/never mark an unverified payment as paid/i)).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'How automated draws work' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Singles and Doubles tournament formats' }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'View all' }));
+    expect(screen.getByRole('link', { name: 'Singles and Doubles formats' })).toHaveAttribute(
+      'href',
+      '?tab=tournaments#admin-tournament-formats',
+    );
+    expect(
+      screen.getByText(/each Singles match as one court booking for two players/i),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText(/percentage or fixed CAD discount/i).length).toBeGreaterThan(0);
     expect(
       screen.getByRole('heading', { name: 'How automated match scheduling works' }),
     ).toBeInTheDocument();

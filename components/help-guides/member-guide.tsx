@@ -34,6 +34,7 @@ const topics = [
   ['events', 'member-event-payments', 'Pay event fees'],
   ['events', 'member-event-scores', 'Report event scores'],
   ['competitions', 'member-tournament-entry', 'Tournament registration'],
+  ['competitions', 'member-singles-tournament', 'Singles tournaments'],
   ['competitions', 'member-pair-registration', 'Register and pay with a partner'],
   ['competitions', 'member-league-entry', 'League registration'],
   ['competitions', 'member-ladder-entry', 'Social Doubles Ladder'],
@@ -395,10 +396,10 @@ function CompetitionTopics() {
       <Topic id="member-tournament-entry" title="Register for a tournament">
         <p>
           Tournament registration choices depend on its format and the organizer’s settings. A
-          doubles event may offer enabled gender categories and individual or partner registration.
-          A team tournament normally registers each player once; organizers or captains then assign
-          players to teams. Public guest registration is available only on tournaments configured to
-          accept it.
+          doubles event may offer enabled gender categories and individual or partner registration;
+          Singles uses individual entries only. A team tournament normally registers each player
+          once; organizers or captains then assign players to teams. Public guest registration is
+          available only on tournaments configured to accept it.
         </p>
         <p>
           For a partner entry, select an existing member or provide the guest details the form
@@ -413,10 +414,35 @@ function CompetitionTopics() {
           according to the event’s publication settings.
         </p>
         <p>
-          Some tournaments offer discounts for an approved member, pair registration, or a second
-          doubles category. The event page shows configured discounts; after registration, your
-          entry shows the discount applied and amount due. A pair payment totals both players’ saved
-          amounts, which can differ by eligibility.
+          If a Singles or Doubles tournament shows a minimum or maximum skill rating, your profile
+          rating must fall within the displayed inclusive range. A rating is required when either
+          limit is set; for a Doubles pair, both players must qualify.
+        </p>
+        <p>
+          Some tournaments offer discounts for an approved member, pair registration in Doubles, or
+          a second category in Singles or Doubles. The event page shows configured discounts; after
+          registration, your entry shows the discount applied and amount due. A pair payment totals
+          both players’ saved amounts, which can differ by eligibility.
+        </p>
+      </Topic>
+      <Topic id="member-singles-tournament" title="Register for a Singles tournament">
+        <p>
+          Singles tournaments use individual entries and the same tournament schedule, score,
+          standings, and results pages as Doubles. There is no partner selection or pair
+          registration. Choose an enabled category: All gender, Men’s singles, or Women’s singles.
+          You may enter up to two eligible categories, but you cannot enter both Men’s and Women’s
+          singles in the same tournament.
+        </p>
+        <p>
+          If the event shows a minimum or maximum tennis skill rating, your profile rating must be
+          within that inclusive range to register. You need a profile rating whenever a restriction
+          is set. Update your rating in your profile if it is missing or out of range.
+        </p>
+        <p>
+          A second-category discount may apply when you register in another eligible category. The
+          registration page shows the applicable discount and amount due for each entry. Once
+          registered, view your category’s group, matches, schedule, standings, and results on the
+          tournament page.
         </p>
       </Topic>
       <Topic id="member-pair-registration" title="Register and pay with a partner">
@@ -492,6 +518,11 @@ function CompetitionTopics() {
           each team must have exactly one male and one female player.
         </p>
         <p>
+          If the League shows a minimum or maximum skill rating, your profile rating must be within
+          that inclusive range; a rating is required whenever either limit is set. Mixed League
+          eligibility also requires one male and one female player on each team.
+        </p>
+        <p>
           Review the event’s registration, payment, schedule, and standings sections for your
           current status. League match results contribute to event and League standings after they
           are recorded.
@@ -505,6 +536,11 @@ function CompetitionTopics() {
           for that session. In a Mixed Ladder, every doubles side must contain exactly one male and
           one female player. Play the scheduled matches and report scores on the session page where
           score entry is available.
+        </p>
+        <p>
+          If the Ladder session shows a minimum or maximum skill rating, your profile rating must be
+          within that inclusive range. A profile rating is required whenever either limit is set. In
+          a Mixed Ladder, each doubles side must still have exactly one male and one female player.
         </p>
         <p>
           Ladder standings use the configured ranking metrics and points for session positions.

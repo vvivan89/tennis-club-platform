@@ -6,7 +6,7 @@ import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Pencil, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { eventEditPath } from '@/lib/event-slug';
+import { eventEditPath, eventPath } from '@/lib/event-slug';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { eventDisplayTitle } from '@/lib/event-format';
 import { FloatingFeedback } from '@/components/floating-feedback';
@@ -35,7 +35,11 @@ function typeLabel(event: AdminEvent) {
   if (event.event_type === 'social_doubles_ladder' || event.event_type === 'ladder')
     return 'Social doubles ladder';
   if (event.event_type !== 'tournament') return 'Social event';
-  return event.tournament_format === 'team' ? 'Team tournament' : 'Doubles tournament';
+  return event.tournament_format === 'team'
+    ? 'Team tournament'
+    : event.tournament_format === 'singles'
+      ? 'Singles tournament'
+      : 'Doubles tournament';
 }
 
 const inputClass = 'mt-1 block h-10 w-full rounded-md border border-input bg-background px-3';
@@ -98,7 +102,9 @@ export function AdminEventsTable({ events }: { events: AdminEvent[] }) {
                 ? 'social'
                 : event.tournament_format === 'team'
                   ? 'team'
-                  : 'doubles';
+                  : event.tournament_format === 'singles'
+                    ? 'singles'
+                    : 'doubles';
           const day = event.starts_at.slice(0, 10);
           return (
             eventDisplayTitle(event).toLowerCase().includes(search.trim().toLowerCase()) &&
@@ -169,6 +175,7 @@ export function AdminEventsTable({ events }: { events: AdminEvent[] }) {
             <option value="ladder">Social doubles ladder</option>
             <option value="league">League</option>
             <option value="doubles">Doubles tournament</option>
+            <option value="singles">Singles tournament</option>
             <option value="team">Team tournament</option>
           </select>
         </label>
@@ -248,7 +255,11 @@ export function AdminEventsTable({ events }: { events: AdminEvent[] }) {
           <tbody>
             {filtered.map((event) => (
               <tr key={event.id} className="border-t border-border">
-                <td className="px-4 py-3 font-medium">{eventDisplayTitle(event)}</td>
+                <td className="px-4 py-3 font-medium">
+                  <Link href={eventPath(event)} className="underline-offset-4 hover:underline">
+                    {eventDisplayTitle(event)}
+                  </Link>
+                </td>
                 <td className="whitespace-nowrap px-4 py-3">{typeLabel(event)}</td>
                 <td className="whitespace-nowrap px-4 py-3">{formatDateTime(event.starts_at)}</td>
                 <td className="whitespace-nowrap px-4 py-3">

@@ -166,7 +166,9 @@ export function EventManagementForm({
         throw new Error(
           v.tournament_format === 'team'
             ? 'Enable at least one team match category.'
-            : 'Enable at least one doubles category.',
+            : v.tournament_format === 'singles'
+              ? 'Enable at least one singles category.'
+              : 'Enable at least one doubles category.',
         );
       if (
         v.event_type === 'tournament' &&
@@ -216,7 +218,8 @@ export function EventManagementForm({
       const skillRangeApplies =
         v.event_type === 'social_doubles_ladder' ||
         v.is_league_tournament ||
-        (v.event_type === 'tournament' && v.tournament_format === 'doubles');
+        (v.event_type === 'tournament' &&
+          ['doubles', 'singles'].includes(v.tournament_format ?? ''));
       if (
         skillRangeApplies &&
         v.minimum_tennis_skill_level &&

@@ -40,7 +40,9 @@ export function TournamentRegistrationDiscountConfigurator({
   const visibleKeys: DiscountKey[] =
     format === 'doubles'
       ? ['second_category', 'pair_registration', 'approved_member']
-      : ['approved_member'];
+      : format === 'singles'
+        ? ['second_category', 'approved_member']
+        : ['approved_member'];
 
   function updateRule(key: DiscountKey, rule: TournamentRegistrationDiscountRule) {
     onChange({

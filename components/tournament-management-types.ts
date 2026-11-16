@@ -29,6 +29,8 @@ export type Participant = {
   status: string;
   confirmation_status?: string;
   captain_requested?: boolean;
+  group_number?: number | null;
+  seed?: number | null;
 };
 
 export type Pair = {

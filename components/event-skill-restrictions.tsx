@@ -11,7 +11,8 @@ export function EventSkillRestrictions({
   const visible =
     values.is_league_tournament ||
     values.event_type === 'social_doubles_ladder' ||
-    (values.event_type === 'tournament' && values.tournament_format === 'doubles');
+    (values.event_type === 'tournament' &&
+      ['doubles', 'singles'].includes(values.tournament_format ?? ''));
   if (!visible) return null;
   return (
     <TennisSkillRangeFields

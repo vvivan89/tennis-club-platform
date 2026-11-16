@@ -525,7 +525,7 @@ export function TournamentOverviewParticipants({
                       .map((participant) => (
                         <div
                           key={participant.id}
-                          className={`rounded-md border p-3 text-sm ${ownParticipantIds.includes(participant.id) ? 'border-primary/40 bg-primary/[0.04]' : 'border-border'}`}
+                          className={`${format === 'singles' ? 'flex items-center gap-2' : ''} rounded-md border p-3 text-sm ${ownParticipantIds.includes(participant.id) ? 'border-primary/40 bg-primary/[0.04]' : 'border-border'}`}
                         >
                           <UserIdentity
                             name={participant.display_name}
@@ -535,7 +535,9 @@ export function TournamentOverviewParticipants({
                             compact
                           />
                           {ownParticipantIds.includes(participant.id) && (
-                            <span className="ml-2 inline-flex rounded-full bg-primary/10 px-1.5 py-0.5 align-middle text-[10px] font-medium text-primary">
+                            <span
+                              className={`${format === 'singles' ? 'inline-flex shrink-0 items-center' : 'ml-2 inline-flex align-middle'} rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary`}
+                            >
                               You
                             </span>
                           )}

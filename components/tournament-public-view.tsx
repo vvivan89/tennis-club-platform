@@ -30,10 +30,9 @@ import type { TournamentPublicViewProps } from '@/components/tournament-public-v
 import { tournamentPaymentActionKey } from '@/components/tournament-public-view-format';
 import { TournamentOverviewPanel } from '@/components/tournament-overview-panel';
 import { TournamentEventSummary } from '@/components/tournament-event-summary';
-import { buildTournamentGroupStandings } from '@/components/tournament-public-group-standings';
+import { useTournamentPublicStandings } from '@/components/use-tournament-public-standings';
 import { useTournamentGroupOverrideActions } from '@/components/use-tournament-group-override-actions';
 import { useTournamentPublicViewUiState } from '@/components/use-tournament-public-view-ui-state';
-import { useTournamentWinnerAnnouncement } from '@/components/use-tournament-winner-announcement';
 import { getTournamentWithdrawalPaymentState } from '@/components/tournament-withdrawal-payment-state';
 import { getTournamentLeagueOverviewData } from '@/components/tournament-league-overview-data';
 import { useSiteHeaderState } from '@/components/site-header-state';
@@ -390,7 +389,11 @@ export function TournamentPublicView({
     refreshPage: () => router.refresh(),
   });
   const isOwnCompetitionEntry = (entryId: string) =>
-    format === 'team' ? ownTeamIds.includes(entryId) : isOwnPair(entryId);
+    format === 'team'
+      ? ownTeamIds.includes(entryId)
+      : format === 'singles'
+        ? ownParticipantIds.includes(entryId)
+        : isOwnPair(entryId);
   const knockoutMatches = categoryVisibleMatches
     .filter((match) => match.phase.includes('knockout'))
     .sort((a, b) => a.round_number - b.round_number || a.match_number - b.match_number);
@@ -400,6 +403,7 @@ export function TournamentPublicView({
       knockoutMatches,
       teams,
       pairs,
+      participants,
       singleGroup: hasSingleTournamentGroup(config),
     });
   const {
@@ -445,6 +449,7 @@ export function TournamentPublicView({
     leagueTournament,
     leagueRegistrationCategory,
     registrationCategory: ui.registrationCategory,
+    format,
     effectiveRegistrationMode,
     entrantName: ui.entrantName,
     entrantEmail: ui.entrantEmail,
@@ -487,18 +492,29 @@ export function TournamentPublicView({
     if (firstAvailableCategory && !registrationCategoryIsAvailable)
       setRegistrationCategory(firstAvailableCategory);
   }, [firstAvailableCategory, registrationCategoryIsAvailable, setRegistrationCategory]);
-  const groupStandings = useMemo(
-    () =>
-      buildTournamentGroupStandings({
-        visibleMatches,
-        teams,
-        pairs,
-        config,
-        format,
-        groupOverrides,
-      }),
-    [visibleMatches, teams, pairs, config, format, groupOverrides],
-  );
+  const {
+    groupStandings,
+    winnerSummaries,
+    visibleWinnerSummaries,
+    winnersAnnounced,
+    allScheduledMatchesPlayed,
+    announcementFeedback,
+    toggleWinnerAnnouncement,
+  } = useTournamentPublicStandings({
+    db,
+    eventId,
+    isManager,
+    initialWinnersAnnounced,
+    initialAnnouncedWinners,
+    matches,
+    teams,
+    pairs,
+    participants,
+    config,
+    format,
+    groupOverrides,
+    visibleMatches,
+  });
   const groupOverrideActions = useTournamentGroupOverrideActions({
     db,
     eventId,
@@ -510,27 +526,6 @@ export function TournamentPublicView({
     groupStandings,
   });
   const { openGroupOverrideEditor } = groupOverrideActions;
-
-  const {
-    winnerSummaries,
-    visibleWinnerSummaries,
-    winnersAnnounced,
-    allScheduledMatchesPlayed,
-    announcementFeedback,
-    toggleWinnerAnnouncement,
-  } = useTournamentWinnerAnnouncement({
-    db,
-    eventId,
-    isManager,
-    initialWinnersAnnounced,
-    initialAnnouncedWinners,
-    matches,
-    teams,
-    pairs,
-    config,
-    format,
-    groupStandings,
-  });
   const { rankingColumns, rankingColumnLabel } = getTournamentRankingColumns(config, format);
   const {
     activeLeaguePairs,

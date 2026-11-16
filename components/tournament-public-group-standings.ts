@@ -5,7 +5,13 @@ import {
   tournamentRankingPriority,
   tournamentRankingMetric,
 } from '@/lib/tournament-standings';
-import type { GroupOverride, Match, Pair, Team } from '@/components/tournament-public-view-types';
+import type {
+  GroupOverride,
+  Match,
+  Pair,
+  Participant,
+  Team,
+} from '@/components/tournament-public-view-types';
 import { effectiveTournamentGroup } from '@/lib/tournament-groups';
 import { getTournamentScoringTemplate } from '@/lib/tournament-config';
 import { teamMatchPoints } from '@/lib/tournament-score';
@@ -108,6 +114,7 @@ export function buildTournamentGroupStandings({
   visibleMatches,
   teams,
   pairs,
+  participants = [],
   config,
   format,
   groupOverrides,
@@ -115,6 +122,7 @@ export function buildTournamentGroupStandings({
   visibleMatches: Match[];
   teams: Team[];
   pairs: Pair[];
+  participants?: Participant[];
   config: TournamentConfig | null;
   format: string | null;
   groupOverrides: GroupOverride[];
@@ -158,6 +166,13 @@ export function buildTournamentGroupStandings({
       if (group)
         teamCategories.forEach((category) => ensureEntry(category, group, team.id, team.name));
     });
+  } else if (format === 'singles') {
+    participants
+      .filter((player) => player.status === 'registered')
+      .forEach((player) => {
+        const group = effectiveTournamentGroup(player.group_number, config);
+        if (group) ensureEntry(player.category, group, player.id, player.display_name);
+      });
   } else {
     pairs
       .filter((pair) => pair.status !== 'withdrawn')
@@ -181,8 +196,18 @@ export function buildTournamentGroupStandings({
         match.phase.includes('round_robin'),
     )
     .forEach((match) => {
-      const firstId = format === 'team' ? match.team_one_id : match.pair_one_id;
-      const secondId = format === 'team' ? match.team_two_id : match.pair_two_id;
+      const firstId =
+        format === 'team'
+          ? match.team_one_id
+          : format === 'singles'
+            ? match.player_one_participant_id
+            : match.pair_one_id;
+      const secondId =
+        format === 'team'
+          ? match.team_two_id
+          : format === 'singles'
+            ? match.player_two_participant_id
+            : match.pair_two_id;
       const firstName = format === 'team' ? match.team_one_name : match.player_one_name || 'TBD';
       const secondName = format === 'team' ? match.team_two_name : match.opponent_one_name || 'TBD';
       if (!firstId || !secondId) return;
@@ -228,7 +253,7 @@ export function buildTournamentGroupStandings({
               visibleMatches,
               first.id,
               second.id,
-              format === 'team',
+              format === 'team' ? true : format === 'singles' ? 'singles' : false,
               (match) =>
                 match.category === group.category &&
                 match.group_number === group.group &&

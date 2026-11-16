@@ -1,11 +1,12 @@
 import { useMemo } from 'react';
 import { knockoutStageLabel, type TournamentConfig } from '@/lib/tournament-config';
 import { compareByScheduleThenCourt, roundNumbersByMatch } from '@/lib/tournament-match';
-import type { Match, Pair, Team } from '@/components/tournament-management-types';
+import type { Match, Pair, Participant, Team } from '@/components/tournament-management-types';
 
 export function useTournamentAdminMatchView({
   matches,
   isTeam,
+  isSingles = false,
   activeCategory,
   matchCategory,
   matchPhase,
@@ -14,9 +15,11 @@ export function useTournamentAdminMatchView({
   courtCount,
   teams,
   pairs,
+  participants = [],
 }: {
   matches: Match[];
   isTeam: boolean;
+  isSingles?: boolean;
   activeCategory: string;
   matchCategory: string;
   matchPhase: string;
@@ -25,6 +28,7 @@ export function useTournamentAdminMatchView({
   courtCount: number;
   teams: Team[];
   pairs: Pair[];
+  participants?: Participant[];
 }) {
   const isRoundRobinPhase = matchPhase.includes('round_robin');
   const adminRoundByMatch = useMemo(
@@ -38,9 +42,9 @@ export function useTournamentAdminMatchView({
               match.status !== 'cancelled',
           )
           .sort(compareByScheduleThenCourt),
-        isTeam,
+        isTeam ? true : isSingles ? 'singles' : false,
       ),
-    [matches, matchCategory, matchPhase, isTeam],
+    [matches, matchCategory, matchPhase, isTeam, isSingles],
   );
   const adminMatchList = useMemo(() => {
     const list = matches.filter(
@@ -108,11 +112,20 @@ export function useTournamentAdminMatchView({
   }, [matches, config?.schedule?.match_minutes, config?.schedule?.break_minutes, courtCount]);
 
   function matchCourtTileNames(match: Match) {
-    const firstId = isTeam ? match.team_one_id : match.pair_one_id;
-    const secondId = isTeam ? match.team_two_id : match.pair_two_id;
-    const nameFor = (id: string | null) => {
+    const firstId = isTeam
+      ? match.team_one_id
+      : isSingles
+        ? match.player_one_participant_id
+        : match.pair_one_id;
+    const secondId = isTeam
+      ? match.team_two_id
+      : isSingles
+        ? match.player_two_participant_id
+        : match.pair_two_id;
+    const nameFor = (id: string | null | undefined) => {
       if (!id) return 'TBD';
       if (isTeam) return teams.find((team) => team.id === id)?.name ?? 'TBD';
+      if (isSingles) return participants.find((player) => player.id === id)?.display_name ?? 'TBD';
       const pair = pairs.find((candidate) => candidate.id === id);
       return pair
         ? `${pair.player_one_name || 'Player'} + ${pair.player_two_name || 'Player'}`

@@ -136,6 +136,12 @@ export function AdminEventsGuide() {
                 'Configure gender categories, draw phases, scoring, group sizes, and rules. Public guest registration can be enabled; participant and competition details have a separate public visibility setting.',
             },
             {
+              field: 'Singles tournament',
+              value: 'Use for a singles competition with individual player entries.',
+              effect:
+                'Configure All gender, Men’s singles, and/or Women’s singles categories. Draws, matches, scheduling, scoring, standings, and public visibility use the tournament management workflow, with one player on each side and no pair registration.',
+            },
+            {
               field: 'League event',
               value: 'Use for a scheduled event that contributes to a shared League.',
               effect:
@@ -310,6 +316,13 @@ export function AdminEventsGuide() {
                 'Rules are participant-facing; make sure the text matches categories, phases, scoring, and advancement.',
             },
             {
+              field: 'Tennis skill restrictions',
+              value:
+                'Optionally set minimum and maximum profile ratings; leave both unrestricted for no rating limit.',
+              effect:
+                'Only players with a profile rating inside the configured inclusive range can register. The same restriction is described in the Tennis skill restrictions topic.',
+            },
+            {
               field: 'Allow non-member registration',
               value: 'Enable only when event-only guest entries are accepted.',
               effect:
@@ -324,6 +337,91 @@ export function AdminEventsGuide() {
           ]}
         />
       </Topic>
+      <Topic id="admin-event-singles" title="Configure a Singles tournament">
+        <p>
+          Choose Singles tournament when each participant competes as an individual. It shares the
+          tournament configuration and management workflow with Doubles, but has no partner
+          registration, pair creation, or pair assignments.
+        </p>
+        <FieldTable
+          rows={[
+            {
+              field: 'Enabled categories and category capacity',
+              value:
+                'Enable All gender, Men’s singles, and/or Women’s singles; set an optional capacity for each enabled category.',
+              effect:
+                'Players may enter up to two eligible categories, but cannot enter both Men’s and Women’s singles. Category limits work together with total tournament capacity.',
+            },
+            {
+              field: 'Individual registration',
+              value: 'Players register individually; there is no partner-registration option.',
+              effect:
+                'Each registration is one player entry. Tournament draws and matches use individual players on each side.',
+            },
+            {
+              field: 'Registration discounts',
+              value:
+                'Configure approved-member and second-category discounts as needed. Pair-registration discounts are not applicable.',
+              effect:
+                'Eligible discounts apply to the player’s entry fee and follow the tournament’s stack setting. See Registration discounts in the Tournaments tab for details.',
+            },
+            {
+              field: 'Tennis skill restrictions',
+              value:
+                'Optionally set minimum and maximum profile ratings; leave both unrestricted for no rating limit.',
+              effect:
+                'Players need a profile rating within the inclusive configured range to register. See the Tennis skill restrictions topic for how limits work.',
+            },
+            {
+              field: 'Competition and visibility settings',
+              value:
+                'Configure round robin or knockout phases, scoring, groups, match duration, rules, guest registration, and public details as for Doubles.',
+              effect:
+                'The same tournament management workflow applies, with draws and results based on individual player entries. Approved members can see event information even when public competition details are hidden.',
+            },
+          ]}
+        />
+        <p>
+          If only one round-robin group is configured, players are treated as Group 1 automatically
+          and the group selector is hidden. See Singles and Doubles formats in the Tournaments tab
+          for match creation and court scheduling details.
+        </p>
+      </Topic>
+      <Topic id="admin-event-skill-restrictions" title="Set tennis skill restrictions">
+        <p>
+          Skill restrictions are optional for doubles and singles tournaments, Leagues, and Social
+          Doubles Ladders. Set the minimum, maximum, both, or neither. Leaving both unrestricted
+          allows any profile rating.
+        </p>
+        <FieldTable
+          rows={[
+            {
+              field: 'Minimum skill level',
+              value: 'Choose the lowest eligible profile rating, or No minimum.',
+              effect:
+                'A player whose profile rating is below the minimum cannot register for the restricted event.',
+            },
+            {
+              field: 'Maximum skill level',
+              value: 'Choose the highest eligible profile rating, or No maximum.',
+              effect:
+                'A player whose profile rating is above the maximum cannot register for the restricted event.',
+            },
+            {
+              field: 'Eligibility and display',
+              value:
+                'The selected range is shown on the event page. Players must have a profile rating when either bound is set.',
+              effect:
+                'The boundaries are inclusive and registration is checked against the player profile rating. For pair entries, each player must meet the range.',
+            },
+          ]}
+        />
+        <p>
+          The restriction section appears with tournament settings for Singles and Doubles, with
+          League settings for League events, and above the Ladder configuration for Social Doubles
+          Ladder sessions. Check the player’s profile rating if a valid participant is blocked.
+        </p>
+      </Topic>
       <Topic id="admin-event-league" title="Configure a League">
         <FieldTable
           rows={[
@@ -332,6 +430,12 @@ export function AdminEventsGuide() {
               value: 'Choose Men’s, Women’s, or Mixed doubles.',
               effect:
                 'Sets the fixed League category; registration does not ask for a separate category. Mixed League teams must contain exactly one male and one female player.',
+            },
+            {
+              field: 'Tennis skill restrictions',
+              value: 'Optionally set a minimum and/or maximum profile rating.',
+              effect:
+                'Every player must have a rating within the inclusive range to register; both unrestricted means no skill limit.',
             },
             {
               field: 'Associate with existing League',
@@ -424,6 +528,13 @@ export function AdminEventsGuide() {
               value: 'Choose Men’s, Women’s, or Mixed doubles.',
               effect:
                 'Sets registration eligibility and which existing Ladder can be associated. Mixed Ladder scores require each doubles side to contain one male and one female player.',
+            },
+            {
+              field: 'Tennis skill restrictions',
+              value:
+                'Optionally set a minimum and/or maximum profile rating above the Ladder settings.',
+              effect:
+                'Every player must have a rating within the inclusive range to register; both unrestricted means no skill limit.',
             },
             {
               field: 'Existing Ladder or Ladder name',

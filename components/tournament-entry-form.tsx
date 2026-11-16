@@ -110,7 +110,7 @@ export function TournamentEntryForm(props: TournamentEntryFormProps) {
             >
               {availableCategories.map((category: string) => (
                 <option key={category} value={category}>
-                  {categoryLabel(category)}
+                  {categoryLabel(category, format)}
                 </option>
               ))}
             </select>

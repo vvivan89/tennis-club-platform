@@ -23,6 +23,30 @@ describe('event type form defaults', () => {
     expect(result.recurring).toBe(false);
   });
 
+  it('configures singles tournaments with individual entries and three singles categories', () => {
+    const result = getEventTypeFormUpdate('singles_tournament', initialEventFormValues);
+    expect(result.update).toMatchObject({
+      event_type: 'tournament',
+      tournament_format: 'singles',
+      tournament_config: { categories: ['all', 'men', 'women'], registration_mode: 'single' },
+    });
+    expect(result.recurring).toBe(false);
+  });
+
+  it('resets singles categories when switching back to a doubles tournament', () => {
+    const current = {
+      ...initialEventFormValues,
+      tournament_format: 'singles',
+      tournament_config: {
+        ...initialEventFormValues.tournament_config,
+        categories: ['all', 'men', 'women'],
+      },
+    };
+    const result = getEventTypeFormUpdate('doubles_tournament', current);
+
+    expect(result.update.tournament_config?.categories).toEqual(['mixed', 'men', 'women']);
+  });
+
   it('sets Party-only eligibility and single-event defaults', () => {
     const result = getEventTypeFormUpdate('party', {
       ...initialEventFormValues,

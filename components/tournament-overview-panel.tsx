@@ -189,6 +189,20 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
       </span>
     );
   };
+  const renderSinglesIdentity = (participantId: string | null, fallback: string) => {
+    const player = participants.find((item: { id: string }) => item.id === participantId);
+    return player ? (
+      <UserIdentity
+        name={player.display_name}
+        skillLevel={player.tennis_skill_level}
+        avatarUrl={player.avatar_url}
+        birthdayVisible={player.birthday_emoji_visible}
+        compact
+      />
+    ) : (
+      fallback
+    );
+  };
   return (
     <div className={leagueTournament ? 'flex flex-col gap-5' : 'space-y-5'}>
       <TournamentOverviewParticipants
@@ -466,6 +480,18 @@ export function TournamentOverviewPanel({ view, ui }: { view: any; ui: any }) {
           <p className="mt-1 font-semibold">
             {format === 'team' ? (
               `${ownNextMatch.team_one_name || 'TBD'} vs ${ownNextMatch.team_two_name || 'TBD'}`
+            ) : format === 'singles' ? (
+              <span className="flex flex-wrap items-center gap-2">
+                {renderSinglesIdentity(
+                  ownNextMatch.player_one_participant_id,
+                  ownNextMatch.player_one_name || 'TBD',
+                )}
+                vs
+                {renderSinglesIdentity(
+                  ownNextMatch.player_two_participant_id,
+                  ownNextMatch.opponent_one_name || 'TBD',
+                )}
+              </span>
             ) : (
               <span className="flex flex-wrap items-center gap-2">
                 {renderPairIdentity(
